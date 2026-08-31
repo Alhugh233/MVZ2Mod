@@ -1,0 +1,5 @@
+<arcade>
+    <minigame id="real_prologue" stage="mvz2:real_prologue" area="mvz2:day" icon="mvz2:arcade/i_zombie" />
+    <minigame id="unknow_palace" stage="mvz2:unknow_palace" area="mvz2:day" icon="mvz2:arcade/i_zombie" />
+    <minigame id="zero_k_space" stage="mvz2:zero_k_space" area="mvz2:day" icon="mvz2:arcade/i_zombie" />
+</arcade>

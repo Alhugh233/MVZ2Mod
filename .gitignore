@@ -1,0 +1,10 @@
+*.log
+_dump_out/
+_Scripts/
+dist/
+MVZ2LabMod/bin/
+MVZ2LabMod/obj/
+runtime/dotnet/
+tools/InteropGen/bin/
+tools/InteropGen/obj/
+runtime/

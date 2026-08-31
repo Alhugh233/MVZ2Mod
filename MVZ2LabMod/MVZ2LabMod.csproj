@@ -1,0 +1,80 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    MVZ2 实验室内容 Mod —— BepInEx 6 (Il2CppInterop) 插件项目
+
+    构建环境自包含在仓库 runtime/ 目录，不依赖测试游戏目录：
+      runtime\                         完整安装根（打包源）
+        winhttp.dll / doorstop_config.ini / .doorstop_version  门挡三件套
+        dotnet\                        .NET 6 x86 CoreCLR 运行时
+        BepInEx\core\                  BepInEx 运行时（含编译引用的 4 个 dll）
+        BepInEx\interop\               预生成类型代理（119 dll，编译+运行共用）
+        BepInEx\unity-libs\ / patchers\ / config\BepInEx.cfg
+
+    维护 runtime/：用 build.ps1 -SyncRuntime 从已安装的游戏目录刷新。
+
+    GameDir 仅作可选部署目标（-DGameDir 或 csproj 属性传入），不存在时跳过部署。
+  -->
+
+  <PropertyGroup>
+    <TargetFramework>net6.0</TargetFramework>
+    <AssemblyName>MVZ2LabMod</AssemblyName>
+    <LangVersion>9.0</LangVersion>
+    <Nullable>disable</Nullable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <!-- 仓库内自包含运行环境（构建引用的唯一来源） -->
+    <RuntimeDir>$(MSBuildThisFileDirectory)..\runtime\</RuntimeDir>
+    <RuntimeCoreDir>$(RuntimeDir)BepInEx\core\</RuntimeCoreDir>
+    <RuntimeInteropDir>$(RuntimeDir)BepInEx\interop\</RuntimeInteropDir>
+    <!-- 可选部署目标（测试用游戏目录，不存在则只构建不部署） -->
+    <GameDir Condition="'$(GameDir)' == ''">E:\Game\PVZ\MVZ2\MVZ2 0.7.0 test-1\</GameDir>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <DebugType>portable</DebugType>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- BepInEx 6 核心程序集（与 runtime/ 内版本完全一致） -->
+    <Reference Include="BepInEx.Core">
+      <HintPath>$(RuntimeCoreDir)BepInEx.Core.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="BepInEx.Unity.IL2CPP">
+      <HintPath>$(RuntimeCoreDir)BepInEx.Unity.IL2CPP.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="Il2CppInterop.Runtime">
+      <HintPath>$(RuntimeCoreDir)Il2CppInterop.Runtime.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="0Harmony">
+      <HintPath>$(RuntimeCoreDir)0Harmony.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- 0.7.0 类型代理程序集（预生成，含改名后的 Il2Cppmscorlib/Il2CppSystem.* 等） -->
+    <Reference Include="$(RuntimeInteropDir)*.dll">
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+
+  <!-- 构建后拷贝到部署游戏目录（仅当 GameDir 存在时） -->
+  <Target Name="CopyToPlugins" AfterTargets="Build"
+          Condition="Exists('$(GameDir)MinecraftVSZombies2.exe')">
+    <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(GameDir)BepInEx\plugins\" />
+  </Target>
+
+  <!-- 构建后自动部署 Mod 资源（XML metas）到部署游戏目录（仅当 GameDir 存在时） -->
+  <Target Name="DeployModAssets" AfterTargets="Build"
+          Condition="Exists('$(GameDir)MinecraftVSZombies2.exe')">
+    <ItemGroup>
+      <ModAsset Include="..\ModAssets\mvz2_lab\**\*" />
+    </ItemGroup>
+    <Copy SourceFiles="@(ModAsset)"
+          DestinationFiles="@(ModAsset->'$(GameDir)MinecraftVSZombies2_Data\StreamingAssets\Mods\mvz2_lab\%(RecursiveDir)%(Filename)%(Extension)')"
+          SkipUnchangedFiles="true" />
+    <Message Importance="high" Text="[DeployModAssets] @(ModAsset->Count()) 个资源文件已部署到 $(GameDir)MinecraftVSZombies2_Data\StreamingAssets\Mods\mvz2_lab\" />
+  </Target>
+
+</Project>

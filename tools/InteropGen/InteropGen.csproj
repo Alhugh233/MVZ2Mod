@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    一次性工具：用 Il2CppDumper 的 DummyDll + Il2CppInterop.Generator 1.4.5
+    预生成 BepInEx/interop 代理程序集，绕过 BepInEx 内置的旧 Cpp2IL（不支持 metadata v31）。
+
+    用法: dotnet run -c Release（在 tools\InteropGen 目录下）
+  -->
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net9.0</TargetFramework>
+    <Nullable>disable</Nullable>
+    <LangVersion>9.0</LangVersion>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- 与游戏目录 BepInEx/core 内置版本一致 -->
+    <PackageReference Include="Il2CppInterop.Generator" Version="1.4.5" />
+  </ItemGroup>
+
+</Project>
