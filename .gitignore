@@ -8,3 +8,8 @@ runtime/dotnet/
 tools/InteropGen/bin/
 tools/InteropGen/obj/
 runtime/
+CustomCore/obj/
+LaboratoryMod/obj/
+CustomCore/bin/
+LaboratoryMod/bin/
+tools/Il2CppDumper/

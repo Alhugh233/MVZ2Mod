@@ -1,0 +1,80 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    MVZ2 Laboratory Mod —— 实验室内容 Mod（依赖 CustomCore 前置插件）
+    提供 0.6.4 laboratory 分支移植的实验小游戏关卡定义与行为：
+      real_prologue / zero_k_space / unknow_palace
+
+    0.7 官方链集成方式（与 test-1 时代的 hack 不同）：
+      - ModInfo.Logic 直接是注入的 LabMod.CreateInstance()（LoadMods 不再重建 Logic）
+      - LabMod.PreInit(IModLoader) 注册自定义 IStageDefinitionProvider
+      - XML metas 由 CustomCore.MetaInjection 注入 → ModLoader.LoadStages/LoadStageProperties
+        官方自动完成关卡定义创建与 meta 属性应用
+
+    构建环境自包含在仓库 runtime/（与 CustomCore 共用）。
+    GameDir 仅作可选部署目标，不存在时跳过部署。
+  -->
+
+  <PropertyGroup>
+    <TargetFramework>net6.0</TargetFramework>
+    <AssemblyName>LaboratoryMod</AssemblyName>
+    <RootNamespace>LaboratoryMod</RootNamespace>
+    <LangVersion>9.0</LangVersion>
+    <Nullable>disable</Nullable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <RuntimeDir>$(MSBuildThisFileDirectory)..\runtime\</RuntimeDir>
+    <RuntimeCoreDir>$(RuntimeDir)BepInEx\core\</RuntimeCoreDir>
+    <RuntimeInteropDir>$(RuntimeDir)BepInEx\interop\</RuntimeInteropDir>
+    <GameDir Condition="'$(GameDir)' == ''">E:\CodeProject\MinecraftVsZombies2Unity\Build\win32_debug\</GameDir>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <DebugType>portable</DebugType>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\CustomCore\CustomCore.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Reference Include="BepInEx.Core">
+      <HintPath>$(RuntimeCoreDir)BepInEx.Core.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="BepInEx.Unity.IL2CPP">
+      <HintPath>$(RuntimeCoreDir)BepInEx.Unity.IL2CPP.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="Il2CppInterop.Runtime">
+      <HintPath>$(RuntimeCoreDir)Il2CppInterop.Runtime.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="0Harmony">
+      <HintPath>$(RuntimeCoreDir)0Harmony.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <Reference Include="$(RuntimeInteropDir)*.dll">
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+
+  <!-- 构建后拷贝到部署游戏目录（仅当 GameDir 存在时） -->
+  <Target Name="CopyToPlugins" AfterTargets="Build"
+          Condition="Exists('$(GameDir)MinecraftVSZombies2.exe')">
+    <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(GameDir)BepInEx\plugins\" />
+  </Target>
+
+  <!-- 构建后自动部署 Mod 资源（XML metas）到部署游戏目录（仅当 GameDir 存在时） -->
+  <Target Name="DeployModAssets" AfterTargets="Build"
+          Condition="Exists('$(GameDir)MinecraftVSZombies2.exe')">
+    <ItemGroup>
+      <ModAsset Include="..\ModAssets\mvz2_lab\**\*" />
+    </ItemGroup>
+    <Copy SourceFiles="@(ModAsset)"
+          DestinationFiles="@(ModAsset->'$(GameDir)MinecraftVSZombies2_Data\StreamingAssets\Mods\mvz2_lab\%(RecursiveDir)%(Filename)%(Extension)')"
+          SkipUnchangedFiles="true" />
+    <Message Importance="high" Text="[DeployModAssets] @(ModAsset->Count()) 个资源文件已部署到 $(GameDir)MinecraftVSZombies2_Data\StreamingAssets\Mods\mvz2_lab\" />
+  </Target>
+
+</Project>

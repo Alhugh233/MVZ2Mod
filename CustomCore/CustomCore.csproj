@@ -1,0 +1,68 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    MVZ2 Custom Core —— BepInEx 6 (Il2CppInterop) 前置插件（库）
+    提供实验室内容 mod 共用的通用基建：
+      - ClassInjector 泛型 vtable 修复
+      - VTableRebind / VTableDiag / ModCallTracer 诊断与修复
+      - 磁盘文件资源 Provider + 外部 mod XML metas 注入
+      - SaveManager 存档兜底补丁
+
+    构建环境自包含在仓库 runtime/ 目录（与 LaboratoryMod 共用）：
+      runtime\winhttp.dll / dotnet\ / BepInEx\core|interop|unity-libs
+    维护 runtime/：用 build.ps1 -SyncRuntime 从已安装的游戏目录刷新。
+
+    GameDir 仅作可选部署目标，不存在时跳过部署。
+  -->
+
+  <PropertyGroup>
+    <TargetFramework>net6.0</TargetFramework>
+    <AssemblyName>CustomCore</AssemblyName>
+    <RootNamespace>CustomCore</RootNamespace>
+    <LangVersion>9.0</LangVersion>
+    <Nullable>disable</Nullable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <!-- 仓库内自包含运行环境（构建引用的唯一来源） -->
+    <RuntimeDir>$(MSBuildThisFileDirectory)..\runtime\</RuntimeDir>
+    <RuntimeCoreDir>$(RuntimeDir)BepInEx\core\</RuntimeCoreDir>
+    <RuntimeInteropDir>$(RuntimeDir)BepInEx\interop\</RuntimeInteropDir>
+    <!-- 可选部署目标（测试用游戏目录，不存在则只构建不部署） -->
+    <GameDir Condition="'$(GameDir)' == ''">E:\CodeProject\MinecraftVsZombies2Unity\Build\win32_debug\</GameDir>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <DebugType>portable</DebugType>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- BepInEx 6 核心程序集（与 runtime/ 内版本完全一致） -->
+    <Reference Include="BepInEx.Core">
+      <HintPath>$(RuntimeCoreDir)BepInEx.Core.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="BepInEx.Unity.IL2CPP">
+      <HintPath>$(RuntimeCoreDir)BepInEx.Unity.IL2CPP.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="Il2CppInterop.Runtime">
+      <HintPath>$(RuntimeCoreDir)Il2CppInterop.Runtime.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="0Harmony">
+      <HintPath>$(RuntimeCoreDir)0Harmony.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- 0.7.0 win32_debug 类型代理程序集（预生成） -->
+    <Reference Include="$(RuntimeInteropDir)*.dll">
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+
+  <!-- 构建后拷贝到部署游戏目录（仅当 GameDir 存在时） -->
+  <Target Name="CopyToPlugins" AfterTargets="Build"
+          Condition="Exists('$(GameDir)MinecraftVSZombies2.exe')">
+    <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(GameDir)BepInEx\plugins\" />
+  </Target>
+
+</Project>
