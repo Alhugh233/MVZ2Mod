@@ -14,8 +14,11 @@ namespace LaboratoryMod
     ///
     /// 因此不注册 provider，而是在官方 LoadStages(mod) 时机（LoadDefinitions 内）：
     /// 对 mvz2_lab 的 meta 直接创建注入的 StageDefinition 并 mod.AddDefinition(...)。
-    /// 随后 LoadDefinitionProperties 中的官方 LoadStageProperties(mod) 会自动读取
-    /// meta 并应用全部属性（ENEMY_POOL / 出怪点数 / 名字 / 音乐 / 解锁等），无需 hack。
+    ///
+    /// 注意：官方 LoadDefinitionProperties（LoadStageProperties 等）会遍历 mvz2_lab
+    /// 的 stage meta 并对注入 def 做大量 SetProperty —— 属性 key 在 LoadAll 阶段对
+    /// 注入 def 无效（invalid key 全部丢弃）且原生遍历易 native 崩，因此一并跳过，
+    /// 属性改由 LabMod.PostInit 用稳定 ID + 已注册 key 手动应用（StageMetaApplier）。
     ///
     /// 注意：本补丁只拦截 mod.Namespace == mvz2_lab，其余 mod 走原逻辑。
     /// </summary>
@@ -37,7 +40,39 @@ namespace LaboratoryMod
             }
             harmony.Patch(target,
                 prefix: new HarmonyMethod(typeof(LoadStagesPatch), nameof(Prefix)));
+            // 【实验】Pin 修复后，注入 def 的 propertyDict 不再被回收 ——
+            // 官方 LoadDefinitionProperties 应能正常应用 meta 属性（关卡名/敌怪池/
+            // 类型/音乐）。若仍崩则恢复下方跳过补丁。
+            // var targetProps = AccessTools.Method(typeof(ModLoader), "LoadDefinitionProperties");
+            // if (targetProps == null)
+            // {
+            //     Plugin.Log?.LogError("[LoadStagesPatch] ModLoader.LoadDefinitionProperties not found!");
+            // }
+            // else
+            // {
+            //     harmony.Patch(targetProps,
+            //         prefix: new HarmonyMethod(typeof(LoadStagesPatch), nameof(LoadDefPropsPrefix)));
+            // }
             Plugin.Log?.LogInfo("LoadStagesPatch applied");
+        }
+
+        /// <summary>跳过官方 LoadDefinitionProperties(mod) 对注入 def 的属性应用。</summary>
+        [HarmonyPrefix]
+        private static bool LoadDefPropsPrefix(Mod mod)
+        {
+            try
+            {
+                if (mod == null || mod.Namespace != LabMod.spaceName)
+                    return true; // 其它 mod 走原逻辑
+                Plugin.Log?.LogInfo("[LoadStagesPatch] LoadDefinitionProperties skipped for " + mod.Namespace
+                    + " (properties applied in PostInit)");
+                return false;
+            }
+            catch (Exception e)
+            {
+                Plugin.Log?.LogError("[LoadStagesPatch] LoadDefPropsPrefix error: " + e);
+                return true;
+            }
         }
 
         [HarmonyPrefix]
@@ -49,24 +84,67 @@ namespace LaboratoryMod
                     return true; // 其他 mod 走原逻辑
 
                 Plugin.Log?.LogInfo("[LoadStagesPatch] LoadStages for " + mod.Namespace);
+                // 正式注册费用倍率 buff 定义（乘数 3/5）。
+                // 必须在 LoadBuffMetas（LoadDefinitions 内，LoadStages 之后）前 AddDefinition，
+                // 这样 LoadBuffMetas 遍历 GetAllBuffDefinitions 时能找到 buffs.xml 词条（无警告），
+                // 且读档时 Content.GetBuffDefinition 能恢复定义。
+                Buffs.ZeroKSpaceCostBuff.RegisterDefinitions(mod);
                 // real_prologue 冒烟。
                 var stage = Stages.RealPrologueStage.CreateInstance();
                 if (stage != null)
                 {
                     mod.AddDefinition(stage);
-                    Plugin.Log?.LogInfo("[LoadStagesPatch] added stage " + stage.GetID());
+                    Plugin.TrackDefinition(stage);
+                    Plugin.Log?.LogInfo("[LoadStagesPatch] added stage mvz2_lab:"
+                        + Stages.RealPrologueStage.StageID);
                 }
                 // zero_k_space（Phase 3）。
                 var zeroStage = Stages.ZeroKSpaceStage.CreateInstance();
                 if (zeroStage != null)
                 {
                     mod.AddDefinition(zeroStage);
-                    Plugin.Log?.LogInfo("[LoadStagesPatch] added stage " + zeroStage.GetID());
+                    Plugin.TrackDefinition(zeroStage);
+                    Plugin.Log?.LogInfo("[LoadStagesPatch] added stage mvz2_lab:"
+                        + Stages.ZeroKSpaceStage.StageID);
                 }
-                // 记录到 LabMod，PostInit 时统一应用 meta 属性
-                // （此刻 vanilla 程序集属性尚未注册，SetProperty 会 invalid key）。
-                LabMod.RegisterStage(stage);
-                LabMod.RegisterStage(zeroStage);
+                // unknow_palace（真理伪证殿堂，Phase 4）。
+                var unknowStage = Stages.UnknowPalaceStage.CreateInstance();
+                if (unknowStage != null)
+                {
+                    mod.AddDefinition(unknowStage);
+                    Plugin.TrackDefinition(unknowStage);
+                    Plugin.Log?.LogInfo("[LoadStagesPatch] added stage mvz2_lab:"
+                        + Stages.UnknowPalaceStage.StageID);
+                    // behaviours 诊断：出怪时 Gem 全局回调对 def 做 HasBehaviour<T>
+                    // 遍历 behaviours（原生 List）。若 Enumerator 越界 = List 损坏。
+                    // GetBehaviourCount 只读 List._size，安全；此处加载早期可暴露问题。
+                    try
+                    {
+                        var bc = unknowStage.GetBehaviourCount();
+                        Plugin.Log?.LogInfo("[LoadStagesPatch] unknow behaviours count=" + bc);
+                    }
+                    catch (System.Exception bcErr)
+                    {
+                        Plugin.Log?.LogError("[LoadStagesPatch] unknow behaviours count error: " + bcErr);
+                    }
+                }
+                // 记录到 LabMod（PostInit 时用稳定 ID 常量应用 meta 属性）。
+                // 不用 stage.GetID()（注入 def 上 GetID 非确定返回损坏 NamespaceID），
+                // 直接用创建时已知的 StageID 常量构造。
+                LabMod.RegisterStage(stage, Stages.RealPrologueStage.StageID);
+                LabMod.RegisterStage(zeroStage, Stages.ZeroKSpaceStage.StageID);
+                LabMod.RegisterStage(unknowStage, Stages.UnknowPalaceStage.StageID);
+                // 绕过官方 Mod.GetDefinitions 的原生 LINQ（v31 注入下 AddMod 拷不到
+                // defs → game 无 mvz2_lab:* → 列表消失 + ChangeStage missing）。
+                // 拦截 GetDefinitions 对 mvz2_lab 直接返回 Plugin.AllDefinitions。
+                try
+                {
+                    ModGetDefinitionsPatch.Apply();
+                }
+                catch (System.Exception pe)
+                {
+                    Plugin.Log?.LogError("[LoadStagesPatch] ModGetDefinitionsPatch error: " + pe);
+                }
                 // 跳过原方法（不再遍历 stageProviders）。
                 return false;
             }

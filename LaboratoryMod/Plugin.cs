@@ -7,6 +7,7 @@ using Il2CppInterop.Runtime.Injection;
 using Il2CppInterop.Runtime.InteropTypes.Arrays;
 using MVZ2.Modding;
 using MVZ2Logic.Games;
+using PVZEngine;
 using LaboratoryMod.Stages;
 
 namespace LaboratoryMod
@@ -32,6 +33,30 @@ namespace LaboratoryMod
 
         internal static new ManualLogSource Log;
 
+        /// <summary>
+        /// 本 mod 全部定义的稳定跟踪（绕过官方 Mod.GetDefinitions 的原生 LINQ：
+        /// metadata v31 注入环境下 DefinitionGroup.GetDefinitions 的 SelectMany
+        /// 接口枚举非确定性抛 MethodAccessException / 返回空 → game.AddMod 拷不到
+        /// defs → 列表消失 + ChangeStage missing。作者亦在移除 LINQ 印证此坑）。
+        /// </summary>
+        internal static readonly System.Collections.Generic.List<Definition> AllDefinitions
+            = new System.Collections.Generic.List<Definition>();
+
+        internal static void TrackDefinition(Definition def)
+        {
+            if (def == null)
+                return;
+            lock (AllDefinitions)
+            {
+                for (int i = 0; i < AllDefinitions.Count; i++)
+                {
+                    if (AllDefinitions[i] == def)
+                        return;
+                }
+                AllDefinitions.Add(def);
+            }
+        }
+
         public override void Load()
         {
             Log = base.Log;
@@ -48,6 +73,7 @@ namespace LaboratoryMod
             ClassInjector.RegisterTypeInIl2Cpp<LabMod>();
             ClassInjector.RegisterTypeInIl2Cpp<Stages.RealPrologueStage>();
             ClassInjector.RegisterTypeInIl2Cpp<Stages.ZeroKSpaceStage>();
+            ClassInjector.RegisterTypeInIl2Cpp<Stages.UnknowPalaceStage>();
             ClassInjector.RegisterTypeInIl2Cpp<Buffs.ZeroKSpaceCostBuff>();
 
             // 0.7 中 ModLoader.LoadAll 会对 stageProviders.OrderBy(Priority) 做原生 LINQ
@@ -55,6 +81,9 @@ namespace LaboratoryMod
             // MethodAccessException（与 SetPropertyObject 同源）。因此不用 provider，
             // 改由 LoadStagesPatch 在官方 LoadStages 时机直接创建关卡定义。
             LoadStagesPatch.Apply();
+            // unknow_palace 出怪接管在 LabMod.PostInit 应用（此时 LoadAll 已完成、
+            // AddMod 已跑完；Chainloader 早期 patch 会提前初始化 LogicLevelExt
+            // 干扰官方加载 → game.AddMod 时 DefinitionGroup List 损坏崩溃）。
 
             // 订阅 0.7 官方的外部 Mod 注册点。
             var handler = new System.Func<IGlobalGame,

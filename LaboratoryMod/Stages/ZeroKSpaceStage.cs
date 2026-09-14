@@ -37,10 +37,6 @@ namespace LaboratoryMod.Stages
         public const float INSTANT_RECHARGE_SPEED = 99999999f;
         public const int GUNPOWDER_EXPLODE_TIMEOUT = 5;
 
-        /// <summary>按乘数缓存 ZeroKSpaceCostBuff 定义（定义级 modifier 常量为该乘数）。</summary>
-        private static readonly System.Collections.Generic.Dictionary<float, Buffs.ZeroKSpaceCostBuff>
-            costBuffCache = new System.Collections.Generic.Dictionary<float, Buffs.ZeroKSpaceCostBuff>();
-
         private int frameCounter;
 
         public ZeroKSpaceStage(IntPtr ptr) : base(ptr)
@@ -52,20 +48,42 @@ namespace LaboratoryMod.Stages
             var stage = new ZeroKSpaceStage(ClassInjector.DerivedConstructorPointer<ZeroKSpaceStage>());
             ClassInjector.DerivedConstructorBody(stage);
 
-            stage.id = new NamespaceID(LabMod.spaceName, StageID);
-            stage.propertyDict = new PropertyDictionary();
-            stage.triggers = new List<ITrigger>();
-            stage.behaviours = new List<StageBehaviour>();
+            stage.id = Il2CppPin.Pin(new NamespaceID(LabMod.spaceName, StageID));
+            stage.propertyDict = Il2CppPin.Pin(new PropertyDictionary());
+            stage.triggers = Il2CppPin.Pin(new List<ITrigger>());
+            stage.behaviours = Il2CppPin.Pin(new List<StageBehaviour>());
 
             stage.SetProperty(EngineStageProps.WAVES_PER_FLAG, 10);
             stage.SetProperty(EngineLevelProps.RECHARGE_SPEED, 1f);
 
             // 行为组合与 0.6.4 ZeroKSpaceStage 一致。
-            stage.AddBehaviour(new WaveStageBehaviour(stage));
-            stage.AddBehaviour(new FinalWaveClearBehaviour(stage));
-            stage.AddBehaviour(new GemStageBehaviour(stage));
-            stage.AddBehaviour(new StarshardStageBehaviour(stage));
+            stage.AddBehaviour(Il2CppPin.Pin(new WaveStageBehaviour(stage)));
+            stage.AddBehaviour(Il2CppPin.Pin(new FinalWaveClearBehaviour(stage)));
+            stage.AddBehaviour(Il2CppPin.Pin(new GemStageBehaviour(stage)));
+            stage.AddBehaviour(Il2CppPin.Pin(new StarshardStageBehaviour(stage)));
             return stage;
+        }
+
+        /// <summary>
+        /// 属性查询 override（v31 规避，同 RealPrologueStage）。
+        ///
+        /// 原生 LevelEngine 属性 fallback 虚调用 Definition.TryGetPropertyObject；
+        /// 注入类未 override 的基类虚方法槽错位 → 原生侧抛 MethodAccessException
+        /// （金币拾取物 PickupAutoCollect 每帧触发，栈显示 comparer 崩到 SortingGroup）。
+        /// override 后槽指向托管 trampoline，托管侧直访原生 propertyDict。
+        /// </summary>
+        public override bool TryGetPropertyObject(IPropertyKey name, out Il2CppSystem.Object value)
+        {
+            try
+            {
+                return propertyDict.TryGetPropertyObject(name, out value);
+            }
+            catch (Exception e)
+            {
+                Plugin.Log?.LogError("[ZeroKSpaceStage] TryGetPropertyObject error: " + e);
+                value = null;
+                return false;
+            }
         }
 
         public override void OnSetup(LevelEngine level)
@@ -212,11 +230,9 @@ namespace LaboratoryMod.Stages
 
         private static Buffs.ZeroKSpaceCostBuff GetCostBuff(float multiplier)
         {
-            if (costBuffCache.TryGetValue(multiplier, out var existing))
-                return existing;
-            var created = Buffs.ZeroKSpaceCostBuff.CreateInstance(multiplier);
-            costBuffCache[multiplier] = created;
-            return created;
+            // 优先返回 LoadStages 时注册的正式定义（乘数 3/5）；
+            // 其余罕见乘数动态创建兜底。
+            return Buffs.ZeroKSpaceCostBuff.GetDefinition(multiplier);
         }
     }
 }

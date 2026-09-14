@@ -1,0 +1,4 @@
+<buffs>
+    <buff id="zero_k_space_cost_x3" polarity="negative" level="5000" target="blueprint" />
+    <buff id="zero_k_space_cost_x5" polarity="negative" level="5000" target="blueprint" />
+</buffs>

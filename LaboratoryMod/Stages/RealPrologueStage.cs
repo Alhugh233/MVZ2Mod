@@ -43,10 +43,12 @@ namespace LaboratoryMod.Stages
 
             // 补做原生 Definition(string,string) 与 StageDefinition ctor 的初始化。
             // 注意：ID 落在本 mod 命名空间 mvz2_lab（全隔离方案）。
-            stage.id = new NamespaceID(LabMod.spaceName, StageID);
-            stage.propertyDict = new PropertyDictionary();
-            stage.triggers = new List<ITrigger>();
-            stage.behaviours = new List<StageBehaviour>();
+            // 每个 new 出来的 il2cpp 对象都要 Pin：注入类实例的字段不被 il2cpp GC
+            // 追踪，不钉住会被回收 → GetID() 值比较失败（详见 Il2CppPin 注释）。
+            stage.id = Il2CppPin.Pin(new NamespaceID(LabMod.spaceName, StageID));
+            stage.propertyDict = Il2CppPin.Pin(new PropertyDictionary());
+            stage.triggers = Il2CppPin.Pin(new List<ITrigger>());
+            stage.behaviours = Il2CppPin.Pin(new List<StageBehaviour>());
 
             // 原生 StageDefinition ctor 还会设置两个默认属性（绕过了 ctor，必须手动补）：
             //   WAVES_PER_FLAG = 10 —— 缺失会导致 wave % 0 整数除零闪退（0xC0000094）；
@@ -55,11 +57,36 @@ namespace LaboratoryMod.Stages
             stage.SetProperty(EngineLevelProps.RECHARGE_SPEED, 1f);
 
             // 行为组合与 0.6.4 一致（必须在字段初始化之后）。
-            stage.AddBehaviour(new WaveStageBehaviour(stage));
-            stage.AddBehaviour(new FinalWaveClearBehaviour(stage));
-            stage.AddBehaviour(new GemStageBehaviour(stage));
-            stage.AddBehaviour(new StarshardStageBehaviour(stage));
+            stage.AddBehaviour(Il2CppPin.Pin(new WaveStageBehaviour(stage)));
+            stage.AddBehaviour(Il2CppPin.Pin(new FinalWaveClearBehaviour(stage)));
+            stage.AddBehaviour(Il2CppPin.Pin(new GemStageBehaviour(stage)));
+            stage.AddBehaviour(Il2CppPin.Pin(new StarshardStageBehaviour(stage)));
             return stage;
+        }
+
+        /// <summary>
+        /// 属性查询 override（v31 规避）。
+        ///
+        /// 原生 LevelEngine 做属性 fallback（level 属性读不到时查 StageDefinition）
+        /// 会虚调用 Definition.TryGetPropertyObject。注入类未 override 的基类虚方法
+        /// 在 vtable 重建后槽位错位，原生侧调用会抛
+        /// "MethodAccessException: Attempt to access method 'IEqualityComparer...GetHashCode'
+        /// on type 'SortingGroup' failed"（金币拾取物 PickupAutoCollect 每帧触发）。
+        /// override 后 IL2CPP 把该槽绑定到本托管 trampoline，逻辑改为托管侧直访
+        /// 原生 propertyDict（托管→原生对象方法调用不受虚分派影响）。
+        /// </summary>
+        public override bool TryGetPropertyObject(IPropertyKey name, out Il2CppSystem.Object value)
+        {
+            try
+            {
+                return propertyDict.TryGetPropertyObject(name, out value);
+            }
+            catch (Exception e)
+            {
+                Plugin.Log?.LogError("[RealPrologueStage] TryGetPropertyObject error: " + e);
+                value = null;
+                return false;
+            }
         }
 
         public override void OnStart(LevelEngine level)

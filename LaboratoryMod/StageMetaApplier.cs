@@ -17,6 +17,54 @@ namespace LaboratoryMod
     /// </summary>
     internal static class StageMetaApplier
     {
+        /// <summary>
+        /// 应用 meta 属性（稳定 path 版）。LabMod.PostInit 调用，此时 LoadAll 已完成、
+        /// 属性 key 已注册。spaceName 用 LabMod.spaceName，path 用 StageID 常量 ——
+        /// 绝不读 stageDef.GetID()（注入 def 上 GetID 非确定返回损坏 NamespaceID）。
+        /// </summary>
+        public static void ApplyMetaTo(PVZEngine.Level.StageDefinition stageDef, string stagePath)
+        {
+            try
+            {
+                if (stagePath == null)
+                {
+                    Plugin.Log?.LogWarning("[StageMetaApplier] null stagePath, skip " + stageDef.GetType().Name);
+                    return;
+                }
+                var res = MainManager.Instance?.ResourceManager;
+                if (res == null)
+                {
+                    Plugin.Log?.LogWarning("[StageMetaApplier] ResourceManager unavailable");
+                    return;
+                }
+                var metas = res.GetModStageMetas(LabMod.spaceName);
+                if (metas == null || metas.Length == 0)
+                {
+                    Plugin.Log?.LogWarning("[StageMetaApplier] no stage metas for " + LabMod.spaceName);
+                    return;
+                }
+                StageMeta meta = null;
+                for (var i = 0; i < metas.Length; i++)
+                {
+                    if (metas[i] != null && metas[i].ID == stagePath)
+                    {
+                        meta = metas[i];
+                        break;
+                    }
+                }
+                if (meta == null)
+                {
+                    Plugin.Log?.LogWarning("[StageMetaApplier] no meta for stage " + stagePath);
+                    return;
+                }
+                ApplyMeta(stageDef, meta);
+            }
+            catch (Exception e)
+            {
+                Plugin.Log?.LogError("[StageMetaApplier] error: " + e);
+            }
+        }
+
         /// <summary>在 LoadStagesPatch 创建 def 后立即调用（meta 已由 CustomCore 注入）。</summary>
         public static void ApplyMetaTo(PVZEngine.Level.StageDefinition stageDef)
         {
@@ -94,7 +142,7 @@ namespace LaboratoryMod
             if (NamespaceID.IsValid(meta.MusicID))
                 Try(() => stageDef.SetProperty(LogicStageProps.MUSIC_ID, meta.MusicID), "MUSIC_ID");
 
-            Plugin.Log?.LogInfo("[StageMetaApplier] " + stageDef.GetID()
+            Plugin.Log?.LogInfo("[StageMetaApplier] " + LabMod.spaceName + ":" + meta.ID
                 + " type=" + meta.Type
                 + " flags=" + meta.TotalFlags
                 + " spawns=" + (meta.Spawns == null ? "null" : meta.Spawns.Length.ToString())

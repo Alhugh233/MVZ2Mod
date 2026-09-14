@@ -1,6 +1,7 @@
 using System;
 using System.IO;
 using HarmonyLib;
+using MVZ2.IO;
 using MVZ2.Managers;
 using MVZ2.Metas;
 using MVZ2.Modding;
@@ -71,6 +72,13 @@ namespace CustomCore
                 {
                     var keyName = Path.GetFileNameWithoutExtension(file);
                     var text = File.ReadAllText(file);
+                    // 直接用 XmlDocument.LoadXml 解析。
+                    // 注意：不能调用 MVZ2.IO.XMLHelper.ReadXmlDocument(string) —— 官方
+                    // string 重载内部 StreamWriter 未 Flush 就读流，实际会抛
+                    // "Root element is missing"（官方只走 Stream/Addressables 路径）。
+                    // 约定：metas/*.xml 内容不要写 XML 注释（Comment 节点会进入
+                    // BuffMetaList.FromXmlNode 等子节点遍历，触发 NRE —— 与官方
+                    // XmlReaderSettings.IgnoreComments 行为不同）。
                     var doc = new Il2CppSystem.Xml.XmlDocument();
                     doc.LoadXml(text);
                     MetaXMLParser.LoadMetaList(modResource, keyName, doc, defaultNsp);
