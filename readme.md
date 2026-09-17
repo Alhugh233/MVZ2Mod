@@ -119,6 +119,7 @@ runtime/                   自包含 BepInEx 6 运行环境（编译引用 + 打
 tools/InteropGen/          interop 代理预生成工具（Cpp2IL 不支持 metadata v31 的替代方案）
 build.ps1                  一键构建 + 打包 zip
 deploy.ps1                 开发热部署（部署资源 → 构建 → 停游戏 → 拷 DLL → 启动）
+build-curse.ps1            模块化诅咒：构建 + 自动部署（-Pack 打包 / -Launch 启动）
 ```
 
 ## 已知限制

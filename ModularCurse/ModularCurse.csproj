@@ -1,0 +1,88 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    模块化诅咒（Modular Curse）—— 接入原版诅咒系统的诅咒扩展 mod（依赖 CustomCore 前置插件）
+
+    原版 0.7.0 诅咒系统（test-4 起）：
+      curses.xml（CurseMeta）
+        → ModLoader.LoadCurseMetas → DefaultCurseDefinition（带 BUFF_ID）
+        → 关卡开始前的诅咒选择面板（LevelBlueprintChooseController）
+        → Level.AddBuff(buffId)
+        → CurseBuffDefinition（关卡级 buff）负责实际效果
+
+    本 mod 完全走官方这条链：
+      - 注册自己的 ModInfo（nsp = modular_curse），Logic 为注入实例。
+      - ModAssets/modular_curse/Content/metas/curses.xml 提供 24 条诅咒元数据
+        （由 CustomCore.MetaInjection 从磁盘注入 ModResource）。
+      - 24 个 CurseBuffDefinition 由本 mod 在 LoadStages 时机 AddDefinition，
+        每条诅咒一个 buff，效果写在 buff 里（AddModifier / AddTrigger / PostUpdate）。
+
+    构建环境自包含在仓库 runtime/。GameDir 仅作可选部署目标。
+  -->
+
+  <PropertyGroup>
+    <TargetFramework>net6.0</TargetFramework>
+    <AssemblyName>ModularCurse</AssemblyName>
+    <RootNamespace>ModularCurse</RootNamespace>
+    <LangVersion>9.0</LangVersion>
+    <Nullable>disable</Nullable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <RuntimeDir>$(MSBuildThisFileDirectory)..\runtime\</RuntimeDir>
+    <RuntimeCoreDir>$(RuntimeDir)BepInEx\core\</RuntimeCoreDir>
+    <RuntimeInteropDir>$(RuntimeDir)BepInEx\interop\</RuntimeInteropDir>
+    <GameDir Condition="'$(GameDir)' == ''">E:\Game\PVZ\MVZ2\MVZ2 0.7.0 test-4\</GameDir>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <DebugType>portable</DebugType>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- CustomCore 前置（BepInDependency + CoreRegistry + MetaInjection） -->
+    <ProjectReference Include="..\CustomCore\CustomCore.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- BepInEx 6 核心程序集（与 runtime/ 内版本完全一致） -->
+    <Reference Include="BepInEx.Core">
+      <HintPath>$(RuntimeCoreDir)BepInEx.Core.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="BepInEx.Unity.IL2CPP">
+      <HintPath>$(RuntimeCoreDir)BepInEx.Unity.IL2CPP.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="Il2CppInterop.Runtime">
+      <HintPath>$(RuntimeCoreDir)Il2CppInterop.Runtime.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="0Harmony">
+      <HintPath>$(RuntimeCoreDir)0Harmony.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- 0.7.0 test-4 类型代理程序集（预生成，见 runtime/BepInEx/interop） -->
+    <Reference Include="$(RuntimeInteropDir)*.dll">
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+
+  <!-- 构建后拷贝到部署游戏目录（仅当 GameDir 存在时） -->
+  <Target Name="CopyToPlugins" AfterTargets="Build"
+          Condition="Exists('$(GameDir)MinecraftVSZombies2.exe')">
+    <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(GameDir)BepInEx\plugins\" />
+  </Target>
+
+  <!-- 构建后自动部署 Mod 资源（XML metas）到部署游戏目录 -->
+  <Target Name="DeployModAssets" AfterTargets="Build"
+          Condition="Exists('$(GameDir)MinecraftVSZombies2.exe')">
+    <ItemGroup>
+      <ModAsset Include="..\ModAssets\modular_curse\**\*" />
+    </ItemGroup>
+    <Copy SourceFiles="@(ModAsset)"
+          DestinationFiles="@(ModAsset->'$(GameDir)MinecraftVSZombies2_Data\StreamingAssets\Mods\modular_curse\%(RecursiveDir)%(Filename)%(Extension)')"
+          SkipUnchangedFiles="true" />
+    <Message Importance="high" Text="[DeployModAssets] @(ModAsset->Count()) 个资源文件已部署到 $(GameDir)MinecraftVSZombies2_Data\StreamingAssets\Mods\modular_curse\" />
+  </Target>
+
+</Project>

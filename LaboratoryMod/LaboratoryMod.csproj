@@ -25,7 +25,7 @@
     <RuntimeDir>$(MSBuildThisFileDirectory)..\runtime\</RuntimeDir>
     <RuntimeCoreDir>$(RuntimeDir)BepInEx\core\</RuntimeCoreDir>
     <RuntimeInteropDir>$(RuntimeDir)BepInEx\interop\</RuntimeInteropDir>
-    <GameDir Condition="'$(GameDir)' == ''">E:\CodeProject\MinecraftVsZombies2Unity\Build\win32_debug\</GameDir>
+    <GameDir Condition="'$(GameDir)' == ''">E:\Game\PVZ\MVZ2\MVZ2 0.7.0 test-4\</GameDir>
     <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
     <DebugType>portable</DebugType>
   </PropertyGroup>

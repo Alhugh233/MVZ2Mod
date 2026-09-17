@@ -1,0 +1,142 @@
+<curses>
+	<curse id="qc_c1">
+		<texts name="怪物的大脑" tooltip="器械受到伤害时漏电 3s。" />
+		<sprite id="mvz2:curses/the_creatures_brain" />
+		<buff id="modular_curse:qc_c1" />
+		<unlock always="true" />
+	</curse>
+	<curse id="qc_c2">
+		<texts name="梦魇的触手" tooltip="镐子和星之碎片各自具有 3s 冷却时间。" />
+		<sprite id="mvz2:curses/nightmares_tentacle" />
+		<buff id="modular_curse:qc_c2" />
+		<unlock always="true" />
+	</curse>
+	<curse id="qc_c3">
+		<texts name="凋灵的头颅" tooltip="器械被星之碎片激发后凋零 27s。" />
+		<sprite id="mvz2:curses/withers_skull" />
+		<buff id="modular_curse:qc_c3" />
+		<unlock always="true" />
+	</curse>
+	<curse id="qc_c4">
+		<texts name="巨人的肉块" tooltip="有尸体的敌怪倒下时有 25% 概率复活（BOSS 除外）。" />
+		<sprite id="mvz2:curses/the_giants_flesh" />
+		<buff id="modular_curse:qc_c4" />
+		<unlock always="true" />
+	</curse>
+	<curse id="qc_c5">
+		<texts name="红龙的鳞片" tooltip="怪物和器械死亡时留下火焰。" />
+		<sprite id="mvz2:curses/red_dragons_scale" />
+		<buff id="modular_curse:qc_c5" />
+		<unlock always="true" />
+	</curse>
+	<curse id="qc_c6">
+		<texts name="上锁箱子的锁链" tooltip="怪物有 10% 概率隐形。" />
+		<sprite id="mvz2:curses/locked_chests_chains" />
+		<buff id="modular_curse:qc_c6" />
+		<unlock always="true" />
+	</curse>
+	<curse id="qc_c7">
+		<texts name="克拉肯的护板" tooltip="很长的冷却时间变为 75s。" />
+		<sprite id="mvz2:curses/krakens_backplate" />
+		<buff id="modular_curse:qc_c7" />
+		<unlock always="true" />
+	</curse>
+	<curse id="qc_c8">
+		<texts name="QC-C8" tooltip="怪物的出场时间提前 5s。" />
+		<buff id="modular_curse:qc_c8" />
+		<unlock always="true" />
+	</curse>
+	<curse id="qc_c9">
+		<texts name="QC-C9" tooltip="器械子弹的速度变为 1/3。" />
+		<buff id="modular_curse:qc_c9" />
+		<unlock always="true" />
+	</curse>
+	<curse id="qc_c10">
+		<texts name="QC-C10" tooltip="重质量怪物可以阻挡穿透伤害。" />
+		<buff id="modular_curse:qc_c10" />
+		<unlock always="true" />
+	</curse>
+	<curse id="qc_c11">
+		<texts name="QC-C11" tooltip="每一大波所有器械价格上涨 50。" />
+		<buff id="modular_curse:qc_c11" />
+		<unlock always="true" />
+	</curse>
+	<curse id="qc_c12">
+		<texts name="QC-C12" tooltip="关卡开始时在第三列随机一路生成一个不给予星碎的借贷告示牌。" />
+		<buff id="modular_curse:qc_c12" />
+		<unlock always="true" />
+	</curse>
+
+	<curse id="sc_c1">
+		<texts name="怪物的大脑" tooltip="超出 10 个后，每个器械的存在使对应器械的花费 +5%。" />
+		<sprite id="mvz2:curses/the_creatures_brain" />
+		<buff id="modular_curse:sc_c1" />
+		<unlock always="true" />
+	</curse>
+	<curse id="sc_c2">
+		<texts name="梦魇的触手" tooltip="无可激活或忠诚标签的器械放下时叛变 2s（御柱、自动兽夹、冲击活塞、闪电之珠等除外）。" />
+		<sprite id="mvz2:curses/nightmares_tentacle" />
+		<buff id="modular_curse:sc_c2" />
+		<unlock always="true" />
+	</curse>
+	<curse id="sc_c3">
+		<texts name="凋灵的头颅" tooltip="敌怪的本体（不包括防具，BOSS 除外）每 1s 恢复 1% 的生命（每秒最多 20 点）。" />
+		<sprite id="mvz2:curses/withers_skull" />
+		<buff id="modular_curse:sc_c3" />
+		<unlock always="true" />
+	</curse>
+	<curse id="sc_c4">
+		<texts name="巨人的肉块" tooltip="敌怪在第 10 波后第一次死亡时有 20% 概率完全复活（包括防具）。" />
+		<sprite id="mvz2:curses/the_giants_flesh" />
+		<buff id="modular_curse:sc_c4" />
+		<unlock always="true" />
+	</curse>
+	<curse id="sc_c5">
+		<texts name="红龙的鳞片" tooltip="敌怪的防具获得 25% 免伤。" />
+		<sprite id="mvz2:curses/red_dragons_scale" />
+		<buff id="modular_curse:sc_c5" />
+		<unlock always="true" />
+	</curse>
+	<curse id="sc_c6">
+		<texts name="上锁箱子的锁链" tooltip="每使用 3 个碎片使下 1 个碎片无效。" />
+		<sprite id="mvz2:curses/locked_chests_chains" />
+		<buff id="modular_curse:sc_c6" />
+		<unlock always="true" />
+	</curse>
+	<curse id="sc_c7">
+		<texts name="克拉肯的护板" tooltip="所有敌怪重量 +1。" />
+		<sprite id="mvz2:curses/krakens_backplate" />
+		<buff id="modular_curse:sc_c7" />
+		<unlock always="true" />
+	</curse>
+	<curse id="sc_c8">
+		<texts name="SC-C8" tooltip="敌怪的本体获得 5 的护甲（本体受到的伤害先减少 5 点，防具伤害不减）。" />
+		<buff id="modular_curse:sc_c8" />
+		<unlock always="true" />
+	</curse>
+	<curse id="sc_c9">
+		<texts name="SC-C9" tooltip="敌怪受到的 debuff 时间变为 1/3。" />
+		<buff id="modular_curse:sc_c9" />
+		<unlock always="true" />
+	</curse>
+	<curse id="sc_c10">
+		<texts name="SC-C10" tooltip="自然出场的敌怪出场时无敌 8s（各类衍生物不受影响）。" />
+		<buff id="modular_curse:sc_c10" />
+		<unlock always="true" />
+	</curse>
+	<curse id="sc_c11">
+		<texts name="SC-C11" tooltip="每行不在最前面那一格的敌怪受伤 ×33%。" />
+		<buff id="modular_curse:sc_c11" />
+		<unlock always="true" />
+	</curse>
+	<curse id="sc_c12">
+		<texts name="SC-C12" tooltip="敌怪生成间隔 ×93%（不影响第一波出怪）。" />
+		<buff id="modular_curse:sc_c12" />
+		<unlock always="true" />
+	</curse>
+	<curse id="sc_c13">
+		<texts name="SC-C13" tooltip="敌怪受到单次超出本体血量上限的伤害时不会立刻死亡，改为无敌并额外行动 2s。" />
+		<buff id="modular_curse:sc_c13" />
+		<unlock always="true" />
+	</curse>
+</curses>

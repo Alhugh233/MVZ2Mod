@@ -372,6 +372,294 @@
 			"type": "shell",
 			"command": "powershell -NoProfile -Command \"Remove-Item 'E:\\CodeProject\\MVZ2Mod\\_end.ps1' -Force -ErrorAction SilentlyContinue; Get-ChildItem 'E:\\CodeProject\\MVZ2Mod' -Force | Where-Object { $_.Name -like '_*' } | Select-Object -ExpandProperty Name\"",
 			"problemMatcher": []
+		},
+		{
+			"label": "s1",
+			"type": "shell",
+			"command": "powershell -NoProfile -ExecutionPolicy Bypass -File E:\\CodeProject\\MVZ2Mod\\_s1.ps1",
+			"problemMatcher": []
+		},
+		{
+			"label": "s2",
+			"type": "shell",
+			"command": "powershell -NoProfile -ExecutionPolicy Bypass -File E:\\CodeProject\\MVZ2Mod\\_s2.ps1",
+			"problemMatcher": []
+		},
+		{
+			"label": "s3",
+			"type": "shell",
+			"command": "powershell -NoProfile -ExecutionPolicy Bypass -File E:\\CodeProject\\MVZ2Mod\\_s3.ps1",
+			"problemMatcher": []
+		},
+		{
+			"label": "s4",
+			"type": "shell",
+			"command": "powershell -NoProfile -ExecutionPolicy Bypass -File E:\\CodeProject\\MVZ2Mod\\_s4.ps1",
+			"problemMatcher": []
+		},
+		{
+			"label": "s5",
+			"type": "shell",
+			"command": "powershell -NoProfile -ExecutionPolicy Bypass -File E:\\CodeProject\\MVZ2Mod\\_s5.ps1",
+			"problemMatcher": []
+		},
+		{
+			"label": "s6",
+			"type": "shell",
+			"command": "powershell -NoProfile -ExecutionPolicy Bypass -File E:\\CodeProject\\MVZ2Mod\\_s6.ps1",
+			"problemMatcher": []
+		},
+		{
+			"label": "s7",
+			"type": "shell",
+			"command": "powershell -NoProfile -ExecutionPolicy Bypass -File E:\\CodeProject\\MVZ2Mod\\_s7.ps1",
+			"problemMatcher": []
+		},
+		{
+			"label": "s8",
+			"type": "shell",
+			"command": "powershell -NoProfile -ExecutionPolicy Bypass -File E:\\CodeProject\\MVZ2Mod\\_s8.ps1",
+			"problemMatcher": []
+		},
+		{
+			"label": "s9",
+			"type": "shell",
+			"command": "powershell -NoProfile -ExecutionPolicy Bypass -File E:\\CodeProject\\MVZ2Mod\\_s9.ps1",
+			"problemMatcher": []
+		},
+		{
+			"label": "bld-t1",
+			"type": "shell",
+			"command": "powershell -NoProfile -ExecutionPolicy Bypass -File E:\\CodeProject\\MVZ2Mod\\_b4.ps1",
+			"problemMatcher": []
+		},
+		{
+			"label": "bld-t1",
+			"type": "shell",
+			"command": "powershell -NoProfile -ExecutionPolicy Bypass -File E:\\CodeProject\\MVZ2Mod\\_b4.ps1",
+			"problemMatcher": []
+		},
+		{
+			"label": "verify-t1",
+			"type": "shell",
+			"command": "powershell -NoProfile -ExecutionPolicy Bypass -File E:\\CodeProject\\MVZ2Mod\\_verify.ps1",
+			"problemMatcher": []
+		},
+		{
+			"label": "rectoff",
+			"type": "shell",
+			"command": "powershell -NoProfile -ExecutionPolicy Bypass -File E:\\CodeProject\\MVZ2Mod\\_re.ps1",
+			"problemMatcher": []
+		},
+		{
+			"label": "verify-t2",
+			"type": "shell",
+			"command": "powershell -NoProfile -ExecutionPolicy Bypass -File E:\\CodeProject\\MVZ2Mod\\_verify.ps1",
+			"problemMatcher": []
+		},
+		{
+			"label": "run-t3",
+			"type": "shell",
+			"command": "powershell -NoProfile -ExecutionPolicy Bypass -File E:\\CodeProject\\MVZ2Mod\\_run2.ps1",
+			"problemMatcher": []
+		},
+		{
+			"label": "tail",
+			"type": "shell",
+			"command": "powershell -NoProfile -ExecutionPolicy Bypass -File E:\\CodeProject\\MVZ2Mod\\_tail.ps1",
+			"problemMatcher": []
+		},
+		{
+			"label": "run-t4",
+			"type": "shell",
+			"command": "powershell -NoProfile -ExecutionPolicy Bypass -File E:\\CodeProject\\MVZ2Mod\\_run3.ps1",
+			"problemMatcher": []
+		},
+		{
+			"label": "run-t5",
+			"type": "shell",
+			"command": "powershell -NoProfile -ExecutionPolicy Bypass -File E:\\CodeProject\\MVZ2Mod\\_r3b.ps1",
+			"problemMatcher": []
+		},
+		{
+			"label": "chk3",
+			"type": "shell",
+			"command": "powershell -NoProfile -Command \"Test-Path 'E:\\CodeProject\\MVZ2Mod\\_run3.txt'; Get-Content 'E:\\CodeProject\\MVZ2Mod\\_run3.txt' -ErrorAction SilentlyContinue\"",
+			"problemMatcher": []
+		},
+		{
+			"label": "diag3",
+			"type": "shell",
+			"command": "powershell -NoProfile -ExecutionPolicy Bypass -File E:\\CodeProject\\MVZ2Mod\\_diag.ps1",
+			"problemMatcher": []
+		},
+		{
+			"label": "verify-t3",
+			"type": "shell",
+			"command": "powershell -NoProfile -ExecutionPolicy Bypass -File E:\\CodeProject\\MVZ2Mod\\_verify.ps1",
+			"problemMatcher": []
+		},
+		{
+			"label": "diag4",
+			"type": "shell",
+			"command": "powershell -NoProfile -ExecutionPolicy Bypass -File E:\\CodeProject\\MVZ2Mod\\_diag.ps1",
+			"problemMatcher": []
+		},
+		{
+			"label": "run-t6",
+			"type": "shell",
+			"command": "powershell -NoProfile -ExecutionPolicy Bypass -File E:\\CodeProject\\MVZ2Mod\\_run4.ps1",
+			"problemMatcher": []
+		},
+		{
+			"label": "poll4",
+			"type": "shell",
+			"command": "powershell -NoProfile -Command \"for($i=0;$i -lt 30;$i++){ if(Test-Path 'E:\\CodeProject\\MVZ2Mod\\_run4.txt'){break}; Start-Sleep -Seconds 10 }; Test-Path 'E:\\CodeProject\\MVZ2Mod\\_run4.txt'\"",
+			"problemMatcher": []
+		},
+		{
+			"label": "poll4b",
+			"type": "shell",
+			"command": "powershell -NoProfile -ExecutionPolicy Bypass -File E:\\CodeProject\\MVZ2Mod\\_poll.ps1",
+			"problemMatcher": []
+		},
+		{
+			"label": "ctx",
+			"type": "shell",
+			"command": "powershell -NoProfile -ExecutionPolicy Bypass -File E:\\CodeProject\\MVZ2Mod\\_ctx.ps1",
+			"problemMatcher": []
+		},
+		{
+			"label": "ctx2",
+			"type": "shell",
+			"command": "powershell -NoProfile -ExecutionPolicy Bypass -File E:\\CodeProject\\MVZ2Mod\\_ctx2.ps1",
+			"problemMatcher": []
+		},
+		{
+			"label": "ctx3",
+			"type": "shell",
+			"command": "powershell -NoProfile -ExecutionPolicy Bypass -File E:\\CodeProject\\MVZ2Mod\\_ctx2.ps1",
+			"problemMatcher": []
+		},
+		{
+			"label": "ctx4",
+			"type": "shell",
+			"command": "powershell -NoProfile -ExecutionPolicy Bypass -File E:\\CodeProject\\MVZ2Mod\\_ctx3.ps1",
+			"problemMatcher": []
+		},
+		{
+			"label": "run-t7",
+			"type": "shell",
+			"command": "powershell -NoProfile -ExecutionPolicy Bypass -File E:\\CodeProject\\MVZ2Mod\\_run4.ps1",
+			"problemMatcher": []
+		},
+		{
+			"label": "poll5",
+			"type": "shell",
+			"command": "powershell -NoProfile -ExecutionPolicy Bypass -File E:\\CodeProject\\MVZ2Mod\\_poll.ps1",
+			"problemMatcher": []
+		},
+		{
+			"label": "wait7",
+			"type": "shell",
+			"command": "powershell -NoProfile -ExecutionPolicy Bypass -File E:\\CodeProject\\MVZ2Mod\\_wait.ps1",
+			"problemMatcher": []
+		},
+		{
+			"label": "bld-final",
+			"type": "shell",
+			"command": "powershell -NoProfile -ExecutionPolicy Bypass -File E:\\CodeProject\\MVZ2Mod\\_b4.ps1",
+			"problemMatcher": []
+		},
+		{
+			"label": "pack3",
+			"type": "shell",
+			"command": "powershell -NoProfile -ExecutionPolicy Bypass -File E:\\CodeProject\\MVZ2Mod\\_pack3.ps1",
+			"problemMatcher": []
+		},
+		{
+			"label": "share3",
+			"type": "shell",
+			"command": "powershell -NoProfile -ExecutionPolicy Bypass -File E:\\CodeProject\\MVZ2Mod\\_share3.ps1",
+			"problemMatcher": []
+		},
+		{
+			"label": "cleanup-final",
+			"type": "shell",
+			"command": "powershell -NoProfile -ExecutionPolicy Bypass -File E:\\CodeProject\\MVZ2Mod\\_cleanup3.ps1",
+			"problemMatcher": []
+		},
+		{
+			"label": "v2-build-run",
+			"type": "shell",
+			"command": "powershell -NoProfile -ExecutionPolicy Bypass -File E:\\CodeProject\\MVZ2Mod\\_v2.ps1",
+			"problemMatcher": []
+		},
+		{
+			"label": "poll-v2",
+			"type": "shell",
+			"command": "powershell -NoProfile -ExecutionPolicy Bypass -File E:\\CodeProject\\MVZ2Mod\\_poll2.ps1",
+			"problemMatcher": []
+		},
+		{
+			"label": "final-build-pack",
+			"type": "shell",
+			"command": "powershell -NoProfile -ExecutionPolicy Bypass -File E:\\CodeProject\\MVZ2Mod\\_final.ps1",
+			"problemMatcher": []
+		},
+		{
+			"label": "poll-final",
+			"type": "shell",
+			"command": "powershell -NoProfile -ExecutionPolicy Bypass -File E:\\CodeProject\\MVZ2Mod\\_poll3.ps1",
+			"problemMatcher": []
+		},
+		{
+			"label": "share4",
+			"type": "shell",
+			"command": "powershell -NoProfile -ExecutionPolicy Bypass -File E:\\CodeProject\\MVZ2Mod\\_share4.ps1",
+			"problemMatcher": []
+		},
+		{
+			"label": "zz-final",
+			"type": "shell",
+			"command": "powershell -NoProfile -ExecutionPolicy Bypass -File E:\\CodeProject\\MVZ2Mod\\_z.ps1",
+			"problemMatcher": []
+		},
+		{
+			"label": "smoke-curse",
+			"type": "shell",
+			"command": "powershell -NoProfile -ExecutionPolicy Bypass -File E:\\CodeProject\\MVZ2Mod\\_smoke.ps1",
+			"problemMatcher": []
+		},
+		{
+			"label": "clean-tmp",
+			"type": "shell",
+			"command": "powershell -NoProfile -ExecutionPolicy Bypass -File E:\\CodeProject\\MVZ2Mod\\_clean.ps1",
+			"problemMatcher": []
+		},
+		{
+			"label": "verify-tmp",
+			"type": "shell",
+			"command": "powershell -NoProfile -ExecutionPolicy Bypass -File E:\\CodeProject\\MVZ2Mod\\_vfy.ps1",
+			"problemMatcher": []
+		},
+		{
+			"label": "sweep2",
+			"type": "shell",
+			"command": "powershell -NoProfile -ExecutionPolicy Bypass -File E:\\CodeProject\\MVZ2Mod\\_z2.ps1",
+			"problemMatcher": []
+		},
+		{
+			"label": "final-sweep",
+			"type": "shell",
+			"command": "powershell -NoProfile -ExecutionPolicy Bypass -File E:\\CodeProject\\MVZ2Mod\\_zz2.ps1",
+			"problemMatcher": []
+		},
+		{
+			"label": "del-tmp",
+			"type": "shell",
+			"command": "powershell -NoProfile -Command \"Remove-Item 'E:\\CodeProject\\MVZ2Mod\\_zz2.ps1' -Force -ErrorAction SilentlyContinue\"",
+			"problemMatcher": []
 		}
 	]
 }
