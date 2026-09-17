@@ -1,24 +1,29 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <!--
-    MVZ2 Custom Core —— BepInEx 6 (Il2CppInterop) 前置插件（库）
-    提供实验室内容 mod 共用的通用基建：
-      - ClassInjector 泛型 vtable 修复
-      - VTableRebind / VTableDiag / ModCallTracer 诊断与修复
-      - 磁盘文件资源 Provider + 外部 mod XML metas 注入
-      - SaveManager 存档兜底补丁
+    DSHCore—— MVZ2 模组开发工具 + 前置库（BepInEx 6 / Il2CppInterop）
 
-    构建环境自包含在仓库 runtime/ 目录（与 LaboratoryMod 共用）：
+    提供内容 mod 共用的通用基建（详见 AI_GUIDE.md）：
+      - ClassInjector 缺陷修复（基类泛型虚方法 / System.String 被重写）
+      - 注入类 vtable 槽重绑，并在游戏关键调用点兜底
+      - 磁盘 XML metas 注入（绕过 Addressables provider 链路）
+      - SaveManager 存档兜底、arcade 条目 Index 平移
+      - 公共 API：Il2CppPin / InjectedMod / ModBootstrap / ModInfos / CoreRegistry
+
+    构建环境自包含在仓库 runtime/ 目录（三个 mod 共用）：
       runtime\winhttp.dll / dotnet\ / BepInEx\core|interop|unity-libs
-    维护 runtime/：用 build.ps1 -SyncRuntime 从已安装的游戏目录刷新。
+    维护 runtime/：跑 tools\sync-runtime.ps1 从已安装的游戏目录刷新。
 
     GameDir 仅作可选部署目标，不存在时跳过部署。
+
+    注意：插件 GUID 与 Harmony ID 都刻意保持为历史的 qoznos.mvz2.core 前缀。
+    改这个字符串会让既有 mod 的 BepInDependency 声明全部失效。
   -->
 
   <PropertyGroup>
     <TargetFramework>net6.0</TargetFramework>
-    <AssemblyName>CustomCore</AssemblyName>
-    <RootNamespace>CustomCore</RootNamespace>
+    <AssemblyName>DSHCore</AssemblyName>
+    <RootNamespace>DSHCore</RootNamespace>
     <LangVersion>9.0</LangVersion>
     <Nullable>disable</Nullable>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>

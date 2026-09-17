@@ -9,8 +9,8 @@
 #
 # 说明：
 #   - 编译引用来自仓库自包含的 runtime\，构建不依赖游戏目录。
-#   - 工程通过 ProjectReference 引用 CustomCore，构建它会一并构建前置。
-#   - 本 mod 的包体「不含」BepInEx 运行环境：需先安装 CustomCore 的包。
+#   - 工程通过 ProjectReference 引用 DSHCore，构建它会一并构建前置。
+#   - 本 mod 的包体「不含」BepInEx 运行环境：需先安装 DSHCore 的包。
 # =====================================================================
 param(
     [string]$GameDir = "",
@@ -30,7 +30,7 @@ $namespace = 'mvz2_lab'
 $csproj    = Join-Path $modDir 'LaboratoryMod.csproj'
 $pluginCs  = Join-Path $modDir 'Plugin.cs'
 $pluginDll = Join-Path $modDir 'bin\Debug\LaboratoryMod.dll'
-$coreDll   = Join-Path $repo 'CustomCore\bin\Debug\CustomCore.dll'
+$dshDll    = Join-Path $repo 'DSHCore\bin\Debug\DSHCore.dll'
 $assetsDir = Join-Path $modDir 'assets'
 $outDir    = Join-Path $repo 'dist'
 $runtime   = Join-Path $repo 'runtime'
@@ -49,7 +49,7 @@ Write-Info ("game dir : " + $GameDir + $(if ($hasGame) { '' } else { '   [不存
 Write-Step "[1/4] 结束游戏进程"
 Stop-GameProcess -Keep:$KeepGame
 
-# ---------- 2. 构建（含前置 CustomCore） ----------
+# ---------- 2. 构建（含前置 DSHCore） ----------
 Write-Step "[2/4] 构建 LaboratoryMod.csproj -c Debug"
 Invoke-DotnetBuild -Csproj $csproj -Dotnet $dotnet -GameDir $GameDir -Clean:$Clean -SkipBuild:$SkipBuild
 if (-not (Test-Path $pluginDll)) { throw ("插件产物不存在：" + $pluginDll) }
@@ -63,8 +63,8 @@ if (-not $hasGame) {
 } else {
     $ok1 = Test-DeployedFile -Source $pluginDll `
         -Target (Join-Path $GameDir 'BepInEx\plugins\LaboratoryMod.dll') -Label 'LaboratoryMod.dll'
-    $ok2 = Test-DeployedFile -Source $coreDll `
-        -Target (Join-Path $GameDir 'BepInEx\plugins\CustomCore.dll') -Label 'CustomCore.dll（前置）'
+    $ok2 = Test-DeployedFile -Source $dshDll `
+        -Target (Join-Path $GameDir 'BepInEx\plugins\DSHCore.dll') -Label 'DSHCore.dll（前置）'
     $ok3 = Test-ModAssetDeploy -AssetsDir $assetsDir -GameDir $GameDir -Namespace $namespace
     if ($ok1 -and $ok2 -and $ok3) { Write-Ok "部署一致" } else { Write-Warn2 "有文件过期（构建时游戏在运行？）" }
 }
@@ -80,7 +80,7 @@ if (-not $Pack) {
         PackageName   = ($modName + '_v' + $version + '_0.7.0')
         OutDir        = $outDir
         RuntimeDir    = $runtime
-        PluginDlls    = @($pluginDll, $coreDll)
+        PluginDlls    = @($pluginDll, $dshDll)
         AssetsDir     = $assetsDir
         Namespace     = $namespace
         InstallReadme = $readme

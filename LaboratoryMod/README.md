@@ -6,7 +6,7 @@
 - 插件 GUID：`qoznos.mvz2.labmod`
 - 游戏内命名空间：`mvz2_lab`
 - 当前版本：**0.2.0**
-- 前置：**CustomCore**（`qoznos.mvz2.core`，必需）
+- 前置：**DSHCore**（`qoznos.mvz2.core`，必需）
 - 适配：MVZ2 **0.7.0 test-4**（Windows **x86** / IL2CPP / Unity 2022.3.62f3）
 
 > ⚠️ 社区制作的**非官方**内容，与游戏原作者无关。
@@ -24,7 +24,7 @@
 ### 街机（Arcade）条目
 
 三个关卡都以 `minigame` 类型注册进街机列表（默认图标复用原版），
-条目 `Index` 由 `CustomCore.ArcadeIndexFix` 平移到 vanilla 之后，不会顶掉原版条目。
+条目 `Index` 由 `DSHCore.ArcadeIndexFix` 平移到 vanilla 之后，不会顶掉原版条目。
 
 ---
 
@@ -32,7 +32,7 @@
 
 ```powershell
 cd LaboratoryMod
-.\build.ps1                 # 构建（含前置 CustomCore）+ 自动部署
+.\build.ps1                 # 构建（含前置 DSHCore）+ 自动部署
 .\build.ps1 -Pack           # 额外打包 dist\LaboratoryMod_v0.2.0_0.7.0.zip
 .\build.ps1 -Pack -Launch   # 打包后启动游戏冒烟
 ```
@@ -46,8 +46,8 @@ cd LaboratoryMod
 | `-Pack` | 打包 zip 到 `dist\` |
 | `-Launch` | 构建/打包后启动游戏 |
 
-工程通过 `ProjectReference` 引用 `CustomCore`，所以构建本 mod 会**一并构建前置**；
-本 mod 的包体**不含** BepInEx 运行环境（需先安装 CustomCore 的安装包），但会带上 `CustomCore.dll`。
+工程通过 `ProjectReference` 引用 `DSHCore`，所以构建本 mod 会**一并构建前置**；
+本 mod 的包体**不含** BepInEx 运行环境（需先安装 DSHCore 的安装包），但会带上 `DSHCore.dll`。
 
 ### 构建产物
 
@@ -72,7 +72,7 @@ assets/
    └─ buffs.xml     零度空间费用倍率的 buff 词条
 ```
 
-> 这些 XML 由 `CustomCore.MetaInjection` 在 `ResourceManager.LoadMetaLists` 时**直接从磁盘读入**，
+> 这些 XML 由 `DSHCore.MetaInjection` 在 `ResourceManager.LoadMetaLists` 时**直接从磁盘读入**，
 > 不需要重打包 Addressables bundle。
 > **注意：metas 的 XML 里不要写注释**（`Comment` 节点会进入官方的子节点遍历并触发 NRE）。
 
@@ -84,11 +84,10 @@ assets/
 LaboratoryMod/
 ├─ build.ps1                   构建 / 部署 / 打包脚本
 ├─ README.md                   本文件
-├─ LaboratoryMod.csproj        工程文件（ProjectReference → CustomCore）
+├─ LaboratoryMod.csproj        工程文件（ProjectReference → DSHCore）
 ├─ assets/                     Mod 资源（映射到 StreamingAssets/Mods/mvz2_lab/）
-├─ Plugin.cs                   入口：CoreRegistry 登记 + 注入类注册 + 订阅 OnRegisterModInfos
+├─ Plugin.cs                   入口：ModBootstrap 登记 + ModInfos.OnRegister 订阅
 ├─ LabMod.cs                   Mod 逻辑主体（PreInit / OnInit / PostInit / 存档）
-├─ Il2CppPin.cs                GC 句柄钉住工具（见「开发须知」）
 ├─ LoadStagesPatch.cs          接管官方 LoadStages：创建三个注入关卡定义
 ├─ ModGetDefinitionsPatch.cs   绕过官方 GetDefinitions 的原生 LINQ
 ├─ StageMetaApplier.cs         用稳定 ID 把 XML meta 属性套到注入 def
@@ -109,8 +108,8 @@ LaboratoryMod/
 
 ```mermaid
 flowchart TD
-    A["BepInEx 注入<br/>Plugin.Load"] --> B["CoreRegistry 登记 mvz2_lab<br/>（CustomCore 据此注入 XML metas）"]
-    A --> C["ClassInjector 注册注入类<br/>LabMod / 三个 Stage / Buff"]
+    A["BepInEx 注入<br/>Plugin.Load"] --> B["ModBootstrap 登记 mvz2_lab<br/>（DSHCore 据此注入 XML metas）"]
+    A --> C["注册注入类<br/>LabMod / 三个 Stage / Buff"]
     A --> D["订阅 ModManager.OnRegisterModInfos"]
     D --> E["注册 ModInfo<br/>Logic = LabMod.CreateInstance()"]
     E --> F["官方 ModLoader.LoadAll"]
@@ -134,7 +133,8 @@ flowchart TD
 ## 开发须知（IL2CPP 注入要点）
 
 1. **托管 `new` 出来的 il2cpp 对象，写进注入类字段后会被 GC 回收。**
-   必须用 `Il2CppPin.Pin(obj)`（内部 `il2cpp_gchandle_new`）钉住。
+   必须用 `DSHCore.Il2CppPin.Pin(obj)`（内部 `il2cpp_gchandle_new`）钉住；
+   该工具已上移到前置库 `DSHCore`，本 mod 不再自带副本。
    否则 `GetID()` 值比较静默失败 → `game.GetStageDefinition(mvz2_lab:xxx)` 恒为 null →
    **关卡不出现在街机列表**；读该对象的字符串会触发 `Internal CLR error (0x80131506)`。
 2. **关卡状态用 `static`。** 注入类实例字段跨托管 wrapper 可能丢失，

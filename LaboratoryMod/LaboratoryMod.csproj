@@ -1,17 +1,17 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <!--
-    MVZ2 Laboratory Mod —— 实验室内容 Mod（依赖 CustomCore 前置插件）
+    MVZ2 Laboratory Mod —— 实验室内容 Mod（依赖 DSHCore 前置库）
     提供 0.6.4 laboratory 分支移植的实验小游戏关卡定义与行为：
       real_prologue / zero_k_space / unknow_palace
 
-    0.7 官方链集成方式（与 test-1 时代的 hack 不同）：
+    0.7 官方链集成方式：
       - ModInfo.Logic 直接是注入的 LabMod.CreateInstance()（LoadMods 不再重建 Logic）
-      - LabMod.PreInit(IModLoader) 注册自定义 IStageDefinitionProvider
-      - XML metas 由 CustomCore.MetaInjection 注入 → ModLoader.LoadStages/LoadStageProperties
+      - 关卡定义由 LoadStagesPatch 在官方 LoadStages 时机创建
+      - XML metas 由 DSHCore.MetaInjection 注入 → ModLoader.LoadStages/LoadStageProperties
         官方自动完成关卡定义创建与 meta 属性应用
 
-    构建环境自包含在仓库 runtime/（与 CustomCore 共用）。
+    构建环境自包含在仓库 runtime/（与 DSHCore 共用）。
     GameDir 仅作可选部署目标，不存在时跳过部署。
   -->
 
@@ -31,7 +31,9 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\CustomCore\CustomCore.csproj" />
+    <!-- DSHCore 前置库（Il2CppPin / InjectedMod / ModBootstrap / ModInfos /
+         CoreRegistry / MetaInjection 的来源）-->
+    <ProjectReference Include="..\DSHCore\DSHCore.csproj" />
   </ItemGroup>
 
   <ItemGroup>
@@ -60,22 +62,18 @@
   </ItemGroup>
 
   <!-- 构建后拷贝到部署游戏目录（仅当 GameDir 存在时） -->
-  <Target Name="CopyToPlugins" AfterTargets="Build"
-          Condition="Exists('$(GameDir)MinecraftVSZombies2.exe')">
+  <Target Name="CopyToPlugins" AfterTargets="Build" Condition="Exists('$(GameDir)MinecraftVSZombies2.exe')">
     <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(GameDir)BepInEx\plugins\" />
   </Target>
 
   <!-- 构建后自动部署 Mod 资源到部署游戏目录（仅当 GameDir 存在时）
        assets/ 的内容直接映射到 StreamingAssets\Mods\mvz2_lab\ -->
-  <Target Name="DeployModAssets" AfterTargets="Build"
-          Condition="Exists('$(GameDir)MinecraftVSZombies2.exe')">
+  <Target Name="DeployModAssets" AfterTargets="Build" Condition="Exists('$(GameDir)MinecraftVSZombies2.exe')">
     <ItemGroup>
       <ModAsset Include="assets\**\*" />
     </ItemGroup>
-    <Copy SourceFiles="@(ModAsset)"
-          DestinationFiles="@(ModAsset->'$(GameDir)MinecraftVSZombies2_Data\StreamingAssets\Mods\mvz2_lab\%(RecursiveDir)%(Filename)%(Extension)')"
-          SkipUnchangedFiles="true" />
-    <Message Importance="high" Text="[DeployModAssets] @(ModAsset->Count()) 个资源文件已部署到 $(GameDir)MinecraftVSZombies2_Data\StreamingAssets\Mods\mvz2_lab\" />
+    <Copy SourceFiles="@(ModAsset)" DestinationFiles="@(ModAsset->'$(GameDir)MinecraftVSZombies2_Data\StreamingAssets\Mods\mvz2_lab\%(RecursiveDir)%(Filename)%(Extension)')" SkipUnchangedFiles="true" />
+    <Message Importance="high" Text="[DeployModAssets] @(ModAsset-&gt;Count()) 个资源文件已部署到 $(GameDir)MinecraftVSZombies2_Data\StreamingAssets\Mods\mvz2_lab\" />
   </Target>
 
 </Project>

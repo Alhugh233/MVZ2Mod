@@ -2,7 +2,7 @@ using System;
 using BepInEx;
 using BepInEx.Logging;
 using BepInEx.Unity.IL2CPP;
-using CustomCore;
+using DSHCore;
 using Il2CppInterop.Runtime.Injection;
 using Il2CppInterop.Runtime.InteropTypes.Arrays;
 using MVZ2.Modding;
@@ -13,18 +13,19 @@ using LaboratoryMod.Stages;
 namespace LaboratoryMod
 {
     /// <summary>
-    /// MVZ2 实验室内容 Mod（依赖 CustomCore 前置插件）。
+    /// MVZ2 实验室内容 Mod（依赖 DSHCore 前置库）。
     ///
     /// 0.7 集成方式（官方链）：
-    ///   1. CoreRegistry 登记 mvz2_lab（XML metas 磁盘注入、vtable 兜底生效）。
+    ///   1. ModBootstrap 登记 mvz2_lab 并注册注入类
+    ///      （XML metas 磁盘注入、vtable 兜底生效）。
     ///   2. OnRegisterModInfos 注册 ModInfo：Logic = LabMod.CreateInstance()
     ///      （注入实例，LoadMods 不再重建 → 直接进入官方 LoadAll）。
-    ///   3. LabMod.PreInit 注册 IStageDefinitionProvider（minigame 关卡）。
-    ///   4. ModLoader.LoadStages 官方用 meta → provider 建关卡定义并 AddDefinition；
+    ///   3. LabMod.PreInit 准备关卡注册（实际定义由 LoadStagesPatch 在官方时机创建）。
+    ///   4. ModLoader.LoadStages 官方用 meta → 建关卡定义并 AddDefinition；
     ///      LoadStageProperties 官方自动应用 meta 属性（ENEMY_POOL 等）。
     /// </summary>
     [BepInPlugin(GUID, NAME, VERSION)]
-    [BepInDependency("qoznos.mvz2.core")]
+    [BepInDependency(DSHCore.Plugin.GUID)]
     public class Plugin : BasePlugin
     {
         public const string GUID = "qoznos.mvz2.labmod";
@@ -61,20 +62,19 @@ namespace LaboratoryMod
         {
             Log = base.Log;
 
-            // 登记到 CustomCore（meta 注入 + vtable 兜底按此 nsp 生效）。
-            CoreRegistry.Register(new CoreRegistry.RegisteredMod
-            {
-                Namespace = LabMod.spaceName,
-                LogicType = typeof(LabMod),
-                XmlDefaultNamespace = "mvz2"
-            });
-
-            // 注册注入类（必须在任何实例化之前）。ClassInjectorFix 已由 CustomCore 应用。
-            ClassInjector.RegisterTypeInIl2Cpp<LabMod>();
-            ClassInjector.RegisterTypeInIl2Cpp<Stages.RealPrologueStage>();
-            ClassInjector.RegisterTypeInIl2Cpp<Stages.ZeroKSpaceStage>();
-            ClassInjector.RegisterTypeInIl2Cpp<Stages.UnknowPalaceStage>();
-            ClassInjector.RegisterTypeInIl2Cpp<Buffs.ZeroKSpaceCostBuff>();
+            // 登记命名空间 + 注册全部注入类（必须在任何实例化之前）。
+            // ClassInjector 缺陷修复已由 DSHCore 在它自己的 Load() 里应用。
+            ModBootstrap.Register(
+                spaceName: LabMod.spaceName,
+                logicType: typeof(LabMod),
+                xmlDefaultNamespace: "mvz2",
+                extraInjectedTypes: new[]
+                {
+                    typeof(Stages.RealPrologueStage),
+                    typeof(Stages.ZeroKSpaceStage),
+                    typeof(Stages.UnknowPalaceStage),
+                    typeof(Buffs.ZeroKSpaceCostBuff)
+                });
 
             // 0.7 中 ModLoader.LoadAll 会对 stageProviders.OrderBy(Priority) 做原生 LINQ
             // 接口分派，注入类实现 IStageDefinitionProvider 在 metadata v31 抛
@@ -85,15 +85,9 @@ namespace LaboratoryMod
             // AddMod 已跑完；Chainloader 早期 patch 会提前初始化 LogicLevelExt
             // 干扰官方加载 → game.AddMod 时 DefinitionGroup List 损坏崩溃）。
 
-            // 订阅 0.7 官方的外部 Mod 注册点。
-            var handler = new System.Func<IGlobalGame,
-                Il2CppSystem.Collections.Generic.List<ModInfo>,
-                Il2CppSystem.Threading.Tasks.Task>(OnRegisterModInfos);
-            var il2cppHandler = Il2CppInterop.Runtime.DelegateSupport
-                .ConvertDelegate<Il2CppSystem.Func<IGlobalGame,
-                    Il2CppSystem.Collections.Generic.List<ModInfo>,
-                    Il2CppSystem.Threading.Tasks.Task>>(handler);
-            ModManager.add_OnRegisterModInfos(il2cppHandler);
+            // 订阅 0.7 官方的外部 Mod 注册点（System.Func → Il2CppSystem.Func
+            // 的委托转换由 DSHCore.ModInfos 完成）。
+            ModInfos.OnRegister(OnRegisterModInfos);
 
             Log.LogInfo(NAME + " v" + VERSION + " loaded, waiting for ModManager.RegisterModInfos...");
         }
@@ -111,19 +105,10 @@ namespace LaboratoryMod
                 // 立即修复 vtable（防止 Class::Init 重置影响后续官方 LoadAll 虚调用）。
                 VTableRebind.Ensure(typeof(LabMod));
 
-                // locator 不能为 null（ResourceManager 会对每个 Mod 调 Locate）。
-                // metas 由 CustomCore.MetaInjection 直读磁盘注入，locator 用空占位即可。
-                var locator = CoreModInfo.BuildEmptyLocator(LabMod.spaceName);
-                results.Add(new ModInfo(LabMod.spaceName, locator)
-                {
-                    LevelDataVersion = 4, // = LevelManager.CURRENT_DATA_VERSION（与 vanilla 保持一致）
-                    DisplayName = "MVZ2 Laboratory",
-                    IsBuiltin = false,
-                    CatalogPath = null,
-                    Logic = logic,
-                    // 定义经 LoadStages 官方 meta 链创建，不走程序集扫描 attribute。
-                    Assemblies = new Il2CppReferenceArray<Il2CppSystem.Reflection.Assembly>(0)
-                });
+                // ModInfo 构造样板（空 locator / 存档版本 / 空 Assemblies）见
+                // DSHCore.ModInfos。定义经官方 LoadStages meta 链创建，
+                // 不走程序集扫描 attribute。
+                results.Add(ModInfos.Create(LabMod.spaceName, logic, "MVZ2 Laboratory"));
                 Log.LogInfo("OnRegisterModInfos: ModInfo added (mvz2_lab), Logic="
                     + (logic == null ? "null" : logic.GetType().FullName));
             }

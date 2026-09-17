@@ -1,5 +1,5 @@
 using System;
-using CustomCore;
+using DSHCore;
 using Il2CppInterop.Runtime.Injection;
 using Il2CppSystem.Collections.Generic;
 using MVZ2Logic.Games;
@@ -30,15 +30,13 @@ namespace LaboratoryMod
         }
 
         /// <summary>
-        /// 创建绑定注入类（klass=LabMod）的实例，并补做原生 Mod(string) ctor 的初始化。
+        /// 创建绑定注入类（klass=LabMod）的实例。
+        /// 补做原生 Mod(string) ctor 的初始化（Namespace / definitionGroup / triggers
+        /// 并把两个容器钉住）交给 DSHCore.InjectedMod 的公共样板。
         /// </summary>
         internal static LabMod CreateInstance()
         {
-            var instance = new LabMod(ClassInjector.DerivedConstructorPointer<LabMod>());
-            ClassInjector.DerivedConstructorBody(instance);
-            instance._Namespace_k__BackingField = spaceName;
-            instance.definitionGroup = Il2CppPin.Pin(new DefinitionGroup());
-            instance.triggers = Il2CppPin.Pin(new List<ITrigger>());
+            var instance = InjectedMod.Create<LabMod>(spaceName);
             self = instance;
             return instance;
         }

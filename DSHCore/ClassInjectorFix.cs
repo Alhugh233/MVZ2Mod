@@ -3,7 +3,7 @@ using System.Reflection;
 using HarmonyLib;
 using Il2CppInterop.Runtime.Injection;
 
-namespace CustomCore
+namespace DSHCore
 {
     /// <summary>
     /// 绕过 ClassInjector 的两处已知限制（0.7.0 win32_debug / metadata v31 实测需要）：
@@ -15,7 +15,7 @@ namespace CustomCore
     ///    抽象方法槽（如 Mod.LoadSaveData）保留抽象 stub，调用时抛 EntryPointNotFoundException。
     ///    这里让 string 保持 System.String，使 vtable 槽正确替换为托管实现。
     ///
-    /// 作为前置（CustomCore 先于内容 mod 加载），本修复对依赖本插件的所有注入类生效。
+    /// 作为前置（DSHCore 先于内容 mod 加载），本修复对依赖本插件的所有注入类生效。
     /// </summary>
     internal static class ClassInjectorFix
     {

@@ -1,7 +1,7 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <!--
-    模块化诅咒（Modular Curse）—— 接入原版诅咒系统的诅咒扩展 mod（依赖 CustomCore 前置插件）
+    模块化诅咒（Modular Curse）—— 接入原版诅咒系统的诅咒扩展 mod（依赖 DSHCore 前置库）
 
     原版 0.7.0 诅咒系统（test-4 起）：
       curses.xml（CurseMeta）
@@ -13,7 +13,7 @@
     本 mod 完全走官方这条链：
       - 注册自己的 ModInfo（nsp = modular_curse），Logic 为注入实例。
       - assets/Content/metas/curses.xml 提供诅咒元数据
-        （由 CustomCore.MetaInjection 从磁盘注入 ModResource，
+        （由 DSHCore.MetaInjection 从磁盘注入 ModResource，
           构建时 assets/ 的内容直接部署到 StreamingAssets\Mods\modular_curse\）。
       - 24 个 CurseBuffDefinition 由本 mod 在 LoadStages 时机 AddDefinition，
         每条诅咒一个 buff，效果写在 buff 里（AddModifier / AddTrigger / PostUpdate）。
@@ -37,8 +37,9 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <!-- CustomCore 前置（BepInDependency + CoreRegistry + MetaInjection） -->
-    <ProjectReference Include="..\CustomCore\CustomCore.csproj" />
+    <!-- DSHCore 前置库（Il2CppPin / InjectedMod / ModBootstrap / ModInfos /
+         CoreRegistry / MetaInjection 的来源）-->
+    <ProjectReference Include="..\DSHCore\DSHCore.csproj" />
   </ItemGroup>
 
   <ItemGroup>
@@ -69,22 +70,18 @@
   </ItemGroup>
 
   <!-- 构建后拷贝到部署游戏目录（仅当 GameDir 存在时） -->
-  <Target Name="CopyToPlugins" AfterTargets="Build"
-          Condition="Exists('$(GameDir)MinecraftVSZombies2.exe')">
+  <Target Name="CopyToPlugins" AfterTargets="Build" Condition="Exists('$(GameDir)MinecraftVSZombies2.exe')">
     <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(GameDir)BepInEx\plugins\" />
   </Target>
 
   <!-- 构建后自动部署 Mod 资源到部署游戏目录（仅当 GameDir 存在时）
        assets/ 的内容直接映射到 StreamingAssets\Mods\modular_curse\ -->
-  <Target Name="DeployModAssets" AfterTargets="Build"
-          Condition="Exists('$(GameDir)MinecraftVSZombies2.exe')">
+  <Target Name="DeployModAssets" AfterTargets="Build" Condition="Exists('$(GameDir)MinecraftVSZombies2.exe')">
     <ItemGroup>
       <ModAsset Include="assets\**\*" />
     </ItemGroup>
-    <Copy SourceFiles="@(ModAsset)"
-          DestinationFiles="@(ModAsset->'$(GameDir)MinecraftVSZombies2_Data\StreamingAssets\Mods\modular_curse\%(RecursiveDir)%(Filename)%(Extension)')"
-          SkipUnchangedFiles="true" />
-    <Message Importance="high" Text="[DeployModAssets] @(ModAsset->Count()) 个资源文件已部署到 $(GameDir)MinecraftVSZombies2_Data\StreamingAssets\Mods\modular_curse\" />
+    <Copy SourceFiles="@(ModAsset)" DestinationFiles="@(ModAsset->'$(GameDir)MinecraftVSZombies2_Data\StreamingAssets\Mods\modular_curse\%(RecursiveDir)%(Filename)%(Extension)')" SkipUnchangedFiles="true" />
+    <Message Importance="high" Text="[DeployModAssets] @(ModAsset-&gt;Count()) 个资源文件已部署到 $(GameDir)MinecraftVSZombies2_Data\StreamingAssets\Mods\modular_curse\" />
   </Target>
 
 </Project>

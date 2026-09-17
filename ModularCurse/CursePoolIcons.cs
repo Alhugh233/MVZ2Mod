@@ -25,7 +25,7 @@ namespace ModularCurse
     ///
     /// 为什么 QC/SC 要自己 RegisterSprite：
     ///   0.7.0 的图片走 Addressables 的 SpriteManifest，磁盘上的 mod 资源目录
-    ///   只被 CustomCore 用于 XML metas，图片不会自动进资源库。所以这里读 PNG →
+    ///   只被 DSHCore 用于 XML metas，图片不会自动进资源库。所以这里读 PNG →
     ///   <c>Texture2D</c> → <c>Sprite.Create</c> →
     ///   <c>ResourceManager.RegisterSprite(SpriteReference, Sprite)</c>
     ///   —— 写进去的正是 <c>ResourceManager.GetSprite</c> 查询的那张表

@@ -1,6 +1,6 @@
 # 模块化诅咒（Modular Curse）
 
-MVZ2 0.7.0 的自定义诅咒扩展 mod，接入**原版诅咒系统**。依赖前置插件 CustomCore。
+MVZ2 0.7.0 的自定义诅咒扩展 mod，接入**原版诅咒系统**。依赖前置库 DSHCore。
 
 - 游戏内命名空间：`modular_curse`
 - 诅咒 ID / buff ID / `curses.xml` id / `buffs.xml` id 四者同名，形如 `modular_curse:qc_c1`
@@ -167,7 +167,7 @@ graph LR
    `Logic = ModularCurseMod.CreateInstance()`，`Assemblies` 为空。
 2. **词条**：`ModularCurse/assets/Content/metas/curses.xml` + `buffs.xml`，
    构建时部署到 `MinecraftVSZombies2_Data/StreamingAssets/Mods/modular_curse/Content/metas/`，
-   运行时由 `CustomCore.MetaInjection` 直读磁盘注入 `ModResource`。
+   运行时由 `DSHCore.MetaInjection` 直读磁盘注入 `ModResource`。
 3. **诅咒定义**：官方 `ModLoader.LoadCurseMetas` 用 curses.xml 创建
    `DefaultCurseDefinition`（不需要我们自己建类型）。
 4. **诅咒 buff**：25 个注入的 `CurseBuffDefinition` 子类
@@ -283,7 +283,7 @@ Il2CppInterop 生成的代理**看不到**原生类型实现的接口，因此�
    Il2CppInterop 为它生成的是 **property**（`set__Namespace_k__BackingField` 内部做
    `ManagedStringToIl2Cpp`），我们赋的值是一个**新建的 il2cpp 字符串**；
 2. 该字符串唯一的引用就是「**注入类实例**的引用字段」。而注入类的 GC 描述符不含
-   继承来的引用字段（与 `Il2CppPin` 注释里那条已知限制同源）→ **不被 GC 扫描**；
+   继承来的引用字段（与 `DSHCore.Il2CppPin` 注释里那条已知限制同源）→ **不被 GC 扫描**；
 3. 若干次 GC 后字符串被回收，`mod.Namespace` 读到空/悬垂值；
 4. 游戏自己也用 `mod.Namespace` 找本 mod 的 meta：
    `ModLoader.LoadEntityMetas/LoadStages/LoadBuffMetas/LoadCurseMetas` 全部是
@@ -408,7 +408,7 @@ SelectCurseDialog                          356x294，关闭时 active=0
 两件事都得绕一下：
 
 1. **图标**：0.7.0 的图片走 `SpriteManifest`（Addressables 资源），
-   磁盘上的 `Mods/<nsp>/Content/...` 只被 CustomCore 用于 XML metas，图片不会自动进资源库。
+   磁盘上的 `Mods/<nsp>/Content/...` 只被 DSHCore 用于 XML metas，图片不会自动进资源库。
    所以 mod 自己读 PNG（`File.ReadAllBytes` + `ImageConversion.LoadImage` +
    `Sprite.Create`），再 `ResourceManager.RegisterSprite(SpriteReference, Sprite)` ——
    写进去的正是 `ResourceManager.GetSprite` 查询的那张表（两边都用不带 tags 的
@@ -563,7 +563,7 @@ dotnet build ModularCurse/ModularCurse.csproj -c Debug
 内容 = **插件 + Mod 资源**（运行时环境不重复携带）：
 
 ```
-BepInEx/plugins/CustomCore.dll     ← 前置模组
+BepInEx/plugins/DSHCore.dll        ← 前置库
 BepInEx/plugins/ModularCurse.dll   ← 诅咒模组
 MinecraftVSZombies2_Data/StreamingAssets/Mods/modular_curse/Content/metas/{curses,buffs}.xml
 MinecraftVSZombies2_Data/StreamingAssets/Mods/modular_curse/Content/sprites/{curse_qc,curse_sc}.png
@@ -574,7 +574,7 @@ MinecraftVSZombies2_Data/StreamingAssets/Mods/modular_curse/Content/sprites/{cur
 
 注意事项：
 
-- **必须先装 CustomCore 的包**（`dist\CustomCore_v0.1.0_0.7.0.zip`，约 44 MB）。
+- **必须先装 DSHCore 的包**（`dist\DSHCore_v0.2.0_0.7.0.zip`，约 44 MB）。
   只有那个包携带 BepInEx 运行环境（be.788 x86：`winhttp.dll` / `dotnet/` /
   `BepInEx\{core,interop,unity-libs,patchers,config}`）；本包只有插件和资源，
   单独解压到一个没有 BepInEx 的游戏目录是不会生效的。

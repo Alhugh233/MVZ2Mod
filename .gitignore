@@ -1,6 +1,6 @@
 # ---------------- 构建产物 ----------------
-CustomCore/bin/
-CustomCore/obj/
+DSHCore/bin/
+DSHCore/obj/
 LaboratoryMod/bin/
 LaboratoryMod/obj/
 ModularCurse/bin/
@@ -23,3 +23,4 @@ _Scripts/
 # ---------------- 日志与转储 ----------------
 *.log
 _dump_out/
+TODO.txt

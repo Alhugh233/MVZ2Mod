@@ -3,7 +3,7 @@ using HarmonyLib;
 using MVZ2.Managers;
 using MVZ2.Modding;
 
-namespace CustomCore
+namespace DSHCore
 {
     /// <summary>
     /// arcade 条目 Index 平移（按 CoreRegistry 泛化）。

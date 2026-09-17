@@ -1,7 +1,7 @@
 using HarmonyLib;
 using MVZ2.Modding;
 
-namespace CustomCore
+namespace DSHCore
 {
     /// <summary>
     /// 在游戏 ModManager.LoadMods（0.7 官方加载入口）执行前，

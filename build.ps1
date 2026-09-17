@@ -2,10 +2,10 @@
 # MVZ2 Mod 工作区 —— 总构建脚本
 #
 # 依次构建三个 mod。每个 mod 自己的 build.ps1 负责构建 / 部署 / 打包，
-# 本脚本只是编排（依赖顺序：CustomCore → LaboratoryMod / ModularCurse）。
+# 本脚本只是编排（依赖顺序：DSHCore → LaboratoryMod / ModularCurse）。
 #
 #   .\build.ps1                        构建全部（有游戏目录则自动部署）
-#   .\build.ps1 -Mod core              只构建 CustomCore
+#   .\build.ps1 -Mod dsh               只构建 DSHCore
 #   .\build.ps1 -Mod lab -Pack         只构建 LaboratoryMod 并打包
 #   .\build.ps1 -Clean -Pack           全部：先清再建，并打包
 #   .\build.ps1 -Pack -Launch          全部：打包后启动游戏
@@ -15,7 +15,7 @@
 # =====================================================================
 [CmdletBinding()]
 param(
-    [ValidateSet('all', 'core', 'lab', 'curse')]
+    [ValidateSet('all', 'dsh', 'lab', 'curse')]
     [string]$Mod = 'all',
     [string]$GameDir = "",
     [switch]$SkipBuild,
@@ -29,7 +29,7 @@ $ErrorActionPreference = 'Stop'
 
 # 依赖顺序：前置在前
 $all = @(
-    @{ Key = 'core';  Dir = 'CustomCore';    Title = 'MVZ2 Custom Core' },
+    @{ Key = 'dsh';   Dir = 'DSHCore';       Title = 'DSHCore (大肥鱼核心)' },
     @{ Key = 'lab';   Dir = 'LaboratoryMod'; Title = 'MVZ2 Laboratory Content' },
     @{ Key = 'curse'; Dir = 'ModularCurse';  Title = 'MVZ2 Modular Curse' }
 )

@@ -3,7 +3,7 @@
 	"tasks": [
 		{
 			"label": "构建全部",
-			"detail": "依次构建 CustomCore / LaboratoryMod / ModularCurse（有游戏目录则自动部署）",
+			"detail": "依次构建 DSHCore / LaboratoryMod / ModularCurse（有游戏目录则自动部署）",
 			"type": "shell",
 			"command": "powershell",
 			"args": [
@@ -51,8 +51,8 @@
 			"problemMatcher": []
 		},
 		{
-			"label": "构建: CustomCore",
-			"detail": "前置核心（唯一携带 BepInEx 运行环境的包）",
+			"label": "构建: DSHCore",
+			"detail": "工具 + 前置库（唯一携带 BepInEx 运行环境的包）",
 			"type": "shell",
 			"command": "powershell",
 			"args": [
@@ -62,7 +62,7 @@
 				"-File",
 				"${workspaceFolder}\\build.ps1",
 				"-Mod",
-				"core"
+				"dsh"
 			],
 			"problemMatcher": []
 		},
@@ -140,7 +140,7 @@
 				"-ExecutionPolicy",
 				"Bypass",
 				"-Command",
-				"Remove-Item -Recurse -Force '${workspaceFolder}\\CustomCore\\bin','${workspaceFolder}\\CustomCore\\obj','${workspaceFolder}\\LaboratoryMod\\bin','${workspaceFolder}\\LaboratoryMod\\obj','${workspaceFolder}\\ModularCurse\\bin','${workspaceFolder}\\ModularCurse\\obj' -ErrorAction SilentlyContinue; Write-Host 'bin/obj 已清理'"
+				"Remove-Item -Recurse -Force '${workspaceFolder}\\DSHCore\\bin','${workspaceFolder}\\DSHCore\\obj','${workspaceFolder}\\LaboratoryMod\\bin','${workspaceFolder}\\LaboratoryMod\\obj','${workspaceFolder}\\ModularCurse\\bin','${workspaceFolder}\\ModularCurse\\obj' -ErrorAction SilentlyContinue; Write-Host 'bin/obj 已清理'"
 			],
 			"problemMatcher": []
 		},
@@ -170,12 +170,6 @@
 				"-Command",
 				"$p='E:\\Game\\PVZ\\MVZ2\\MVZ2 0.7.0 test-4\\BepInEx\\ErrorLog.log'; if (Test-Path $p) { Get-Content $p -Tail 60 } else { Write-Host (\"找不到 \" + $p) }"
 			],
-			"problemMatcher": []
-		},
-		{
-			"label": "final-git-status",
-			"type": "shell",
-			"command": "git -C E:\\CodeProject\\MVZ2Mod status --short",
 			"problemMatcher": []
 		}
 	]

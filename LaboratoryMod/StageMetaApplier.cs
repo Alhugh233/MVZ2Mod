@@ -65,7 +65,7 @@ namespace LaboratoryMod
             }
         }
 
-        /// <summary>在 LoadStagesPatch 创建 def 后立即调用（meta 已由 CustomCore 注入）。</summary>
+        /// <summary>在 LoadStagesPatch 创建 def 后立即调用（meta 已由 DSHCore 注入）。</summary>
         public static void ApplyMetaTo(PVZEngine.Level.StageDefinition stageDef)
         {
             try

@@ -2,7 +2,7 @@ using System;
 using BepInEx;
 using BepInEx.Logging;
 using BepInEx.Unity.IL2CPP;
-using CustomCore;
+using DSHCore;
 using Il2CppInterop.Runtime.Injection;
 using Il2CppInterop.Runtime.InteropTypes.Arrays;
 using MVZ2.Modding;
@@ -12,10 +12,10 @@ using PVZEngine;
 namespace ModularCurse
 {
     /// <summary>
-    /// 模块化诅咒（Modular Curse）—— 依赖 CustomCore 前置插件。
+    /// 模块化诅咒（Modular Curse）—— 依赖 DSHCore 前置库。
     ///
     /// 把自定义诅咒接入**原版诅咒系统**（0.7.0 test-4 起加入）：
-    ///   1. CoreRegistry 登记 modular_curse（CustomCore.MetaInjection 据此把
+    ///   1. ModBootstrap 登记 modular_curse（DSHCore.MetaInjection 据此把
     ///      StreamingAssets/Mods/modular_curse/Content/metas/*.xml 注入 ModResource）。
     ///   2. OnRegisterModInfos 注册 ModInfo：Logic = ModularCurseMod.CreateInstance()。
     ///   3. 官方 LoadAll 对每个 mod 调 PreInit/Load/OnInit；其中
@@ -24,7 +24,7 @@ namespace ModularCurse
     ///   4. 玩家在关卡开始前勾选诅咒 → Level.AddBuff(buffId) → 诅咒 buff 生效。
     /// </summary>
     [BepInPlugin(GUID, NAME, VERSION)]
-    [BepInDependency(CustomCore.Plugin.GUID)]
+    [BepInDependency(DSHCore.Plugin.GUID)]
     public class Plugin : BasePlugin
     {
         public const string GUID = "qoznos.mvz2.modularcurse";
@@ -62,16 +62,12 @@ namespace ModularCurse
             Log = base.Log;
             Log.LogInfo("[Plugin] Load begin");
 
-            // 登记到 CustomCore（XML metas 磁盘注入按此 nsp 生效）。
-            CoreRegistry.Register(new CoreRegistry.RegisteredMod
-            {
-                Namespace = ModularCurseMod.spaceName,
-                LogicType = typeof(ModularCurseMod),
-                XmlDefaultNamespace = "mvz2"
-            });
-
-            // 注册注入类（必须在任何实例化之前）。ClassInjectorFix 已由 CustomCore 应用。
-            ClassInjector.RegisterTypeInIl2Cpp<ModularCurseMod>();
+            // 登记命名空间 + 注册注入类（必须在任何实例化之前）。
+            // ClassInjector 缺陷修复已由 DSHCore 在它自己的 Load() 里应用。
+            ModBootstrap.Register(
+                spaceName: ModularCurseMod.spaceName,
+                logicType: typeof(ModularCurseMod),
+                xmlDefaultNamespace: "mvz2");
             CurseBuffs.RegisterAll();
 
             // 定义/生命周期补丁。
@@ -86,15 +82,9 @@ namespace ModularCurse
             // 控制台指令 /curse（all / off / 状态）。
             CurseCommand.Apply();
 
-            // 订阅 0.7 官方的外部 Mod 注册点。
-            var handler = new Func<IGlobalGame,
-                Il2CppSystem.Collections.Generic.List<ModInfo>,
-                Il2CppSystem.Threading.Tasks.Task>(OnRegisterModInfos);
-            var il2cppHandler = Il2CppInterop.Runtime.DelegateSupport
-                .ConvertDelegate<Il2CppSystem.Func<IGlobalGame,
-                    Il2CppSystem.Collections.Generic.List<ModInfo>,
-                    Il2CppSystem.Threading.Tasks.Task>>(handler);
-            ModManager.add_OnRegisterModInfos(il2cppHandler);
+            // 订阅 0.7 官方的外部 Mod 注册点（System.Func → Il2CppSystem.Func
+            // 的委托转换由 DSHCore.ModInfos 完成）。
+            ModInfos.OnRegister(OnRegisterModInfos);
 
             Log.LogInfo(NAME + " v" + VERSION + " loaded, waiting for ModManager.RegisterModInfos...");
         }
@@ -109,17 +99,10 @@ namespace ModularCurse
                 var logic = ModularCurseMod.CreateInstance();
                 VTableRebind.Ensure(typeof(ModularCurseMod));
 
-                var locator = CoreModInfo.BuildEmptyLocator(ModularCurseMod.spaceName);
-                results.Add(new ModInfo(ModularCurseMod.spaceName, locator)
-                {
-                    LevelDataVersion = 4, // = LevelManager.CURRENT_DATA_VERSION
-                    DisplayName = "MVZ2 Modular Curse",
-                    IsBuiltin = false,
-                    CatalogPath = null,
-                    Logic = logic,
-                    // 定义由 CurseDefinitionPatch 手工创建，不走程序集扫描。
-                    Assemblies = new Il2CppReferenceArray<Il2CppSystem.Reflection.Assembly>(0)
-                });
+                // ModInfo 构造样板（空 locator / 存档版本 / 空 Assemblies）见
+                // DSHCore.ModInfos。定义由 CurseDefinitionPatch 手工创建，
+                // 不走程序集扫描。
+                results.Add(ModInfos.Create(ModularCurseMod.spaceName, logic, "MVZ2 Modular Curse"));
                 Log.LogInfo("OnRegisterModInfos: ModInfo added (" + ModularCurseMod.spaceName + ")");
             }
             catch (Exception e)

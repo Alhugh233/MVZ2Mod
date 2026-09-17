@@ -12,13 +12,17 @@
 
 | 目录 | 名称 | 游戏内命名空间 | 说明 | 前置 |
 | ---- | ---- | ---- | ---- | ---- |
-| [`CustomCore/`](CustomCore/README.md) | **MVZ2 Custom Core**（前置核心） | — | IL2CPP 注入基建：ClassInjector 缺陷修复、注入类 vtable 重绑、磁盘 XML metas 注入、存档兜底、街机 Index 平移。**同时提供 BepInEx 运行环境**（只有它的包体包含） | — |
-| [`LaboratoryMod/`](LaboratoryMod/README.md) | **MVZ2 Laboratory Content**（实验室小游戏） | `mvz2_lab` | 三个实验小游戏：真正的序章 / 零度空间 / 真理伪证殿堂 | CustomCore |
-| [`ModularCurse/`](ModularCurse/README.md) | **MVZ2 Modular Curse**（模块化诅咒） | `modular_curse` | 25 条自定义诅咒接入**原版诅咒系统**，按 QC / SC 两个诅咒池组织与切换 | CustomCore |
+| [`DSHCore/`](DSHCore/README.md) | **DSHCore**（工具 + 前置库） | — | IL2CPP 注入基建：ClassInjector 缺陷修复、注入类 vtable 重绑、磁盘 XML metas 注入、存档兜底、街机 Index 平移；并提供 `Il2CppPin` / `InjectedMod` / `ModBootstrap` / `ModInfos` 等公共 API。**同时提供 BepInEx 运行环境**（只有它的包体包含） | — |
+| [`LaboratoryMod/`](LaboratoryMod/README.md) | **MVZ2 Laboratory Content**（实验室小游戏） | `mvz2_lab` | 三个实验小游戏：真正的序章 / 零度空间 / 真理伪证殿堂 | DSHCore |
+| [`ModularCurse/`](ModularCurse/README.md) | **MVZ2 Modular Curse**（模块化诅咒） | `modular_curse` | 25 条自定义诅咒接入**原版诅咒系统**，按 QC / SC 两个诅咒池组织与切换 | DSHCore |
+
+> 📖 **想写新 mod？先读 [`DSHCore/AI_GUIDE.md`](DSHCore/AI_GUIDE.md)** ——
+> 面向 AI 与后来者的开发参考：AI 协作工作流、公共 API 速查、最小 mod 骨架、
+> 0.7 官方集成链时序图，以及 14 条「症状 → 根因 → 对策」陷阱清单。
 
 ```mermaid
 flowchart LR
-    C["CustomCore<br/>基建 + BepInEx 运行环境"]
+    C["DSHCore<br/>工具 + 前置库 + BepInEx 运行环境"]
     L["LaboratoryMod<br/>实验室小游戏"]
     M["ModularCurse<br/>模块化诅咒"]
     L -->|ProjectReference + BepInDependency| C
@@ -39,7 +43,7 @@ flowchart LR
 
 | 参数 | 作用 |
 | ---- | ---- |
-| `-Mod all\|core\|lab\|curse` | 选择构建目标（默认 `all`） |
+| `-Mod all\|dsh\|lab\|curse` | 选择构建目标（默认 `all`） |
 | `-GameDir <dir>` | 部署目标（默认 `E:\Game\PVZ\MVZ2\MVZ2 0.7.0 test-4`；不存在则**只构建不部署**） |
 | `-Clean` | 先删除 `bin/` `obj/` |
 | `-SkipBuild` | 跳过 `dotnet build`，直接用已有产物 |
@@ -91,8 +95,8 @@ VS Code 里这套命令已注册为任务（`Ctrl+Shift+P` → `Tasks: Run Task`
 MVZ2Mod/
 ├─ build.ps1                    总构建脚本（编排三个 mod）
 ├─ readme.md                    本文件
-├─ CustomCore/                  前置核心（基建 + BepInEx 运行环境）
-│   ├─ build.ps1  README.md  CustomCore.csproj  *.cs
+├─ DSHCore/                     工具 + 前置库（基建 + BepInEx 运行环境）
+│   ├─ build.ps1  README.md  AI_GUIDE.md  DSHCore.csproj  *.cs
 ├─ LaboratoryMod/               实验室小游戏
 │   ├─ build.ps1  README.md  LaboratoryMod.csproj  *.cs
 │   ├─ assets/                  资源（映射到 StreamingAssets/Mods/mvz2_lab/）
@@ -120,9 +124,9 @@ MVZ2Mod/
 
 | 包 | 包含 | 说明 |
 | ---- | ---- | ---- |
-| `CustomCore_v*_0.7.0.zip` | **BepInEx 运行环境** + 插件 | 完整独立安装包，解压到游戏根目录即可用 |
-| `LaboratoryMod_v*_0.7.0.zip` | 插件 + 资源（+ `CustomCore.dll`） | **不含**运行环境，需先装 CustomCore 包 |
-| `ModularCurse_v*_0.7.0.zip` | 插件 + 资源（+ `CustomCore.dll`） | 同上 |
+| `DSHCore_v*_0.7.0.zip` | **BepInEx 运行环境** + 插件 | 完整独立安装包，解压到游戏根目录即可用 |
+| `LaboratoryMod_v*_0.7.0.zip` | 插件 + 资源（+ `DSHCore.dll`） | **不含**运行环境，需先装 DSHCore 包 |
+| `ModularCurse_v*_0.7.0.zip` | 插件 + 资源（+ `DSHCore.dll`） | 同上 |
 
 > 即：**只有前置核心的包体携带 BepInEx**，其余 mod 的包体保持轻量。
 
@@ -146,7 +150,7 @@ MVZ2Mod/
    另外：不要在 `PostInit` / `PostReloadMods` 里调用官方的 `DefinitionGroup.GetDefinitions()`
    等 LINQ 链路 —— 注入 def 参与原生 LINQ 枚举时会非确定性失败。
 
-更完整的注入注意事项见 [`CustomCore/README.md`](CustomCore/README.md)。
+更完整的注入注意事项见 [`DSHCore/AI_GUIDE.md`](DSHCore/AI_GUIDE.md)。
 
 ---
 

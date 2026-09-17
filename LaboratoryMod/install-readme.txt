@@ -4,7 +4,7 @@ MVZ2 Laboratory Content（实验室小游戏） v{VERSION}
 适用版本：我的世界僵尸 2（MVZ2） 0.7.0 test-4（x86 / IL2CPP）
 
 【前置要求】
-必须先安装 **MVZ2 Custom Core** 的安装包
+必须先安装 **DSHCore** 的安装包
 （它提供 BepInEx 运行环境）。本包只含插件与关卡资源。
 
 【包含内容】
@@ -13,7 +13,7 @@ MVZ2 Laboratory Content（实验室小游戏） v{VERSION}
   unknow_palace   真理伪证殿堂  —— 逐波替换卡槽 + 完全接管出怪
 
 【安装】
-1. 先装好 CustomCore 的安装包。
+1. 先装好 DSHCore 的安装包。
 2. 关闭游戏。
 3. 把本压缩包内所有内容解压到游戏根目录（覆盖同名文件）。
 4. 启动游戏 → 主菜单「小游戏」（街机）列表末尾即可看到 3 个新关卡。

@@ -6,7 +6,7 @@
 - 插件 GUID：`qoznos.mvz2.modularcurse`
 - 游戏内命名空间：`modular_curse`
 - 当前版本：**0.2.1**
-- 前置：**CustomCore**（`qoznos.mvz2.core`，必需）
+- 前置：**DSHCore**（`qoznos.mvz2.core`，必需）
 - 适配：MVZ2 **0.7.0 test-4**（Windows **x86** / IL2CPP / Unity 2022.3.62f3）
 
 > ⚠️ 社区制作的**非官方**内容，与游戏原作者无关。
@@ -51,7 +51,7 @@ curses.xml (CurseMeta)
 
 ```powershell
 cd ModularCurse
-.\build.ps1                 # 构建（含前置 CustomCore）+ 自动部署
+.\build.ps1                 # 构建（含前置 DSHCore）+ 自动部署
 .\build.ps1 -Pack           # 额外打包 dist\ModularCurse_v0.2.1_0.7.0.zip
 .\build.ps1 -Pack -Launch   # 打包后启动游戏冒烟
 ```
@@ -65,8 +65,8 @@ cd ModularCurse
 | `-Pack` | 打包 zip 到 `dist\` |
 | `-Launch` | 构建/打包后启动游戏 |
 
-工程通过 `ProjectReference` 引用 `CustomCore`，构建本 mod 会**一并构建前置**；
-本 mod 的包体**不含** BepInEx 运行环境（需先安装 CustomCore 的安装包），但会带上 `CustomCore.dll`。
+工程通过 `ProjectReference` 引用 `DSHCore`，构建本 mod 会**一并构建前置**；
+本 mod 的包体**不含** BepInEx 运行环境（需先安装 DSHCore 的安装包），但会带上 `DSHCore.dll`。
 
 ---
 
@@ -86,7 +86,7 @@ assets/
        └─ curse_sc.png   SC 池图标
 ```
 
-> XML 由 `CustomCore.MetaInjection` 直读磁盘注入；
+> XML 由 `DSHCore.MetaInjection` 直读磁盘注入；
 > 图标由本 mod 在运行时注册进游戏资源库。
 > **注意：metas 的 XML 里不要写注释**（`Comment` 节点会触发 NRE）。
 
@@ -99,11 +99,10 @@ ModularCurse/
 ├─ build.ps1                    构建 / 部署 / 打包脚本
 ├─ README.md                    本文件
 ├─ CURSES.md                    诅咒清单与实现细节（完整设计文档）
-├─ ModularCurse.csproj          工程文件（ProjectReference → CustomCore）
+├─ ModularCurse.csproj          工程文件（ProjectReference → DSHCore）
 ├─ assets/                      Mod 资源（映射到 StreamingAssets/Mods/modular_curse/）
-├─ Plugin.cs                    入口：CoreRegistry 登记 + 注入类注册 + 订阅 OnRegisterModInfos
+├─ Plugin.cs                    入口：ModBootstrap 登记 + ModInfos.OnRegister 订阅
 ├─ ModularCurseMod.cs           Mod 逻辑主体
-├─ Il2CppPin.cs                 GC 句柄钉住工具
 ├─ CurseIds.cs                  诅咒 ID 表
 ├─ CurseDefinitionPatch.cs      拦截官方 LoadStages 时机创建诅咒 buff 定义
 ├─ CurseMetaApplier.cs          把 XML meta 套到注入 def

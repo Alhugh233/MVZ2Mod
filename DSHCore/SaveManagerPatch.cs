@@ -1,7 +1,7 @@
 using HarmonyLib;
 using MVZ2.Saves;
 
-namespace CustomCore
+namespace DSHCore
 {
     /// <summary>
     /// 存档读写兜底补丁（按 CoreRegistry 泛化）。

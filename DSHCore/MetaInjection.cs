@@ -7,7 +7,7 @@ using MVZ2.Metas;
 using MVZ2.Modding;
 using UnityEngine;
 
-namespace CustomCore
+namespace DSHCore
 {
     /// <summary>
     /// 外部内容 mod 的 XML metas 磁盘注入（按 CoreRegistry 注册表泛化）。

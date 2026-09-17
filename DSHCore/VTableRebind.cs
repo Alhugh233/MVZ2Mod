@@ -4,7 +4,7 @@ using Il2CppInterop.Runtime;
 using Il2CppInterop.Runtime.Runtime;
 using Il2CppInterop.Runtime.Runtime.VersionSpecific.Class;
 
-namespace CustomCore
+namespace DSHCore
 {
     /// <summary>
     /// 修复注入类 vtable 虚方法槽被 IL2CPP Class::Init 重置的问题。
