@@ -28,19 +28,12 @@
     <LangVersion>9.0</LangVersion>
     <Nullable>disable</Nullable>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
-    <RuntimeDir>$(MSBuildThisFileDirectory)..\runtime\</RuntimeDir>
-    <RuntimeCoreDir>$(RuntimeDir)BepInEx\core\</RuntimeCoreDir>
-    <RuntimeInteropDir>$(RuntimeDir)BepInEx\interop\</RuntimeInteropDir>
-    <GameDir Condition="'$(GameDir)' == ''">E:\Game\PVZ\MVZ2\MVZ2 0.7.0 test-4\</GameDir>
     <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
     <DebugType>portable</DebugType>
+    <!-- 共享编译环境解析（RuntimeDir / RuntimeCoreDir / RuntimeInteropDir /
+         GameDir，以及 DSHCore 前置的引用方式）由同目录的
+         Directory.Build.props 转发到仓库根的配置。 -->
   </PropertyGroup>
-
-  <ItemGroup>
-    <!-- DSHCore 前置库（Il2CppPin / InjectedMod / ModBootstrap / ModInfos /
-         CoreRegistry / MetaInjection 的来源）-->
-    <ProjectReference Include="..\DSHCore\DSHCore.csproj" />
-  </ItemGroup>
 
   <ItemGroup>
     <!-- BepInEx 6 核心程序集（与 runtime/ 内版本完全一致） -->
@@ -69,14 +62,14 @@
     </Reference>
   </ItemGroup>
 
-  <!-- 构建后拷贝到部署游戏目录（仅当 GameDir 存在时） -->
-  <Target Name="CopyToPlugins" AfterTargets="Build" Condition="Exists('$(GameDir)MinecraftVSZombies2.exe')">
+  <!-- 构建后拷贝到部署游戏目录（仅当 GameDir 有效时） -->
+  <Target Name="CopyToPlugins" AfterTargets="Build" Condition="'$(GameDir)' != '' And Exists('$(GameDir)MinecraftVSZombies2.exe')">
     <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(GameDir)BepInEx\plugins\" />
   </Target>
 
-  <!-- 构建后自动部署 Mod 资源到部署游戏目录（仅当 GameDir 存在时）
+  <!-- 构建后自动部署 Mod 资源到部署游戏目录（仅当 GameDir 有效时）
        assets/ 的内容直接映射到 StreamingAssets\Mods\modular_curse\ -->
-  <Target Name="DeployModAssets" AfterTargets="Build" Condition="Exists('$(GameDir)MinecraftVSZombies2.exe')">
+  <Target Name="DeployModAssets" AfterTargets="Build" Condition="'$(GameDir)' != '' And Exists('$(GameDir)MinecraftVSZombies2.exe')">
     <ItemGroup>
       <ModAsset Include="assets\**\*" />
     </ItemGroup>

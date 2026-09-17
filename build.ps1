@@ -8,10 +8,14 @@
 #   .\build.ps1 -Mod dsh               只构建 DSHCore
 #   .\build.ps1 -Mod lab -Pack         只构建 LaboratoryMod 并打包
 #   .\build.ps1 -Clean -Pack           全部：先清再建，并打包
+#   .\build.ps1 -Mod dsh -PackDevKit   打「不含 DSHCore 源码」的便携开发环境包
 #   .\build.ps1 -Pack -Launch          全部：打包后启动游戏
 #
-# 参数会原样透传给各 mod 的 build.ps1。
+# 参数会原样透传给各 mod 的 build.ps1（-PackDevKit / -NoRuntime 只传给 DSHCore）。
 # 只想构建单个 mod 时，直接运行该 mod 目录下的 build.ps1 更直观。
+#
+# 注：在精简工作区（例如 DevKit 包里剔掉了 DSHCore 源码）里跑 -Mod all 时，
+#     缺失的 mod 会被优雅跳过，不算失败。
 # =====================================================================
 [CmdletBinding()]
 param(
@@ -22,7 +26,9 @@ param(
     [switch]$Clean,
     [switch]$KeepGame,
     [switch]$Pack,
-    [switch]$Launch
+    [switch]$Launch,
+    [switch]$PackDevKit,
+    [switch]$NoRuntime
 )
 $ErrorActionPreference = 'Stop'
 . "$PSScriptRoot\tools\build-common.ps1"
@@ -44,6 +50,8 @@ if ($Clean)     { $passthru['Clean']     = $true }
 if ($KeepGame)  { $passthru['KeepGame']  = $true }
 if ($Pack)      { $passthru['Pack']      = $true }
 if ($Launch)    { $passthru['Launch']    = $true }
+if ($PackDevKit) { $passthru['PackDevKit'] = $true }
+if ($NoRuntime) { $passthru['NoRuntime'] = $true }
 
 Write-Host ""
 Write-Host ("构建目标: " + (($selected | ForEach-Object { $_.Key }) -join ', ')) -ForegroundColor White
@@ -51,19 +59,34 @@ Write-Host ("构建目标: " + (($selected | ForEach-Object { $_.Key }) -join ',
 $failed = @()
 foreach ($m in $selected) {
     $script = Join-Path (Join-Path $PSScriptRoot $m.Dir) 'build.ps1'
-    Write-Host ""
-    Write-Host ("################  " + $m.Title + "  ################") -ForegroundColor Magenta
     if (-not (Test-Path $script)) {
-        Write-Warn2 ("找不到 " + $script + "，跳过")
+        if ($Mod -eq 'all') {
+            # 精简工作区（例如 DevKit 包剔掉了 DSHCore 源码）—— 跳过不算失败
+            Write-Warn2 ("工作区未包含 " + $m.Dir + "，跳过")
+            continue
+        }
+        Write-Host ""
+        Write-Warn2 ("找不到 " + $script)
         $failed += $m.Key
         continue
     }
+
+    # -PackDevKit / -NoRuntime 只有 DSHCore 的 build.ps1 认识，别传给其它 mod
+    $p = @{}
+    foreach ($k in $passthru.Keys) { $p[$k] = $passthru[$k] }
+    if ($m.Key -ne 'dsh') {
+        [void]$p.Remove('PackDevKit')
+        [void]$p.Remove('NoRuntime')
+    }
+
+    Write-Host ""
+    Write-Host ("################  " + $m.Title + "  ################") -ForegroundColor Magenta
     # 子脚本对硬错误一律 throw（编译失败 / 产物缺失 / 打包失败），
     # 所以这里用 try/catch 判定成败。
     # 注意：不要用 $LASTEXITCODE 判定 —— 子脚本在 -SkipBuild 等路径下不会调用
     # 原生命令（dotnet），此时 $LASTEXITCODE 为 $null，$null -ne 0 会误判为失败。
     try {
-        & $script @passthru
+        & $script @p
     } catch {
         Write-Warn2 ($m.Title + " 构建失败：" + $_.Exception.Message)
         $failed += $m.Key

@@ -1,7 +1,7 @@
 DSHCore（大肥鱼核心 / 前置模组） v{VERSION}
 ==========================================
 
-适用版本：我的世界僵尸 2（MVZ2） 0.7.0 test-4（Windows x86 / IL2CPP）
+适用版本：Minecraft vs Zombies 2（MVZ2） 0.7.0 test-4（Windows x86 / IL2CPP）
 
 【这是什么】
 所有 MVZ2 mod 的公共前置与开发工具库。它本身不添加任何游戏内容，只提供：

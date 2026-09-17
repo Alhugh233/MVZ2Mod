@@ -1,0 +1,34 @@
+<Project>
+
+  <!-- ==================================================================
+       本机私有配置模板
+
+       用法：把本文件复制成同目录下的 `Directory.Build.local.props`
+       （该文件名已在 .gitignore 里，不会被提交），然后按需修改。
+
+       这里的值会覆盖仓库默认值，但**不能**覆盖命令行传的 -p: 参数。
+
+       所有字段都是可选的 —— 全部留空也能构建，只是不会自动部署到游戏。
+       ================================================================== -->
+
+  <PropertyGroup>
+
+    <!-- 测试/部署用的游戏目录（**必须带结尾反斜杠**）。
+         存在 MinecraftVSZombies2.exe 时才会部署，否则只构建。
+         给了它以后，runtime\ 也可以省掉：编译引用会自动借用这个
+         游戏目录自带的 BepInEx\core 与 BepInEx\interop。 -->
+    <GameDir>E:\Game\MinecraftVSZombies2\</GameDir>
+
+    <!-- 编译引用目录（可选）。不写就按下面顺序自动找：
+         仓库 runtime\  →  GameDir
+         只有在 runtime\ 想放在别处（比如多个游戏版本各一份）时才需要它。 -->
+    <!-- <RuntimeDir>D:\MVZ2-runtimes\0.7.0\</RuntimeDir> -->
+
+    <!-- 强制 DSHCore 的引用方式（可选）。
+         false = 只用 _refs\DSHCore\DSHCore.dll，不编译 DSHCore 源码
+                 （改 DSHCore 源码时不要开，否则改了不生效）。 -->
+    <!-- <DshCoreFromSource>false</DshCoreFromSource> -->
+
+  </PropertyGroup>
+
+</Project>

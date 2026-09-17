@@ -1,0 +1,106 @@
+<Project>
+
+  <!-- ==================================================================
+       MVZ2 Mod 工作区 —— 共享编译环境解析
+
+       MSBuild 从「工程所在目录」逐级向上查找 Directory.Build.props，
+       所以无论 VS Code 打开仓库根、还是只打开某个 mod 子目录，
+       只要磁盘上的目录结构完整，本文件都会被加载。
+
+       只对显式声明 <Mvz2Mod>true</Mvz2Mod> 的工程生效
+       （DSHCore / LaboratoryMod / ModularCurse），
+       以免影响 tools/InteropGen 等无关工程。
+
+       它解决三件事：
+         ① DSHCore 前置的来源：源码（DSHCore/）或二进制（_refs/DSHCore/）
+         ② runtime\ 的位置：可用 MVZ2_RUNTIME_DIR 覆盖；缺失时直接借用游戏目录
+         ③ GameDir 不再硬编码作者本机路径（放进本机私有的 local props）
+
+       优先级：命令行 -p: > Directory.Build.local.props > MVZ2_* 环境变量
+               > 仓库内默认值
+       ================================================================== -->
+
+  <!-- 本机私有覆盖（不入库）。模板见 Directory.Build.local.props.example，
+       可在里面写 <GameDir> / <RuntimeDir> / <DshCoreFromSource> 等。 -->
+  <Import Project="$(MSBuildThisFileDirectory)Directory.Build.local.props"
+          Condition="Exists('$(MSBuildThisFileDirectory)Directory.Build.local.props')" />
+
+  <PropertyGroup Condition="'$(Mvz2Mod)' == 'true'">
+
+    <!-- ================= ① 部署目标 GameDir（可选） =================
+         没给就「只构建不部署」——仓库里不再出现任何人的本机路径。 -->
+    <GameDir Condition="'$(GameDir)' == '' And '$(MVZ2_GAME_DIR)' != ''">$([MSBuild]::EnsureTrailingSlash('$(MVZ2_GAME_DIR)'))</GameDir>
+    <GameDir Condition="'$(GameDir)' != ''">$([MSBuild]::EnsureTrailingSlash('$(GameDir)'))</GameDir>
+
+    <!-- ================= ② runtime\：编译引用的唯一来源 =============
+         解析顺序：
+           1. 显式 RuntimeDir（-p:）
+           2. MVZ2_RUNTIME_DIR 环境变量
+           3. 仓库内 runtime\
+           4. 工作区根本身就是一套 BepInEx 安装（DevKit 包 / 把仓库
+              直接放进游戏目录里跑的情形）
+           5. 直接借用 GameDir —— 游戏目录本身就是一套合法的 BepInEx
+              环境（winhttp + BepInEx\core + BepInEx\interop）
+         runtime\ 里的 BepInEx 版本必须与游戏完全一致（be.788 / interop
+         由该游戏二进制生成），否则运行期会崩。 -->
+    <RuntimeDir Condition="'$(RuntimeDir)' == '' And '$(MVZ2_RUNTIME_DIR)' != ''">$([MSBuild]::EnsureTrailingSlash('$(MVZ2_RUNTIME_DIR)'))</RuntimeDir>
+    <RuntimeDir Condition="'$(RuntimeDir)' == '' And Exists('$(MSBuildThisFileDirectory)runtime\BepInEx\core\BepInEx.Core.dll')">$(MSBuildThisFileDirectory)runtime\</RuntimeDir>
+    <RuntimeDir Condition="'$(RuntimeDir)' == '' And Exists('$(MSBuildThisFileDirectory)BepInEx\core\BepInEx.Core.dll')">$(MSBuildThisFileDirectory)</RuntimeDir>
+    <RuntimeDir Condition="'$(RuntimeDir)' == '' And '$(GameDir)' != '' And Exists('$(GameDir)BepInEx\core\BepInEx.Core.dll')">$(GameDir)</RuntimeDir>
+    <RuntimeCoreDir>$(RuntimeDir)BepInEx\core\</RuntimeCoreDir>
+    <RuntimeInteropDir>$(RuntimeDir)BepInEx\interop\</RuntimeInteropDir>
+
+    <!-- ================= ③ DSHCore 前置的来源 =======================
+         DshCoreFromSource = true  → ProjectReference 编译 DSHCore 源码
+         DshCoreFromSource = false → Reference 引用 _refs\DSHCore\DSHCore.dll
+         （供不附带 DSHCore 源码的便携环境；源码缺失时自动降级）。
+         想强制走二进制：-p:DshCoreFromSource=false -->
+    <DshCoreProjectPath Condition="'$(DshCoreProjectPath)' == ''">$(MSBuildThisFileDirectory)DSHCore\DSHCore.csproj</DshCoreProjectPath>
+    <DshCoreRefDir Condition="'$(DshCoreRefDir)' == ''">$(MSBuildThisFileDirectory)_refs\DSHCore\</DshCoreRefDir>
+    <DshCoreFromSource Condition="'$(DshCoreFromSource)' == ''">true</DshCoreFromSource>
+    <DshCoreFromSource Condition="'$(DshCoreFromSource)' == 'true' And !Exists('$(DshCoreProjectPath)')">false</DshCoreFromSource>
+
+    <!-- 内容 mod = 需要引用 DSHCore 的工程；DSHCore 自身不消费自己 -->
+    <DshCoreIsConsumer Condition="'$(MSBuildProjectName)' != 'DSHCore'">true</DshCoreIsConsumer>
+    <DshCoreIsConsumer Condition="'$(DshCoreIsConsumer)' == ''">false</DshCoreIsConsumer>
+  </PropertyGroup>
+
+  <ItemGroup Condition="'$(DshCoreIsConsumer)' == 'true' And '$(DshCoreFromSource)' == 'true'">
+    <ProjectReference Include="$(DshCoreProjectPath)" />
+  </ItemGroup>
+
+  <ItemGroup Condition="'$(DshCoreIsConsumer)' == 'true' And '$(DshCoreFromSource)' != 'true'">
+    <Reference Include="DSHCore">
+      <HintPath>$(DshCoreRefDir)DSHCore.dll</HintPath>
+      <!-- 与其它运行期程序集一致：不拷进 bin\Debug\，
+           由 DSHCore 自己的构建目标 / DeployDshCoreReference 负责部署。 -->
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+
+  <!-- 缺东西时给一句人话，而不是让编译器冒出上百条 CS0246 / CS0006 -->
+  <Target Name="CheckMvz2BuildEnvironment"
+          BeforeTargets="BeforeCompile"
+          Condition="'$(Mvz2Mod)' == 'true'">
+    <Error Condition="'$(RuntimeDir)' == '' Or !Exists('$(RuntimeCoreDir)BepInEx.Core.dll')"
+           Code="MVZ001"
+           Text="找不到编译用的 BepInEx 环境：$(RuntimeCoreDir)BepInEx.Core.dll&#10;三选一：&#10;  1) 跑 .\tools\sync-runtime.ps1 -GameDir &quot;&lt;游戏目录&gt;&quot; 生成仓库内 runtime\&#10;  2) 设环境变量 MVZ2_RUNTIME_DIR=&lt;游戏目录&gt;\，或写进 Directory.Build.local.props&#10;  3) 传 -p:RuntimeDir=&lt;游戏目录&gt;\" />
+    <Error Condition="'$(DshCoreIsConsumer)' == 'true' And '$(DshCoreFromSource)' != 'true' And !Exists('$(DshCoreRefDir)DSHCore.dll')"
+           Code="MVZ002"
+           Text="找不到 DSHCore 编译引用。&#10;  源码路径（不存在）：$(DshCoreProjectPath)&#10;  二进制路径（不存在）：$(DshCoreRefDir)DSHCore.dll&#10;三选一：&#10;  1) 把 DSHCore 源码放回 $(MSBuildThisFileDirectory)DSHCore\&#10;  2) 跑 DSHCore 的 build.ps1，它会同步生成 _refs\DSHCore\DSHCore.dll&#10;  3) 从 DSHCore 的 DevKit 包里取出 _refs\DSHCore\ 目录" />
+    <Message Importance="high"
+             Condition="'$(DshCoreIsConsumer)' == 'true' And '$(DshCoreFromSource)' != 'true'"
+             Text="[DSHCore] 二进制引用：$(DshCoreRefDir)DSHCore.dll" />
+  </Target>
+
+  <!-- 二进制引用模式下 DSHCore 的 csproj 不会参与构建，
+       它的 CopyToPlugins 也就不会跑 —— 这里补一次部署。 -->
+  <Target Name="DeployDshCoreReference"
+          AfterTargets="Build"
+          Condition="'$(DshCoreIsConsumer)' == 'true' And '$(DshCoreFromSource)' != 'true' And '$(GameDir)' != '' And Exists('$(GameDir)MinecraftVSZombies2.exe')">
+    <Copy SourceFiles="$(DshCoreRefDir)DSHCore.dll"
+          DestinationFolder="$(GameDir)BepInEx\plugins\"
+          SkipUnchangedFiles="true" />
+  </Target>
+
+</Project>

@@ -1,6 +1,6 @@
 # MVZ2 Laboratory Content（实验室小游戏）
 
-> 《我的世界僵尸 2》（Minecraft VS Zombies 2）0.7.0 的社区内容 mod。
+> 《Minecraft vs Zombies 2》（Minecraft VS Zombies 2）0.7.0 的社区内容 mod。
 > 把 0.6.4 `laboratory` 分支里的实验小游戏，通过**官方外部 Mod 扩展点**带到 0.7.0，全程不修改游戏原始文件。
 
 - 插件 GUID：`qoznos.mvz2.labmod`
@@ -179,5 +179,5 @@ flowchart TD
 
 ## 致谢
 
-- **Cuerzor** — 《我的世界僵尸 2》作者，以及 0.7.0 的官方 Mod 扩展点设计
+- **Cuerzor** — 《Minecraft vs Zombies 2》作者，以及 0.7.0 的官方 Mod 扩展点设计
 - [BepInEx](https://github.com/BepInEx/BepInEx) / [Il2CppInterop](https://github.com/BepInEx/Il2CppInterop) — IL2CPP 注入框架

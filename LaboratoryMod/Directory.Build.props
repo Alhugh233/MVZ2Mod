@@ -1,0 +1,28 @@
+<Project>
+
+  <!-- ==================================================================
+       把本工程接入「MVZ2 mod 共享编译环境解析」。
+
+       为什么要这么一份文件？
+       MSBuild 只自动导入**离工程最近的那一个** Directory.Build.props。
+       而 Directory.Build.props 是在 csproj 正文**之前**求值的，所以在
+       csproj 里写 <Mvz2Mod>true</Mvz2Mod> 根本来不及生效 —— 必须在
+       更早的地方声明。
+
+       于是每个 mod 目录放这么一份薄的转发文件：
+         ① 声明 <Mvz2Mod>true</Mvz2Mod>（= 本工程属于 MVZ2 mod 家族）
+         ② 再把仓库根的那份共享配置导入进来
+
+       → 新 mod 直接把本文件复制进新目录即可。
+       → 不想接入共享解析的工程（例如 tools\InteropGen）就别放它。
+       ================================================================== -->
+
+  <PropertyGroup>
+    <Mvz2Mod>true</Mvz2Mod>
+    <!-- 沿目录向上找到仓库根的 Directory.Build.props -->
+    <Mvz2RootProps>$([MSBuild]::GetPathOfFileAbove('Directory.Build.props', '$(MSBuildThisFileDirectory)../'))</Mvz2RootProps>
+  </PropertyGroup>
+
+  <Import Project="$(Mvz2RootProps)" Condition="'$(Mvz2RootProps)' != ''" />
+
+</Project>

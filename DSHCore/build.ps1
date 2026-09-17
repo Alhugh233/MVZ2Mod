@@ -5,10 +5,15 @@
 #   .\build.ps1 -Clean            先清 bin/ obj/ 再构建
 #   .\build.ps1 -KeepGame         不结束正在运行的游戏
 #   .\build.ps1 -Pack             额外打包可分发 zip 到 dist\
+#   .\build.ps1 -PackDevKit       额外打「不含 DSHCore 源码」的便携开发环境包
+#   .\build.ps1 -PackDevKit -NoRuntime   同上，但包里不带 runtime\
 #   .\build.ps1 -Pack -Launch     打包后启动游戏冒烟
 #
 # 说明：
-#   - 编译引用一律来自仓库自包含的 runtime\，构建不依赖游戏目录。
+#   - 编译引用来自 runtime\（解析顺序：环境变量 MVZ2_RUNTIME_DIR >
+#     Directory.Build.local.props > 仓库 runtime\ > 游戏目录）。
+#   - 每次构建都会自动同步 _refs\DSHCore\DSHCore.dll —— 那是「不附带
+#     DSHCore 源码」的 mod 工程与 DevKit 包所使用的编译引用。
 #   - 本库是「前置核心」，只有它的包体包含 BepInEx 运行环境
 #     （winhttp / doorstop / dotnet / BepInEx\core|interop|unity-libs）。
 #     其它 mod 的包体只含插件 + 资源，需要先安装本包。
@@ -19,7 +24,9 @@ param(
     [switch]$Clean,
     [switch]$KeepGame,
     [switch]$Pack,
-    [switch]$Launch
+    [switch]$Launch,
+    [switch]$PackDevKit,
+    [switch]$NoRuntime
 )
 $ErrorActionPreference = 'Stop'
 . "$PSScriptRoot\..\tools\build-common.ps1"
@@ -31,9 +38,9 @@ $csproj    = Join-Path $modDir 'DSHCore.csproj'
 $pluginCs  = Join-Path $modDir 'Plugin.cs'
 $pluginDll = Join-Path $modDir 'bin\Debug\DSHCore.dll'
 $outDir    = Join-Path $repo 'dist'
-$runtime   = Join-Path $repo 'runtime'
+$runtime   = Get-DefaultRuntimeDir -RepoRoot $repo
 
-$GameDir = Normalize-GameDir $GameDir 'E:\Game\PVZ\MVZ2\MVZ2 0.7.0 test-4'
+$GameDir = Normalize-GameDir $GameDir (Get-DefaultGameDir -RepoRoot $repo)
 $version = Get-PluginVersion $pluginCs
 $dotnet  = Find-Dotnet
 $hasGame = Test-GameDir $GameDir
@@ -43,7 +50,7 @@ Write-Info ("dotnet   : " + $dotnet)
 Write-Info ("game dir : " + $GameDir + $(if ($hasGame) { '' } else { '   [不存在 -> 只构建]' }))
 
 # ---------- 1. 结束游戏（它锁住插件 DLL）+ 清理改名前的旧 DLL ----------
-Write-Step "[1/4] 结束游戏进程"
+Write-Step "[1/5] 结束游戏进程"
 Stop-GameProcess -Keep:$KeepGame
 
 # 本库曾叫 CustomCore。旧包的 BepInEx\plugins\CustomCore.dll 与新 DLL
@@ -60,14 +67,14 @@ if ($hasGame) {
 }
 
 # ---------- 2. 构建 ----------
-Write-Step "[2/4] 构建 DSHCore.csproj -c Debug"
+Write-Step "[2/5] 构建 DSHCore.csproj -c Debug"
 Invoke-DotnetBuild -Csproj $csproj -Dotnet $dotnet -GameDir $GameDir -Clean:$Clean -SkipBuild:$SkipBuild
 if (-not (Test-Path $pluginDll)) { throw ("插件产物不存在：" + $pluginDll) }
 $dll = Get-Item $pluginDll
 Write-Ok ("DLL: " + $dll.Length + " bytes  " + $dll.LastWriteTime)
 
 # ---------- 3. 校验自动部署 ----------
-Write-Step "[3/4] 校验部署"
+Write-Step "[3/5] 校验部署"
 if (-not $hasGame) {
     Write-Warn2 "游戏目录不存在，未部署"
 } else {
@@ -77,7 +84,7 @@ if (-not $hasGame) {
 }
 
 # ---------- 4. 打包 ----------
-Write-Step "[4/4] 打包"
+Write-Step "[4/5] 打包"
 if (-not $Pack) {
     Write-Warn2 "跳过（加 -Pack 启用）"
 } else {
@@ -92,6 +99,26 @@ if (-not $Pack) {
         InstallReadme  = $readme
     }
     New-ModPackage @pkgArgs | Out-Null
+}
+
+# ---------- 5. 便携开发环境（不含 DSHCore 源码） ----------
+Write-Step "[5/5] 便携开发环境 DevKit"
+if (-not $PackDevKit) {
+    Write-Warn2 "跳过（加 -PackDevKit 启用）"
+} else {
+    $kitReadme = Get-Content (Join-Path $modDir 'devkit-readme.txt') -Raw -Encoding UTF8
+    $kitReadme = $kitReadme.Replace('{VERSION}', $version)
+    $kitArgs = @{
+        PackageName = ('DSHCore-DevKit_v' + $version + '_0.7.0')
+        OutDir      = $outDir
+        RepoRoot    = $repo
+        RefDir      = (Join-Path $repo '_refs\DSHCore')
+        RuntimeDir  = $runtime
+        ModDirs     = @('LaboratoryMod', 'ModularCurse')
+        ReadmeText  = $kitReadme
+    }
+    if ($NoRuntime) { $kitArgs['NoRuntime'] = $true }
+    New-DevKitPackage @kitArgs | Out-Null
 }
 
 # ---------- 5. 启动（可选） ----------

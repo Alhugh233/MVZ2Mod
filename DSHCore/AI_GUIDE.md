@@ -11,14 +11,15 @@
 
 ## 0. 先读这一页
 
-| 项 | 值 |
-| ---- | ---- |
-| 游戏 | 我的世界僵尸 2（MVZ2）**0.7.0 test-4**，Windows **x86** |
-| 运行时 | Unity 2022.3.62f3 / IL2CPP **metadata v31.1** |
-| BepInEx | **be.788**（x86 IL2CPP），内含 Il2CppInterop **1.5.3** |
-| 编译 | .NET 6 SDK（`net6.0`），`LangVersion 9.0` |
-| 编译引用 | 仓库自包含的 `runtime/`（`BepInEx/core/*.dll` + `BepInEx/interop/*.dll`） |
-| 本库 GUID | `qoznos.mvz2.core` —— **历史值，别改**（改了所有 mod 的 `BepInDependency` 会失效） |
+
+| 项        | 值                                                                       |
+| --------- | ------------------------------------------------------------------------ |
+| 游戏      | Minecraft vs Zombies 2（MVZ2）**0.7.0 test-4**，Windows **x86**                  |
+| 运行时    | Unity 2022.3.62f3 / IL2CPP**metadata v31.1**                             |
+| BepInEx   | **be.788**（x86 IL2CPP），内含 Il2CppInterop **1.5.3**                   |
+| 编译      | .NET 6 SDK（`net6.0`），`LangVersion 9.0`                                |
+| 编译引用  | `runtime\`、游戏目录、或 `MVZ2_RUNTIME_DIR`（见 §3「前置与环境从哪来」） |
+| 本库 GUID | `qoznos.mvz2.core`                                                       |
 
 > ⚠️ 本库为社区作品，与游戏原作者无关。
 
@@ -76,16 +77,17 @@ foreach ($t in $a.MainModule.Types) {
 
 调研完，**必须**主动向用户报告下面这些点是否命中：
 
-| 要检查的问题 | 为什么 |
-| ---- | ---- |
-| 需要继承的类，它的构造函数签名是什么？`(IntPtr)` 还是 `(string)`？ | 注入类必须提供 `(IntPtr)` ctor |
-| `sealed` / `final` 吗？ | 是就不能继承（interop 里显示为 `IsFinal`） |
-| 要实现接口吗？ | **注入类实现接口在 metadata v31 下会抛 `MethodAccessException`**，见 §5-⑤ |
-| 要重写的基类方法是泛型虚方法吗？ | `ClassInjector` 解析不了泛型参数，vtable 槽绑不上 |
-| 参数/返回值里有 `T`、数组、或是非代理类型吗？ | interop 会因"不支持的返回类型"跳过该方法 |
-| 需要读 XML / 图片 / 音频吗？ | 走磁盘直读（§5-⑦），不要指望 Addressables |
-| 需要存盘吗？ | `ModInfo.LevelDataVersion` 必须 = 4，否则存档被丢弃 |
-| 对象是"托管 new 出来"再存进注入类字段吗？ | 必须 `Il2CppPin.Pin`，否则被 GC 回收（§5-①） |
+
+| 要检查的问题                                                       | 为什么                                                                      |
+| ------------------------------------------------------------------ | --------------------------------------------------------------------------- |
+| 需要继承的类，它的构造函数签名是什么？`(IntPtr)` 还是 `(string)`？ | 注入类必须提供`(IntPtr)` ctor                                               |
+| `sealed` / `final` 吗？                                            | 是就不能继承（interop 里显示为`IsFinal`）                                   |
+| 要实现接口吗？                                                     | **注入类实现接口在 metadata v31 下会抛 `MethodAccessException`**，见 §5-⑤ |
+| 要重写的基类方法是泛型虚方法吗？                                   | `ClassInjector` 解析不了泛型参数，vtable 槽绑不上                           |
+| 参数/返回值里有`T`、数组、或是非代理类型吗？                       | interop 会因"不支持的返回类型"跳过该方法                                    |
+| 需要读 XML / 图片 / 音频吗？                                       | 走磁盘直读（§5-⑦），不要指望 Addressables                                 |
+| 需要存盘吗？                                                       | `ModInfo.LevelDataVersion` 必须 = 4，否则存档被丢弃                         |
+| 对象是"托管 new 出来"再存进注入类字段吗？                          | 必须`Il2CppPin.Pin`，否则被 GC 回收（§5-①）                               |
 
 ### ④⑤⑥
 
@@ -97,15 +99,16 @@ foreach ($t in $a.MainModule.Types) {
 
 全部在 `namespace DSHCore`，`using DSHCore;` 即可。
 
-| 类型 | 成员 | 什么时候用 |
-| ---- | ---- | ---- |
-| `Il2CppPin` | `T Pin<T>(T obj)`、`int Count` | 托管 `new` 出来的 il2cpp 对象要存进注入类字段时 |
-| `InjectedMod` | `T Create<T>(string nsp)`、`T Initialize<T>(T inst, string nsp)` | 创建注入的 `Mod` 实例 |
-| `ModBootstrap` | `Register(nsp, logicType, xmlDefaultNamespace, params Type[] extraInjectedTypes)` | 插件 `Load()` 里一次登记 + 注册注入类 |
-| `ModInfos` | `Create(nsp, logic, displayName)`、`OnRegister(handler)`、`EmptyLocator(nsp)`、`LevelDataVersion` | 构造 ModInfo、订阅官方注册点 |
-| `CoreRegistry` | `Register(RegisteredMod)`、`Get(nsp)`、`GetAll()`、`FormatAll()` | 登记表（一般由 `ModBootstrap` 代劳） |
-| `VTableRebind` | `Ensure(Type logicType)` | 手动兜底重绑 vtable 槽 |
-| `Plugin` | `GUID`、`NAME`、`VERSION`、`Log` | `[BepInDependency(DSHCore.Plugin.GUID)]`、共用日志通道 |
+
+| 类型           | 成员                                                                                              | 什么时候用                                             |
+| -------------- | ------------------------------------------------------------------------------------------------- | ------------------------------------------------------ |
+| `Il2CppPin`    | `T Pin<T>(T obj)`、`int Count`                                                                    | 托管`new` 出来的 il2cpp 对象要存进注入类字段时         |
+| `InjectedMod`  | `T Create<T>(string nsp)`、`T Initialize<T>(T inst, string nsp)`                                  | 创建注入的`Mod` 实例                                   |
+| `ModBootstrap` | `Register(nsp, logicType, xmlDefaultNamespace, params Type[] extraInjectedTypes)`                 | 插件`Load()` 里一次登记 + 注册注入类                   |
+| `ModInfos`     | `Create(nsp, logic, displayName)`、`OnRegister(handler)`、`EmptyLocator(nsp)`、`LevelDataVersion` | 构造 ModInfo、订阅官方注册点                           |
+| `CoreRegistry` | `Register(RegisteredMod)`、`Get(nsp)`、`GetAll()`、`FormatAll()`                                  | 登记表（一般由`ModBootstrap` 代劳）                    |
+| `VTableRebind` | `Ensure(Type logicType)`                                                                          | 手动兜底重绑 vtable 槽                                 |
+| `Plugin`       | `GUID`、`NAME`、`VERSION`、`Log`                                                                  | `[BepInDependency(DSHCore.Plugin.GUID)]`、共用日志通道 |
 
 ### `Il2CppPin.Pin`
 
@@ -273,6 +276,43 @@ namespace MyMod
 }
 ```
 
+### 前置与环境从哪来（先看这一小节）
+
+新工程需要**两个文件**，职责不同：
+
+| 文件 | 职责 |
+| ---- | ---- |
+| `MyMod/Directory.Build.props` | 声明「本工程属于 MVZ2 mod 家族」，并把仓库根的共享配置导入进来 |
+| `MyMod.csproj` | 只描述工程自己（TFM / LangVersion / 引用哪些 BepInEx / 部署目标） |
+
+**为什么必须两份？** MSBuild 只自动导入**离工程最近的那一个**
+`Directory.Build.props`；而它又是在 csproj 正文**之前**求值的，
+所以在 csproj 里写 `<Mvz2Mod>true</Mvz2Mod>` 根本来不及生效。
+
+仓库根的 `Directory.Build.props` 统一决定三件事：
+
+| 项 | 解析顺序 |
+| ---- | ---- |
+| `RuntimeDir` | `-p:` / `MVZ2_RUNTIME_DIR` / `local.props` / 仓库 `runtime\` / 工作区根就是 BepInEx 安装 / `GameDir` |
+| `GameDir` | `-p:` / `MVZ2_GAME_DIR` / `local.props`（没给则只构建不部署） |
+| DSHCore 引用 | 有 `DSHCore\DSHCore.csproj` → `ProjectReference`；否则 → `_refs\DSHCore\DSHCore.dll` |
+
+所以写代码时**不需要**关心 runtime 在哪、DSHCore 是不是源码。
+
+### `MyMod/Directory.Build.props`
+
+拷贝仓库里任意一个 mod 目录下的同名文件即可，内容就这几行：
+
+```xml
+<Project>
+  <PropertyGroup>
+    <Mvz2Mod>true</Mvz2Mod>
+    <Mvz2RootProps>$([MSBuild]::GetPathOfFileAbove('Directory.Build.props', '$(MSBuildThisFileDirectory)../'))</Mvz2RootProps>
+  </PropertyGroup>
+  <Import Project="$(Mvz2RootProps)" Condition="'$(Mvz2RootProps)' != ''" />
+</Project>
+```
+
 ### `MyMod.csproj`
 
 ```xml
@@ -280,18 +320,15 @@ namespace MyMod
   <PropertyGroup>
     <TargetFramework>net6.0</TargetFramework>
     <AssemblyName>MyMod</AssemblyName>
+    <RootNamespace>MyMod</RootNamespace>
     <LangVersion>9.0</LangVersion>
+    <Nullable>disable</Nullable>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
-    <RuntimeDir>$(MSBuildThisFileDirectory)..\runtime\</RuntimeDir>
-    <RuntimeCoreDir>$(RuntimeDir)BepInEx\core\</RuntimeCoreDir>
-    <RuntimeInteropDir>$(RuntimeDir)BepInEx\interop\</RuntimeInteropDir>
-    <GameDir Condition="'$(GameDir)' == ''">E:\Game\PVZ\MVZ2\MVZ2 0.7.0 test-4\</GameDir>
     <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <DebugType>portable</DebugType>
+    <!-- RuntimeDir / RuntimeCoreDir / RuntimeInteropDir / GameDir，
+         以及 DSHCore 前置的引用方式，均来自同目录的 Directory.Build.props -->
   </PropertyGroup>
-
-  <ItemGroup>
-    <ProjectReference Include="..\DSHCore\DSHCore.csproj" />
-  </ItemGroup>
 
   <ItemGroup>
     <Reference Include="BepInEx.Core"><HintPath>$(RuntimeCoreDir)BepInEx.Core.dll</HintPath><Private>false</Private></Reference>
@@ -302,11 +339,15 @@ namespace MyMod
   </ItemGroup>
 
   <Target Name="CopyToPlugins" AfterTargets="Build"
-          Condition="Exists('$(GameDir)MinecraftVSZombies2.exe')">
+          Condition="'$(GameDir)' != '' And Exists('$(GameDir)MinecraftVSZombies2.exe')">
     <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(GameDir)BepInEx\plugins\" />
   </Target>
 </Project>
 ```
+
+> 插件入口里 `using DSHCore;` 能直接用 —— 因为 `Plugin.cs` 的
+> `[BepInDependency(DSHCore.Plugin.GUID)]` 与这句 using 依赖的引用，
+> 都是上面那份共享配置提供的（源码模式 or `_refs` 里的二进制）。
 
 想加磁盘资源（XML metas 等）就再拷一个 `DeployModAssets` 目标，
 把 `assets\**\*` 映射到
@@ -365,6 +406,7 @@ sequenceDiagram
 ### ① 注入类字段不参与 il2cpp GC 追踪 → 对象被回收
 
 **症状**（很反直觉，容易误判成"逻辑写错了"）
+
 - `definition.GetID()` 的值比较**恒为 false** → 游戏查不到你的 Definition
   （街机列表里没有、`gotolevel <nsp>:<id>` 找不到关卡）
 - 读该字段的 `string` 直接抛 `Fatal error. Internal CLR error. (0x80131506)`
@@ -389,6 +431,7 @@ sequenceDiagram
 `object` 占位。**不需要你做什么** —— 但要知道为什么"抽象方法明明实现了却报找不到入口点"。
 
 日志里会看到：
+
 ```
 [ClassInjectorFix] string 保持 System.String (System.String)
 [ClassInjectorFix] 无法解析 T, PVZEngine.Base → object 占位
@@ -441,6 +484,7 @@ virtual 槽被重置则 override **静默失效**（不报错，就是没生效�
 （见 `LaboratoryMod/LoadStagesPatch.cs`）。
 
 同理：方法签名里带数组或非代理类型会被 interop 跳过：
+
 ```
 [Warning:Il2CppInterop] Method ... GetWaveTypes(...) on type ... has unsupported return type PVZEngine.NamespaceID[]
 ```
@@ -536,17 +580,18 @@ meta 既然由 `MetaInjection` 直读磁盘，空 locator 返回空集是安全�
 
 ### 验收标准（这是"真的成功了"的判据）
 
-| 检查 | 期望 |
-| ---- | ---- |
-| `BepInEx/ErrorLog.log` | **为空**（或不存在） |
-| 插件数量 | 等于你安装的 mod 数；**不应有**改名前的旧 DLL |
-| `[ModBootstrap] ... injected=[...]` | 列出你全部注入类，一个不少 |
-| `BepInEx/plugins/` | 每个 mod 一个 DLL，`DSHCore.dll` 在 |
-| 关卡类 mod → `[Diag] GetDefinition(stage, <id>) = FOUND name='...'` | `FOUND` 且名字正确 |
-| 关卡类 mod → arcade | `index=` 是**平移后**的大数（如 16/17/18），不是 0/1/2 |
-| 关卡类 mod → `GetAllArcadeItems=N (nsp=K)` | `K` = 你的条目数 |
-| 诅咒类 mod → `[Diag] 诅咒定义 a/b，已解锁 a/b` | 两个数相等；`buff 解析失败 0`、`修饰符缺失 0/x`、`CURSE_COUNT 键失效 0` |
-| `[Diag] 解锁列表前 5 项` | 必须是 `mvz2:*` 而不是空 |
+
+| 检查                                                                | 期望                                                                    |
+| ------------------------------------------------------------------- | ----------------------------------------------------------------------- |
+| `BepInEx/ErrorLog.log`                                              | **为空**（或不存在）                                                    |
+| 插件数量                                                            | 等于你安装的 mod 数；**不应有**改名前的旧 DLL                           |
+| `[ModBootstrap] ... injected=[...]`                                 | 列出你全部注入类，一个不少                                              |
+| `BepInEx/plugins/`                                                  | 每个 mod 一个 DLL，`DSHCore.dll` 在                                     |
+| 关卡类 mod →`[Diag] GetDefinition(stage, <id>) = FOUND name='...'` | `FOUND` 且名字正确                                                      |
+| 关卡类 mod → arcade                                                | `index=` 是**平移后**的大数（如 16/17/18），不是 0/1/2                  |
+| 关卡类 mod →`GetAllArcadeItems=N (nsp=K)`                          | `K` = 你的条目数                                                        |
+| 诅咒类 mod →`[Diag] 诅咒定义 a/b，已解锁 a/b`                      | 两个数相等；`buff 解析失败 0`、`修饰符缺失 0/x`、`CURSE_COUNT 键失效 0` |
+| `[Diag] 解锁列表前 5 项`                                            | 必须是`mvz2:*` 而不是空                                                 |
 
 **任何一项不达标就不要宣布完成** —— 上面每一条都对应一个已知的静默失效模式。
 
@@ -554,30 +599,32 @@ meta 既然由 `MetaInjection` 直读磁盘，空 locator 返回空集是安全�
 
 ## 7. 排错入口
 
-| 现象 | 先看哪里 |
-| ---- | ---- |
-| 游戏起不来 / 随机 AV | `BepInEx/ErrorLog.log`；本文件 §5-⑨ |
-| 关卡不在列表 / `gotolevel` 找不到 | §5-①（Pin 漏了）、§5-⑤（LINQ）、§5-⑧（Index 撞车） |
-| `EntryPointNotFoundException` | §5-②③（vtable 槽 / ClassInjector 缺陷） |
-| `MethodAccessException` | §5-⑤⑦（注入类参与原生 LINQ / 实现接口） |
-| 定义创建了但属性是空的 | 官方 `LoadDefinitionProperties` 可能没套上 meta → 在 `PostInit` 里用稳定 ID 反查 meta 手动补（见 `StageMetaApplier`） |
-| XML 读了但报 `Root element is missing` | §3-需要 XML metas 时（别用官方 string 重载） |
-| 报 NRE 且与 meta 子节点有关 | XML 里写了注释 → §3 |
-| 改了 GUID 后别人装不上 | GUID 是稳定契约，见 §0 |
+
+| 现象                                  | 先看哪里                                                                                                              |
+| ------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| 游戏起不来 / 随机 AV                  | `BepInEx/ErrorLog.log`；本文件 §5-⑨                                                                                 |
+| 关卡不在列表 /`gotolevel` 找不到      | §5-①（Pin 漏了）、§5-⑤（LINQ）、§5-⑧（Index 撞车）                                                              |
+| `EntryPointNotFoundException`         | §5-②③（vtable 槽 / ClassInjector 缺陷）                                                                            |
+| `MethodAccessException`               | §5-⑤⑦（注入类参与原生 LINQ / 实现接口）                                                                            |
+| 定义创建了但属性是空的                | 官方`LoadDefinitionProperties` 可能没套上 meta → 在 `PostInit` 里用稳定 ID 反查 meta 手动补（见 `StageMetaApplier`） |
+| XML 读了但报`Root element is missing` | §3-需要 XML metas 时（别用官方 string 重载）                                                                         |
+| 报 NRE 且与 meta 子节点有关           | XML 里写了注释 → §3                                                                                                 |
+| 改了 GUID 后别人装不上                | GUID 是稳定契约，见 §0                                                                                               |
 
 ---
 
 ## 8. 参考实现
 
-| 文件 | 看什么 |
-| ---- | ---- |
-| `DSHCore/ClassInjectorFix.cs` | 用 Harmony 修 interop 内部方法（含完整原理注释） |
-| `DSHCore/VTableRebind.cs` | 直接操作原生 vtable 槽（含槽号表） |
-| `DSHCore/MetaInjection.cs` | 接管官方 meta 加载、直读磁盘 XML |
-| `LaboratoryMod/Stages/RealPrologueStage.cs` | 注入 StageDefinition 并逐字段 Pin 的完整写法 |
-| `LaboratoryMod/LoadStagesPatch.cs` | 在官方时机创建定义（替代 provider 的方案） |
-| `ModularCurse/CurseBuffs/CurseBuffs.cs` | 批量创建 BuffDefinition + 修饰符 |
-| `ModularCurse/CURSES.md` | 接入原版诅咒系统的完整设计与踩坑记录 |
+
+| 文件                                        | 看什么                                           |
+| ------------------------------------------- | ------------------------------------------------ |
+| `DSHCore/ClassInjectorFix.cs`               | 用 Harmony 修 interop 内部方法（含完整原理注释） |
+| `DSHCore/VTableRebind.cs`                   | 直接操作原生 vtable 槽（含槽号表）               |
+| `DSHCore/MetaInjection.cs`                  | 接管官方 meta 加载、直读磁盘 XML                 |
+| `LaboratoryMod/Stages/RealPrologueStage.cs` | 注入 StageDefinition 并逐字段 Pin 的完整写法     |
+| `LaboratoryMod/LoadStagesPatch.cs`          | 在官方时机创建定义（替代 provider 的方案）       |
+| `ModularCurse/CurseBuffs/CurseBuffs.cs`     | 批量创建 BuffDefinition + 修饰符                 |
+| `ModularCurse/CURSES.md`                    | 接入原版诅咒系统的完整设计与踩坑记录             |
 
 ---
 

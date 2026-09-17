@@ -1,0 +1,135 @@
+{
+	// MVZ2 Mod 工作区（多根）
+	//
+	// 什么时候用它？
+	//   想让侧边栏只显示某一个 mod（而不是整个仓库）时。
+	//
+	// 直接「打开文件夹」LaboratoryMod\ 是不行的 —— 那样 DSHCore 落在
+	// 工作区之外，语言服务器解析不了 ProjectReference，于是满屏
+	// 「未能找到类型或命名空间名 DSHCore」。多根工作区把 DSHCore 和
+	// mod 一起纳入，问题就不存在了。
+	//
+	// 注意：多根工作区下 ${workspaceFolder} 有歧义，
+	//       所以这里的任务都显式写成 ${workspaceFolder:DSHCore}\..\...
+	//       （= 仓库根）。普通单根模式请用 .vscode\tasks.json。
+	"folders": [
+		{ "name": "DSHCore", "path": "DSHCore" },
+		{ "name": "LaboratoryMod", "path": "LaboratoryMod" },
+		{ "name": "ModularCurse", "path": "ModularCurse" }
+	],
+	"tasks": [
+		{
+			"label": "构建全部",
+			"detail": "依次构建 DSHCore / LaboratoryMod / ModularCurse",
+			"type": "shell",
+			"command": "powershell",
+			"args": [
+				"-NoProfile",
+				"-ExecutionPolicy",
+				"Bypass",
+				"-File",
+				"${workspaceFolder:DSHCore}\\..\\build.ps1"
+			],
+			"problemMatcher": [],
+			"group": {
+				"kind": "build",
+				"isDefault": true
+			}
+		},
+		{
+			"label": "构建: DSHCore",
+			"detail": "工具 + 前置库（唯一携带 BepInEx 运行环境的包）",
+			"type": "shell",
+			"command": "powershell",
+			"args": [
+				"-NoProfile",
+				"-ExecutionPolicy",
+				"Bypass",
+				"-File",
+				"${workspaceFolder:DSHCore}\\..\\build.ps1",
+				"-Mod",
+				"dsh"
+			],
+			"problemMatcher": []
+		},
+		{
+			"label": "构建: LaboratoryMod",
+			"detail": "实验室关卡（real_prologue / zero_k_space / unknow_palace）",
+			"type": "shell",
+			"command": "powershell",
+			"args": [
+				"-NoProfile",
+				"-ExecutionPolicy",
+				"Bypass",
+				"-File",
+				"${workspaceFolder:DSHCore}\\..\\build.ps1",
+				"-Mod",
+				"lab"
+			],
+			"problemMatcher": []
+		},
+		{
+			"label": "构建: ModularCurse",
+			"detail": "模块化诅咒（QC 池 + SC 池）",
+			"type": "shell",
+			"command": "powershell",
+			"args": [
+				"-NoProfile",
+				"-ExecutionPolicy",
+				"Bypass",
+				"-File",
+				"${workspaceFolder:DSHCore}\\..\\build.ps1",
+				"-Mod",
+				"curse"
+			],
+			"problemMatcher": []
+		},
+		{
+			"label": "打包: DSHCore DevKit",
+			"detail": "生成不含 DSHCore 源码的便携开发环境包（dist\\）",
+			"type": "shell",
+			"command": "powershell",
+			"args": [
+				"-NoProfile",
+				"-ExecutionPolicy",
+				"Bypass",
+				"-File",
+				"${workspaceFolder:DSHCore}\\..\\build.ps1",
+				"-Mod",
+				"dsh",
+				"-PackDevKit"
+			],
+			"problemMatcher": []
+		},
+		{
+			"label": "同步 runtime（从游戏目录）",
+			"detail": "把游戏目录的 BepInEx 运行环境刷回 runtime/",
+			"type": "shell",
+			"command": "powershell",
+			"args": [
+				"-NoProfile",
+				"-ExecutionPolicy",
+				"Bypass",
+				"-File",
+				"${workspaceFolder:DSHCore}\\..\\tools\\sync-runtime.ps1"
+			],
+			"problemMatcher": []
+		},
+		{
+			"label": "查看 BepInEx 日志",
+			"detail": "LogOutput.log + ErrorLog.log 尾部",
+			"type": "shell",
+			"command": "powershell",
+			"args": [
+				"-NoProfile",
+				"-ExecutionPolicy",
+				"Bypass",
+				"-File",
+				"${workspaceFolder:DSHCore}\\..\\tools\\show-log.ps1",
+				"-Which",
+				"both"
+			],
+			"problemMatcher": []
+		}
+	]
+}

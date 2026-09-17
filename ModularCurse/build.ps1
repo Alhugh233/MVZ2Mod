@@ -8,8 +8,11 @@
 #   .\build.ps1 -Pack -Launch     打包后启动游戏冒烟
 #
 # 说明：
-#   - 编译引用来自仓库自包含的 runtime\，构建不依赖游戏目录。
-#   - 工程通过 ProjectReference 引用 DSHCore，构建它会一并构建前置。
+#   - 编译引用来自 runtime\（解析顺序：环境变量 MVZ2_RUNTIME_DIR >
+#     Directory.Build.local.props > 仓库 runtime\ > 游戏目录；与 MSBuild 一致）。
+#   - DSHCore 前置的引用方式由 ..\Directory.Build.props 决定：仓库里有
+#     DSHCore 源码就编译源码，没有就引用 _refs\DSHCore\DSHCore.dll
+#     （便携开发环境 / DevKit 走的就是这条）。
 #   - 本 mod 的包体「不含」BepInEx 运行环境：需先安装 DSHCore 的包。
 #   - 诅咒的设计与实现细节见同目录 CURSES.md。
 # =====================================================================
@@ -19,7 +22,9 @@ param(
     [switch]$Clean,
     [switch]$KeepGame,
     [switch]$Pack,
-    [switch]$Launch
+    [switch]$Launch,
+    [switch]$PackDevKit,
+    [switch]$NoRuntime
 )
 $ErrorActionPreference = 'Stop'
 . "$PSScriptRoot\..\tools\build-common.ps1"
@@ -31,12 +36,11 @@ $namespace = 'modular_curse'
 $csproj    = Join-Path $modDir 'ModularCurse.csproj'
 $pluginCs  = Join-Path $modDir 'Plugin.cs'
 $pluginDll = Join-Path $modDir 'bin\Debug\ModularCurse.dll'
-$dshDll    = Join-Path $repo 'DSHCore\bin\Debug\DSHCore.dll'
 $assetsDir = Join-Path $modDir 'assets'
 $outDir    = Join-Path $repo 'dist'
-$runtime   = Join-Path $repo 'runtime'
+$runtime   = Get-DefaultRuntimeDir -RepoRoot $repo
 
-$GameDir = Normalize-GameDir $GameDir 'E:\Game\PVZ\MVZ2\MVZ2 0.7.0 test-4'
+$GameDir = Normalize-GameDir $GameDir (Get-DefaultGameDir -RepoRoot $repo)
 $version = Get-PluginVersion $pluginCs
 $dotnet  = Find-Dotnet
 $hasGame = Test-GameDir $GameDir
@@ -59,6 +63,8 @@ Write-Ok ("DLL: " + $dll.Length + " bytes  " + $dll.LastWriteTime)
 
 # ---------- 3. 校验自动部署 ----------
 Write-Step "[3/4] 校验部署"
+# 前置 DLL 的位置要在构建之后再解析：源码模式时它刚刚才被构建出来
+$dshDll = Resolve-DshCoreDll -RepoRoot $repo
 if (-not $hasGame) {
     Write-Warn2 "游戏目录不存在，未部署"
 } else {

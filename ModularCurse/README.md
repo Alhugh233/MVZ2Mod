@@ -1,6 +1,6 @@
 # MVZ2 Modular Curse（模块化诅咒）
 
-> 《我的世界僵尸 2》（Minecraft VS Zombies 2）0.7.0 的社区内容 mod。
+> 《Minecraft vs Zombies 2》（Minecraft VS Zombies 2）0.7.0 的社区内容 mod。
 > 把自定义诅咒**接入原版诅咒系统**，并按「诅咒池」组织与切换。
 
 - 插件 GUID：`qoznos.mvz2.modularcurse`
@@ -156,5 +156,5 @@ ModularCurse/
 
 ## 致谢
 
-- **Cuerzor** — 《我的世界僵尸 2》作者，以及 0.7.0 的原生诅咒系统设计
+- **Cuerzor** — 《Minecraft vs Zombies 2》作者，以及 0.7.0 的原生诅咒系统设计
 - [BepInEx](https://github.com/BepInEx/BepInEx) / [Il2CppInterop](https://github.com/BepInEx/Il2CppInterop) — IL2CPP 注入框架

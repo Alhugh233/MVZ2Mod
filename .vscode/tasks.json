@@ -117,6 +117,23 @@
 			"problemMatcher": []
 		},
 		{
+			"label": "打包: DSHCore DevKit",
+			"detail": "生成不含 DSHCore 源码的便携开发环境包到 dist\\",
+			"type": "shell",
+			"command": "powershell",
+			"args": [
+				"-NoProfile",
+				"-ExecutionPolicy",
+				"Bypass",
+				"-File",
+				"${workspaceFolder}\\build.ps1",
+				"-Mod",
+				"dsh",
+				"-PackDevKit"
+			],
+			"problemMatcher": []
+		},
+		{
 			"label": "同步 runtime（从游戏目录）",
 			"detail": "把游戏目录的 BepInEx 运行环境刷回 runtime/（新克隆仓库后、或游戏本体更新后执行）",
 			"type": "shell",
@@ -146,15 +163,17 @@
 		},
 		{
 			"label": "查看 BepInEx 日志",
-			"detail": "查看测试游戏目录的 BepInEx\\LogOutput.log 尾部",
+			"detail": "测试游戏目录的 BepInEx\\LogOutput.log 尾部（游戏目录由环境变量 / Directory.Build.local.props 决定）",
 			"type": "shell",
 			"command": "powershell",
 			"args": [
 				"-NoProfile",
 				"-ExecutionPolicy",
 				"Bypass",
-				"-Command",
-				"$p='E:\\Game\\PVZ\\MVZ2\\MVZ2 0.7.0 test-4\\BepInEx\\LogOutput.log'; if (Test-Path $p) { Get-Content $p -Tail 60 } else { Write-Host (\"找不到 \" + $p) }"
+				"-File",
+				"${workspaceFolder}\\tools\\show-log.ps1",
+				"-Which",
+				"log"
 			],
 			"problemMatcher": []
 		},
@@ -167,8 +186,10 @@
 				"-NoProfile",
 				"-ExecutionPolicy",
 				"Bypass",
-				"-Command",
-				"$p='E:\\Game\\PVZ\\MVZ2\\MVZ2 0.7.0 test-4\\BepInEx\\ErrorLog.log'; if (Test-Path $p) { Get-Content $p -Tail 60 } else { Write-Host (\"找不到 \" + $p) }"
+				"-File",
+				"${workspaceFolder}\\tools\\show-log.ps1",
+				"-Which",
+				"error"
 			],
 			"problemMatcher": []
 		}
