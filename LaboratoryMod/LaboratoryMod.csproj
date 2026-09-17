@@ -65,11 +65,12 @@
     <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(GameDir)BepInEx\plugins\" />
   </Target>
 
-  <!-- 构建后自动部署 Mod 资源（XML metas）到部署游戏目录（仅当 GameDir 存在时） -->
+  <!-- 构建后自动部署 Mod 资源到部署游戏目录（仅当 GameDir 存在时）
+       assets/ 的内容直接映射到 StreamingAssets\Mods\mvz2_lab\ -->
   <Target Name="DeployModAssets" AfterTargets="Build"
           Condition="Exists('$(GameDir)MinecraftVSZombies2.exe')">
     <ItemGroup>
-      <ModAsset Include="..\ModAssets\mvz2_lab\**\*" />
+      <ModAsset Include="assets\**\*" />
     </ItemGroup>
     <Copy SourceFiles="@(ModAsset)"
           DestinationFiles="@(ModAsset->'$(GameDir)MinecraftVSZombies2_Data\StreamingAssets\Mods\mvz2_lab\%(RecursiveDir)%(Filename)%(Extension)')"

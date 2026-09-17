@@ -1,17 +1,25 @@
-*.log
-_dump_out/
-_Scripts/
-dist/
-MVZ2LabMod/bin/
-MVZ2LabMod/obj/
-runtime/dotnet/
-tools/InteropGen/bin/
-tools/InteropGen/obj/
-runtime/
-CustomCore/obj/
-LaboratoryMod/obj/
+# ---------------- 构建产物 ----------------
 CustomCore/bin/
+CustomCore/obj/
 LaboratoryMod/bin/
+LaboratoryMod/obj/
 ModularCurse/bin/
 ModularCurse/obj/
+tools/InteropGen/bin/
+tools/InteropGen/obj/
+
+# ---------------- 打包输出 ----------------
+dist/
+
+# ---------------- 本地运行环境与工具（含游戏派生内容，不入库）----------------
+# runtime/ 是自包含的 BepInEx 环境（编译引用 + 打包源），
+# 其中的 interop 程序集由游戏二进制生成，属游戏派生内容。
+runtime/
+# IL2CPP 分析工具（体积大，按需自行下载）
 tools/Il2CppDumper/
+# 游戏源码镜像（仅本地参考）
+_Scripts/
+
+# ---------------- 日志与转储 ----------------
+*.log
+_dump_out/

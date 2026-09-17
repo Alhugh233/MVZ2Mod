@@ -8,7 +8,7 @@ MVZ2 0.7.0 的自定义诅咒扩展 mod，接入**原版诅咒系统**。依赖�
 - **名字**：每个池的前 7 条直接用原版那 7 条诅咒的名字（它们复用的正是那 7 个图标），
   第 8 条起用池内编号（`QC-C8` … / `SC-C8` …）
 - **图标**：前 7 条复用原版诅咒图标，其余留空；两个**池**各自有一张图标
-  （`ModAssets/modular_curse/Content/sprites/curse_qc.png` / `curse_sc.png`，运行时注册进游戏资源库）
+  （`ModularCurse/assets/Content/sprites/curse_qc.png` / `curse_sc.png`，运行时注册进游戏资源库）
 
 ---
 
@@ -165,7 +165,7 @@ graph LR
 
 1. **`ModInfo`**：`OnRegisterModInfos` 注册 `modular_curse`，
    `Logic = ModularCurseMod.CreateInstance()`，`Assemblies` 为空。
-2. **词条**：`ModAssets/modular_curse/Content/metas/curses.xml` + `buffs.xml`，
+2. **词条**：`ModularCurse/assets/Content/metas/curses.xml` + `buffs.xml`，
    构建时部署到 `MinecraftVSZombies2_Data/StreamingAssets/Mods/modular_curse/Content/metas/`，
    运行时由 `CustomCore.MetaInjection` 直读磁盘注入 `ModResource`。
 3. **诅咒定义**：官方 `ModLoader.LoadCurseMetas` 用 curses.xml 创建
@@ -478,27 +478,29 @@ entity.SpawnerReference == null   // 自然生成
 ## 四、构建与部署
 
 ```powershell
-.\build-curse.ps1              # 构建 + 自动部署到测试游戏目录（默认 E:\Game\PVZ\MVZ2\MVZ2 0.7.0 test-4）
-.\build-curse.ps1 -Pack        # 构建 + 部署 + 打包 dist/MVZ2ModularCurse_v<版本>_0.7.0.zip
-.\build-curse.ps1 -Pack -Launch
-.\build-curse.ps1 -KeepGame    # 不结束正在运行的游戏（DLL 会被锁，仅建议调试脚本时用）
-.\build-curse.ps1 -Clean       # 先 dotnet clean（删 bin/obj）
-.\build-curse.ps1 -SkipBuild -Launch
+.\build.ps1                    # 构建 + 自动部署到测试游戏目录（默认 E:\Game\PVZ\MVZ2\MVZ2 0.7.0 test-4）
+.\build.ps1 -Pack              # 构建 + 部署 + 打包 dist\ModularCurse_v0.2.1_0.7.0.zip
+.\build.ps1 -Pack -Launch
+.\build.ps1 -KeepGame          # 不结束正在运行的游戏（DLL 会被锁，仅建议调试脚本时用）
+.\build.ps1 -Clean             # 先删 bin/obj 再构建
+.\build.ps1 -SkipBuild -Launch
 ```
+
+（上面是 `ModularCurse\build.ps1`。在仓库根目录也可以用 `.\build.ps1 -Mod curse -Pack`，
+或者直接 `.\build.ps1 -Pack` 一次构建三个 mod。）
 
 | 参数 | 作用 |
 | ---- | ---- |
 | `-GameDir <dir>` | 部署目标（默认 `E:\Game\PVZ\MVZ2\MVZ2 0.7.0 test-4`） |
 | `-SkipBuild` | 跳过编译，只做部署校验 / 打包 / 启动 |
-| `-Clean` | 编译前先 `dotnet clean` 并删掉 `bin/`、`obj/` |
+| `-Clean` | 编译前先删掉 `bin/`、`obj/` |
 | `-KeepGame` | 不结束运行中的游戏进程（**会因 DLL 被占用而部署失败**） |
-| `-Pack` | 构建完调 `dist/pack.ps1` 打分发 zip |
+| `-Pack` | 构建完打分发 zip 到 `dist\`（走共享函数 `tools\build-common.ps1` 的 `New-ModPackage`） |
 | `-Launch` | 全部完成后启动游戏 |
 
 脚本做的事：结束游戏进程 → `dotnet build ModularCurse/ModularCurse.csproj -c Debug`
-→ 逐文件哈希校验部署结果（插件 DLL + `ModAssets\modular_curse\**`）→ 可选打包 → 可选启动。
-版本号从 `ModularCurse/Plugin.cs` 的 `VERSION` 读取，脚本与 `dist/pack.ps1`、
-`dist/verify-package.ps1` 三处共用同一个来源，不会再各写一份。
+→ 逐文件哈希校验部署结果（插件 DLL + `ModularCurse\assets\**`）→ 可选打包 → 可选启动。
+版本号只有一处来源：`ModularCurse/Plugin.cs` 的 `VERSION`，脚本读它生成包名。
 
 手工等价命令（脚本只是把它包装起来）：
 
@@ -509,7 +511,7 @@ dotnet build ModularCurse/ModularCurse.csproj -c Debug
 - 引用来自仓库 `runtime/`（BepInEx core + 0.7.0 test-4 的 interop）。
 - `GameDir` 默认 `E:\Game\PVZ\MVZ2\MVZ2 0.7.0 test-4\`，
   构建后自动拷贝 `ModularCurse.dll` 到 `BepInEx\plugins\`，
-  并把 `ModAssets\modular_curse\**` 部署到 `StreamingAssets\Mods\modular_curse\`。
+  并把 `ModularCurse\assets\**` 部署到 `StreamingAssets\Mods\modular_curse\`。
 - ⚠️ 游戏重建后必须重新生成 interop（`BepInEx/config/BepInEx.cfg` 的
   `UpdateInteropAssemblies = true`，启动一次），否则旧 interop 的 metadata token 失配会 native AV。
 
@@ -550,43 +552,41 @@ dotnet build ModularCurse/ModularCurse.csproj -c Debug
 
 ---
 
-## 六、打包分发（给其他玩家）
+## 五、打包分发（给其他玩家）
 
-脚本：`dist/pack.ps1`（生成物与脚本都在 gitignore 的 `dist/` 下，不入库）。
-一般不用直接调它，走 `.\build-curse.ps1 -Pack` 即可（构建 → 部署校验 → 打包一条龙）；
-要单独重打包就 `.\dist\pack.ps1`，版本号自动取 `Plugin.cs` 的 `VERSION`（可用 `-Version` 覆盖）。
+打包逻辑在共享函数 `tools/build-common.ps1` 的 `New-ModPackage` 里，
+输出到 gitignore 的 `dist/`（不入库）。一般不用单独调它：
+走 `.\build.ps1 -Pack` 即可（构建 → 部署校验 → 打包一条龙）；
+只想重新打包就 `.\build.ps1 -SkipBuild -Pack`，包名里的版本号自动取 `Plugin.cs` 的 `VERSION`。
 
-产物：`dist/MVZ2ModularCurse_v0.2.0_0.7.0.zip`（约 44 MB，解压约 118 MB），
-内容 = **游戏根目录镜像**：
+产物：`dist\ModularCurse_v0.2.1_0.7.0.zip`（约 0.05 MB），
+内容 = **插件 + Mod 资源**（运行时环境不重复携带）：
 
 ```
-BepInEx/                 ← be.788 x86（core 含 Il2CppInterop 1.5.3、interop 119 个 dll、
-                            config / patchers / unity-libs）
-  plugins/CustomCore.dll     ← 前置模组
-  plugins/ModularCurse.dll   ← 诅咒模组
-dotnet/                  ← CoreCLR 运行时（BepInEx IL2CPP 需要）
-winhttp.dll              ← Doorstop 载入器
-doorstop_config.ini
-.doorstop_version
+BepInEx/plugins/CustomCore.dll     ← 前置模组
+BepInEx/plugins/ModularCurse.dll   ← 诅咒模组
 MinecraftVSZombies2_Data/StreamingAssets/Mods/modular_curse/Content/metas/{curses,buffs}.xml
+MinecraftVSZombies2_Data/StreamingAssets/Mods/modular_curse/Content/sprites/{curse_qc,curse_sc}.png
 安装说明.txt              ← UTF-8(BOM)，含安装步骤与排错
 ```
 
-玩家只需**解压到游戏根目录**（与 `MinecraftVSZombies2.exe` 同级）即可，
-无需任何编译环境或其他模组。
+安装：把 zip **解压到游戏根目录**（与 `MinecraftVSZombies2.exe` 同级）覆盖即可。
 
 注意事项：
 
-- 包内 interop 只对应 **0.7.0 test-4**。其他版本需删掉 `BepInEx/interop` 并把
+- **必须先装 CustomCore 的包**（`dist\CustomCore_v0.1.0_0.7.0.zip`，约 44 MB）。
+  只有那个包携带 BepInEx 运行环境（be.788 x86：`winhttp.dll` / `dotnet/` /
+  `BepInEx\{core,interop,unity-libs,patchers,config}`）；本包只有插件和资源，
+  单独解压到一个没有 BepInEx 的游戏目录是不会生效的。
+- 运行时里的 interop 只对应 **0.7.0 test-4**。其他版本需删掉 `BepInEx/interop` 并把
   `BepInEx/config/BepInEx.cfg` 的 `UpdateInteropAssemblies` 置 true 后启动一次重新生成。
 - `LaboratoryMod.dll` 不打包（与诅咒无关的测试内容）。
-- 打包脚本必须用「拷内容」而不是「拷目录」，否则会出现
+- 打包必须用「拷内容」而不是「拷目录」（`Copy-Item <assets>\* <dst>`），否则会出现
   `Mods/modular_curse/modular_curse/...` 这种多套一层、游戏读不到 XML 的包。
-  打完包务必核对结构（本仓库用 `_ziptest` 脚本与游戏内实测过的目录逐文件比对哈希）。
 
 ---
 
-## 五、资源约定
+## 六、资源约定
 
 - `curses.xml` 里**不要写 XML 注释** —— `MetaInjection` 用 `XmlDocument.LoadXml` 解析，
   Comment 节点会进入子节点遍历（官方用 `XmlReaderSettings.IgnoreComments`，行为不同）。

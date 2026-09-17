@@ -12,8 +12,9 @@
 
     本 mod 完全走官方这条链：
       - 注册自己的 ModInfo（nsp = modular_curse），Logic 为注入实例。
-      - ModAssets/modular_curse/Content/metas/curses.xml 提供 24 条诅咒元数据
-        （由 CustomCore.MetaInjection 从磁盘注入 ModResource）。
+      - assets/Content/metas/curses.xml 提供诅咒元数据
+        （由 CustomCore.MetaInjection 从磁盘注入 ModResource，
+          构建时 assets/ 的内容直接部署到 StreamingAssets\Mods\modular_curse\）。
       - 24 个 CurseBuffDefinition 由本 mod 在 LoadStages 时机 AddDefinition，
         每条诅咒一个 buff，效果写在 buff 里（AddModifier / AddTrigger / PostUpdate）。
 
@@ -73,11 +74,12 @@
     <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(GameDir)BepInEx\plugins\" />
   </Target>
 
-  <!-- 构建后自动部署 Mod 资源（XML metas）到部署游戏目录 -->
+  <!-- 构建后自动部署 Mod 资源到部署游戏目录（仅当 GameDir 存在时）
+       assets/ 的内容直接映射到 StreamingAssets\Mods\modular_curse\ -->
   <Target Name="DeployModAssets" AfterTargets="Build"
           Condition="Exists('$(GameDir)MinecraftVSZombies2.exe')">
     <ItemGroup>
-      <ModAsset Include="..\ModAssets\modular_curse\**\*" />
+      <ModAsset Include="assets\**\*" />
     </ItemGroup>
     <Copy SourceFiles="@(ModAsset)"
           DestinationFiles="@(ModAsset->'$(GameDir)MinecraftVSZombies2_Data\StreamingAssets\Mods\modular_curse\%(RecursiveDir)%(Filename)%(Extension)')"
