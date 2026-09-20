@@ -62,11 +62,16 @@ cd ModularCurse
 | `-SkipBuild` | 跳过构建，直接用已有产物 |
 | `-Clean` | 先删除 `bin/` `obj/` |
 | `-KeepGame` | 不结束正在运行的游戏（会锁住 DLL，一般不要用） |
-| `-Pack` | 打包 zip 到 `dist\` |
+| `-Pack` | 打包 zip 到 `dist\`（默认**含** BepInEx 运行环境） |
+| `-NoRuntime` | 打包时不带 BepInEx（包体从 ~44MB 降到几十 KB） |
 | `-Launch` | 构建/打包后启动游戏 |
 
 工程通过 `ProjectReference` 引用 `DSHCore`，构建本 mod 会**一并构建前置**；
-本 mod 的包体**不含** BepInEx 运行环境（需先安装 DSHCore 的安装包），但会带上 `DSHCore.dll`。
+包体**自包含**：插件 + 资源 + `DSHCore.dll` + 完整的 BepInEx 运行环境，
+玩家解压到游戏根目录即可，不需要先单独装 DSHCore 的包。
+（只要插件本体时加 `-NoRuntime`。）
+
+网页日志查看器（游戏内 `/dshlog`）由 DSHCore 提供，见仓库根的 `readme.md`。
 
 ---
 

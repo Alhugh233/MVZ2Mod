@@ -7,7 +7,7 @@
 
 - 插件 GUID：`qoznos.mvz2.core`
 - 显示名：`DSHCore`
-- 当前版本：**0.2.0**
+- 当前版本：**0.3.0**
 - 适配：MVZ2 **0.7.0 test-4**（Windows **x86** / IL2CPP metadata v31.1 / Unity 2022.3.62f3）
 - 运行时要求：BepInEx **be.788**（x86 IL2CPP）
 
@@ -54,6 +54,88 @@
 | `ModInfos.Create(...)` / `OnRegister(...)` | 构造`ModInfo`（空 locator / 存档版本 / 空 `Assemblies`）并订阅官方 `OnRegisterModInfos`（含 Il2Cpp 委托转换）                                   |
 | `CoreRegistry`                             | 跨插件登记表，上述补丁按命名空间生效                                                                                                            |
 | `VTableRebind.Ensure(Type)`                | 手动触发 vtable 槽重绑                                                                                                                          |
+| `LogViewer`                                | 本地网页日志查看器：`Url` / `OpenInBrowser()` / `CapturedCount` / `DroppedCount` / `Report(src,level,msg)` / `HideConsole()` / `ShowConsole()` |
+
+---
+
+### 游戏内指令 `/dshlog`
+
+默认**不自动开启**：日志从游戏启动就捕获进内存环形缓冲（不监听端口、不弹浏览器），
+需要时在游戏里当场开：
+
+```
+/dshlog            开启（已开启则显示状态）
+/dshlog off        关闭并释放端口（内存历史保留）
+/dshlog open       用默认浏览器打开
+/dshlog url        只打印带令牌的地址
+/dshlog status     显示状态
+/dshlog console    显示 / 隐藏 BepInEx 控制台窗口
+/dshlog clear      清空内存里的历史
+/dshlog help       帮助
+```
+
+> 为什么要分成「一直捕获 + 按需开网页」而不是整体按需：**调试时你要的是游戏启动
+> 到出问题那一段的日志**。捕获只有一个环形缓冲 + 一个后台线程的成本，很便宜；
+> 等出问题了再 `/dshlog`，打开就是从头开始的完整历史。
+
+> 指令走的是 Harmony 拦 `DebugManager.ExecuteCommand`（与 `ModularCurse` 的 `/curse`
+> 同一套做法），而不是官方 `CommandDefinition` —— 后者要 metaXML + 程序集登记 +
+> 参数类型限制，而且往 `GlobalGame.definitionGroup` 塞注入 def 有 metadata v31 的
+> LINQ 崩溃风险。两条 prefix 可以共存，互不干扰。
+
+**Tab 补全**：因为没走官方 `CommandDefinition`，自动补全也得自己塞 ——
+另有一条 prefix 追加到 `DebugManager.FillSuggestions`。输入 `/ds` 按 Tab 会补出
+`/dshlog`；已经写完指令名后，`/dshlog o` 会补出 `off` / `open`。
+子指令表（`LogViewerCommand.Subcommands`）是帮助文本与补全的**唯一真源** ——
+两处不会各写一份然后慢慢跑偏。
+
+补全 prefix 是 void（只追加、不拦截原方法），而且整个包在 try/catch 里：
+补全失败只会少几条建议，绝不会打断输入框刷新。
+
+### 网页界面
+
+| 键 | 默认 | 说明 |
+| ---- | ---- | ---- |
+| `Enabled` | `false` | 改成 `true` 则在游戏启动时就自动开好网页 |
+| `Port` | `18742` | 被占用会自动往后顺延 |
+| `AutoOpen` | `true` | 开网页服务时自动开浏览器（含指令开启） |
+| `LanAccess` | `false` | 只在回环监听；同网段机器要看得开它 |
+| `RingBufferCapacity` | `5000` | 内存里留多少条历史（**始终在记**） |
+| `QueueCapacity` | `20000` | 队列上限，超出丢弃并计数（**不会拖慢游戏**） |
+| `HideConsoleWindow` | `false` | 插件加载后自动藏起控制台窗口 |
+
+网页里可以按等级 / 来源 / 关键词（支持正则）过滤，点行看完整内容与异常堆栈，
+「控制台」按钮可以即时显示 / 隐藏 BepInEx 控制台窗口，
+「复制可见」把当前筛选结果拷成纯文本以便贴进 issue。
+
+界面是**三栏**：左边筛选、中间日志、右边详情。两条分隔条都可以拖动来调宽度
+（双击分隔条，或点左下的「重置分栏宽度」恢复默认），宽度记在浏览器 `localStorage` ——
+下次打开还是你调的样子。没选中任何行时右栏会整体收起，中间日志区自动变宽。
+
+> 布局只用两个 CSS 变量 `--w-left` / `--w-right`，拖动时改的是变量而不是元素宽度，
+> 所以布局信息不会散到 JS 里。窗口被压窄时会把显示宽度临时压缩，但**记忆的仍是你想要的宽度**
+> —— 窗口拉回来就恢复。
+
+### 日志窗口
+
+本仓库自带的 `runtime/BepInEx/config/BepInEx.cfg` 已经把
+`[Logging.Console] Enabled` 设为 **false** —— 黑窗口不会再出现（日志照旧写磁盘、
+照旧进网页）。想要它回来：改回 `true`，或游戏内 `/dshlog console` 临时显示。
+
+> 如果游戏是从已有终端启动的，BepInEx 不会新建控制台而是附着到父窗口 ——
+> 此时隐藏操作会被**主动拒绝**（藏了会连你自己的终端一起没）。
+> 网页里表现为 `not-our-window`。
+
+### 实现上的两个硬约定
+
+1. **HTTP 服务手写，不用 `System.Net.HttpListener`**：后者走 Windows HTTP.sys，
+   非管理员进程监听一个 URL 前缀需要先 `netsh http add urlacl` ——
+   一个 mod 不可能要求玩家做这件事。裸 `TcpListener` 监听回环零特权。
+2. **后台线程与 HTTP 线程绝不碰 IL2CPP 类型**：只碰 `ConcurrentQueue` /
+   `TcpListener` / `NetworkStream`。托管线程未 attach 到 IL2CPP 域时调游戏 API
+   会直接崩且无托管栈。详见 `AI_GUIDE.md` §5-⑮。
+   （指令回调是唯一例外，它跑在游戏主线程 —— 所以 `LogViewerCommand` 与
+   `DebugCommands` 被刻意拆成两个文件：前者纯托管、可离线测试。）
 
 ---
 
@@ -63,8 +145,8 @@
 cd DSHCore
 .\build.ps1                 # 构建（游戏目录存在时自动部署到 BepInEx\plugins\）
 .\build.ps1 -Clean          # 先清 bin/obj 再构建
-.\build.ps1 -Pack           # 额外打包 dist\DSHCore_v0.2.0_0.7.0.zip
-.\build.ps1 -PackDevKit     # 额外打 dist\DSHCore-DevKit_v0.2.0_0.7.0.zip（便携开发环境）
+.\build.ps1 -Pack           # 额外打包 dist\DSHCore_v0.3.0_0.7.0.zip（含 BepInEx 运行环境）
+.\build.ps1 -PackDevKit     # 额外打 dist\DSHCore-DevKit_v0.3.0_0.7.0.zip（便携开发环境）
 .\build.ps1 -Pack -Launch   # 打包后启动游戏冒烟
 ```
 
@@ -75,20 +157,20 @@ cd DSHCore
 | `-SkipBuild`      | 跳过 `dotnet build`，直接用已有产物                                                                      |
 | `-Clean`          | 先删除 `bin/` `obj/`                                                                                       |
 | `-KeepGame`       | 不结束正在运行的游戏进程（**游戏会锁住插件 DLL**，一般不要用）                                          |
-| `-Pack`           | 打包可分发 zip 到 `dist\`                                                                                  |
+| `-Pack`           | 打包可分发 zip 到 `dist\`（默认**含** BepInEx 运行环境）                                             |
 | `-PackDevKit`     | 额外打「不含 DSHCore 源码」的便携开发环境包（见下）                                                    |
-| `-NoRuntime`      | DevKit 里不带 `runtime\`（使用者靠自己的游戏目录编译）                                                |
+| `-NoRuntime`      | 打包时不带 BepInEx 运行环境（包体从 ~44MB 降到几十 KB）                                               |
 | `-Launch`         | 构建/打包后启动游戏                                                                                        |
 
 > 也可以在仓库根目录用 `.\build.ps1 -Mod dsh` 或一次性 `.\build.ps1 -Pack`。
 
 ### 打包特点
 
-**只有本库的包体包含 BepInEx 运行环境**
+**所有包体默认都带 BepInEx 运行环境**
 （`winhttp.dll` / `doorstop_config.ini` / `.doorstop_version` / `dotnet/` /
 `BepInEx\core|interop|unity-libs|patchers|config`），
-所以它是「解压到游戏根目录即可」的完整独立安装包。
-其它 mod 的包体只含插件 + 资源，需要先装本库。
+所以每个包都是「解压到游戏根目录即可」的完整独立安装包 —— 玩家不需要先单独装前置。
+代价是每个包 ~44MB；只要插件本体（比如给已装好的游戏换 DLL）时加 `-NoRuntime`。
 
 构建脚本还会自动删除**改名前的遗留插件** `BepInEx\plugins\CustomCore.dll`
 （本库 0.1.0 时叫 CustomCore，GUID 未变 —— 两个同时存在会被判为重复 GUID）。
@@ -141,8 +223,20 @@ DSHCore/
 ├─ Directory.Build.props   把本工程接入共享编译环境解析（转发到仓库根）
 ├─ DSHCore.csproj          工程文件（编译引用由共享配置解析）
 │
-├─ Plugin.cs               入口：应用 6 个补丁；GUID / NAME / VERSION / Log
+├─ Plugin.cs               入口：启动日志捕获 + 应用 6 个补丁；GUID / NAME / VERSION / Log
+├─ LogViewer.cs            网页日志查看器的对外门面（其它 mod 可直接用）
 ├─ CoreRegistry.cs         跨插件登记表
+│
+├─ Diagnostics/            本地网页日志查看器
+│   ├─ LogPipeline.cs        日志捕获、背压、后台消费线程、服务启停
+│   ├─ LogViewerServer.cs    手写 HTTP/1.1 + SSE 的服务端（纯托管）
+│   ├─ LogRingBuffer.cs      内存历史环形缓冲
+│   ├─ LogRecord.cs          记录模型 + 手写 JSON 转义
+│   ├─ LogViewerConfig.cs    [LogViewer] 段配置绑定
+│   ├─ ConsoleWindow.cs      安全地藏 / 显示控制台窗口
+│   ├─ LogViewerCommand.cs   /dshlog 的解析与处理（**纯托管，可离线测试**）
+│   ├─ DebugCommands.cs      Harmony 拦 DebugManager.ExecuteCommand（游戏胶水）
+│   └─ logviewer.html        查看器前端（单文件，内嵌进 DLL）
 │
 ├─ ClassInjectorFix.cs     ClassInjector 缺陷修复
 ├─ VTableRebind.cs         注入类 vtable 槽重绑

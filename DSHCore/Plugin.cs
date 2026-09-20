@@ -1,7 +1,9 @@
 using System;
+using System.IO;
 using BepInEx;
 using BepInEx.Logging;
 using BepInEx.Unity.IL2CPP;
+using DSHCore.Diagnostics;
 
 namespace DSHCore
 {
@@ -23,20 +25,21 @@ namespace DSHCore
     ///   - ModInfos.Create / OnRegister   ModInfo 构造与官方注册点订阅
     ///   - CoreRegistry               跨插件注册表（各补丁按命名空间生效）
     ///   - VTableRebind.Ensure        注入类 vtable 槽重绑
+    ///   - LogViewer                  本地网页日志查看器（游戏内 /dshlog 开启）
     /// </summary>
     [BepInPlugin(GUID, NAME, VERSION)]
     public class Plugin : BasePlugin
     {
         /// <summary>
-        /// 插件标识。**刻意保持为历史值**：依赖本库的 mod 用
+        /// 插件标识。：依赖本库的 mod 用
         /// &lt;BepInDependency&gt; 声明它，改这个字符串会让既有声明全部失效。
         /// （目录名 / 程序集名 / 命名空间 / 显示名都换了，只有它是稳定契约。）
         /// </summary>
         public const string GUID = "qoznos.mvz2.core";
 
-        public const string NAME = "DSHCore (大肥鱼核心)";
+        public const string NAME = "DSHCore";
 
-        public const string VERSION = "0.2.0";
+        public const string VERSION = "0.3.0";
 
         /// <summary>本库自己的日志通道。各 mod 建议保留自己的 Log，便于按来源过滤。</summary>
         public static new ManualLogSource Log;
@@ -44,6 +47,16 @@ namespace DSHCore
         public override void Load()
         {
             Log = base.Log;
+
+            // 0) 日志**捕获**要尽可能早启动：它挂的是 BepInEx 的全局日志监听表，
+            //    越早装上，越能捕获后续插件（包括本库自己那几个补丁的安装过程）的
+            //    启动日志。注意这里只捕获、不监听端口也不开浏览器 —— 网页服务由
+            //    游戏内指令 /dshlog 按需开启，所以启动阶段完全无感。
+            //    失败也绝不能影响游戏，所以整块包在 try 里。
+            StartLogViewerCapture();
+
+            // 0.5) 把 /dshlog 接进游戏的调试控制台。
+            DebugCommands.Apply();
 
             // 1) 修 ClassInjector 无法处理「基类泛型虚方法」与「System.String 被重写成
             //    Il2CppSystem.String」这两处限制。必须在任何注入类 RegisterTypeInIl2Cpp
@@ -64,6 +77,38 @@ namespace DSHCore
             ArcadeIndexFix.Apply();
 
             Log.LogInfo(NAME + " v" + VERSION + " loaded (infrastructure ready)");
+        }
+
+        /// <summary>
+        /// 插件卸载时收好摊子（关掉 HTTP 监听、摘掉日志监听器）。
+        /// 正常玩游戏的退出路径不一定走到这里，所以 <see cref="LogPipeline"/> 里
+        /// 另外挂了 <c>AppDomain.ProcessExit</c> 兜底。
+        /// </summary>
+        public override bool Unload()
+        {
+            try { LogPipeline.Stop(); }
+            catch { }
+            return true;
+        }
+
+        private void StartLogViewerCapture()
+        {
+            try
+            {
+                var options = LogViewerConfig.Bind(Config);
+
+                // 只有一件事用得到 config 目录：允许用 <config>\DSHCore\logviewer.html
+                // 覆盖内嵌的查看器页面。
+                string configDir = null;
+                if (Config != null && !string.IsNullOrEmpty(Config.ConfigFilePath))
+                    configDir = Path.GetDirectoryName(Config.ConfigFilePath);
+
+                LogPipeline.Start(options, configDir, Log);
+            }
+            catch (Exception ex)
+            {
+                Log.LogWarning("日志查看器初始化失败（不影响游戏）：" + ex.Message);
+            }
         }
     }
 }

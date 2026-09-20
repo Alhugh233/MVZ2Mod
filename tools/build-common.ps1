@@ -278,7 +278,14 @@ function New-ModPackage {
     # 1) BepInEx 运行环境（可选）
     if ($IncludeRuntime) {
         $rt = $RuntimeDir
-        if (-not (Test-Path $rt)) { throw ("runtime 目录不存在：" + $rt) }
+        if (-not (Test-Path $rt)) {
+            # 注意：PS 5.1 的 "..." 里没有 \" 转义，写 \" 会直接把字符串截断成语法错误。
+            # 用 <游戏目录> 这样的尖括号占位，别加引号。
+            throw ("要带 BepInEx 运行环境，但 runtime 目录不存在：" + $rt +
+                   "`n解决办法（二选一）：`n" +
+                   "  1) 准备 runtime\：.\tools\sync-runtime.ps1 -GameDir <游戏目录>`n" +
+                   "  2) 不要运行环境，加 -NoRuntime（包体只含插件）")
+        }
         foreach ($f in @('winhttp.dll', 'doorstop_config.ini', '.doorstop_version')) {
             $src = Join-Path $rt $f
             if (Test-Path $src) { Copy-Item $src $stage -Force }
@@ -349,7 +356,8 @@ function New-ModPackage {
     Remove-Item $stage -Recurse -Force
 
     Write-Ok ("包体: " + $zip)
-    Write-Info ("大小: " + $sizeMb + " MB   文件数: " + $fileCount)
+    Write-Info ("大小: " + $sizeMb + " MB   文件数: " + $fileCount +
+                "   运行环境: " + $(if ($IncludeRuntime) { '含（解压到游戏根目录即可用）' } else { '不含（需先装 DSHCore 的包）' }))
     return $zip
 }
 

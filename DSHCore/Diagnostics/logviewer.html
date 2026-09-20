@@ -1,0 +1,849 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<title>DSHCore 日志查看器</title>
+<style>
+  :root {
+    --bg: #14161a; --bg2: #1b1e24; --bg3: #23272f; --line: #30353f;
+    --fg: #d6dae2; --dim: #8b93a1; --accent: #5aa9e6;
+    --fatal: #ff4d4d; --error: #ff6b6b; --warning: #ffb454;
+    --message: #d6dae2; --info: #7fd1a8; --debug: #7a8798;
+
+    /* 三栏宽度。由 JS 改写并在 localStorage 里记忆。 */
+    --w-left: 220px;
+    --w-right: 420px;
+    --w-split: 6px;
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; }
+  body {
+    background: var(--bg); color: var(--fg);
+    font: 13px/1.45 "Segoe UI", "Microsoft YaHei", system-ui, sans-serif;
+    display: flex; flex-direction: column; overflow: hidden;
+  }
+  /* 拖动分隔条期间：全局换成列宽光标，并禁掉选中与 hover 干扰 */
+  body.resizing, body.resizing * { cursor: col-resize !important; user-select: none !important; }
+
+  header {
+    background: var(--bg2); border-bottom: 1px solid var(--line);
+    padding: 8px 12px; display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center;
+    flex: none;
+  }
+  header h1 { font-size: 14px; margin: 0; font-weight: 600; letter-spacing: .3px; }
+  header h1 span { color: var(--dim); font-weight: 400; }
+
+  .pills { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+  .pill {
+    background: var(--bg3); border: 1px solid var(--line); border-radius: 10px;
+    padding: 2px 9px; font-size: 12px; color: var(--dim); white-space: nowrap;
+  }
+  .pill b { color: var(--fg); font-weight: 600; }
+  .pill.ok { border-color: #2f6b4a; } .pill.ok b { color: #7fd1a8; }
+  .pill.bad { border-color: #7a3b3b; } .pill.bad b { color: #ff8080; }
+
+  .spacer { flex: 1 1 auto; }
+
+  button, select, input[type=text] {
+    background: var(--bg3); color: var(--fg); border: 1px solid var(--line);
+    border-radius: 6px; padding: 3px 9px; font-size: 12px; font-family: inherit;
+  }
+  button:hover { border-color: var(--accent); cursor: pointer; }
+  button.active { border-color: var(--accent); color: #fff; background: #2a3a4d; }
+  input[type=text]:focus, select:focus { outline: none; border-color: var(--accent); }
+  label.chk { display: inline-flex; gap: 5px; align-items: center; font-size: 12px; color: var(--dim); cursor: pointer; }
+
+  /* ---------------------------------------------------------------------
+     主体：三栏 + 两条可拖动分隔条
+     --------------------------------------------------------------------- */
+  #main { flex: 1 1 auto; display: flex; min-height: 0; min-width: 0; }
+
+  #filters {
+    width: var(--w-left); flex: none; overflow: auto;
+    background: var(--bg2); padding: 10px; display: flex; flex-direction: column; gap: 14px;
+  }
+  .group { display: flex; flex-direction: column; gap: 6px; }
+  .glabel {
+    font-size: 11px; letter-spacing: .6px; color: var(--dim);
+    text-transform: uppercase; user-select: none;
+  }
+  #filters input[type=text], #filters select { width: 100%; min-width: 0; }
+  #filters .btns { gap: 6px; }
+  #filters .btns button { width: 100%; text-align: left; }
+
+  .splitter {
+    flex: none; width: var(--w-split); cursor: col-resize;
+    background: var(--bg); border-left: 1px solid var(--line); border-right: 1px solid var(--line);
+    position: relative;
+  }
+  .splitter::after {
+    content: ""; position: absolute; left: 50%; top: 50%;
+    width: 2px; height: 34px; margin: -17px 0 0 -1px;
+    background: var(--line); border-radius: 1px;
+  }
+  .splitter:hover, .splitter.dragging { background: #26313f; }
+  .splitter:hover::after, .splitter.dragging::after { background: var(--accent); }
+
+  #levels { display: flex; flex-direction: column; gap: 3px; }
+  .lv {
+    border: 1px solid var(--line); background: var(--bg3); border-radius: 6px;
+    padding: 2px 8px; font-size: 12px; cursor: pointer; user-select: none;
+    display: flex; gap: 6px; align-items: center; justify-content: space-between;
+  }
+  .lv.off { opacity: .35; }
+  .lv .n { color: var(--dim); font-variant-numeric: tabular-nums; }
+  .lv.Fatal { color: var(--fatal); } .lv.Error { color: var(--error); }
+  .lv.Warning { color: var(--warning); } .lv.Message { color: var(--message); }
+  .lv.Info { color: var(--info); } .lv.Debug { color: var(--debug); }
+
+  #logs { flex: 1 1 auto; min-width: 0; overflow: auto; background: var(--bg); }
+  .row {
+    display: grid; grid-template-columns: 92px 68px 132px 1fr;
+    gap: 8px; padding: 1px 10px; border-bottom: 1px solid #1e2229;
+    white-space: pre-wrap; word-break: break-word; cursor: pointer;
+  }
+  .row:hover { background: #1d212a; }
+  .row.sel { background: #26313f; }
+  .row .t { color: var(--dim); font-variant-numeric: tabular-nums; }
+  .row .s { color: #9aa6b8; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .row .m { color: var(--fg); }
+  .row.Fatal .m, .row.Fatal .l { color: var(--fatal); font-weight: 600; }
+  .row.Error .m, .row.Error .l { color: var(--error); }
+  .row.Warning .m, .row.Warning .l { color: var(--warning); }
+  .row.Info .l { color: var(--info); }
+  .row.Debug .m, .row.Debug .l { color: var(--debug); }
+  .row.Fatal { background: #2a1618; } .row.Error { background: #241a1c; }
+  .row mark { background: #5b4a1e; color: #ffe9a8; border-radius: 2px; }
+
+  /* 右侧详情栏 */
+  #detail {
+    width: var(--w-right); flex: none; overflow: auto; padding: 10px 12px;
+    background: var(--bg2);
+  }
+  #main.no-detail #detail, #main.no-detail #splitRight { display: none; }
+  #detail .dhead { display: flex; gap: 8px; align-items: center; margin-bottom: 8px; flex-wrap: wrap; }
+  #detail .dhead .close {
+    margin-left: auto; padding: 1px 8px; font-size: 14px; line-height: 1.2;
+  }
+  #detail pre { margin: 0; white-space: pre-wrap; word-break: break-word; }
+  #detail .stack { color: #ffb0b0; margin-top: 10px; }
+  #detail .hint { color: var(--dim); }
+
+  footer {
+    background: var(--bg2); border-top: 1px solid var(--line);
+    padding: 4px 12px; font-size: 12px; color: var(--dim);
+    display: flex; gap: 14px; flex-wrap: wrap; flex: none;
+  }
+  footer a { color: var(--accent); text-decoration: none; }
+  .empty { padding: 24px; color: var(--dim); text-align: center; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>DSHCore <span>日志查看器</span></h1>
+  <div class="pills">
+    <span class="pill" id="pConn">连接 <b>…</b></span>
+    <span class="pill">显示 <b id="pShown">0</b></span>
+    <span class="pill">缓存 <b id="pBuf">0</b></span>
+    <span class="pill" id="pDrop">丢弃 <b>0</b></span>
+  </div>
+  <div class="spacer"></div>
+  <button id="bConsole" title="显示 / 隐藏 BepInEx 控制台窗口">控制台</button>
+</header>
+
+<div id="main" class="no-detail">
+  <aside id="filters">
+    <div class="group">
+      <div class="glabel">等级</div>
+      <div id="levels"></div>
+    </div>
+
+    <div class="group">
+      <div class="glabel">来源</div>
+      <select id="src"><option value="">全部来源</option></select>
+    </div>
+
+    <div class="group">
+      <div class="glabel">关键词</div>
+      <input type="text" id="q" placeholder="空格分隔多个关键词">
+      <label class="chk"><input type="checkbox" id="cRegex">按正则解释</label>
+    </div>
+
+    <div class="group">
+      <label class="chk"><input type="checkbox" id="cFollow" checked>跟随最新</label>
+    </div>
+
+    <div class="group btns">
+      <button id="bPause">暂停</button>
+      <button id="bCopy">复制可见</button>
+      <button id="bClearView">清空视图</button>
+      <button id="bClearSrv">清空服务端缓存</button>
+    </div>
+
+    <div class="spacer"></div>
+    <button id="bResetW" title="把左 / 右两栏宽度恢复成默认值">重置分栏宽度</button>
+  </aside>
+
+  <div class="splitter" id="splitLeft" title="拖动调整筛选栏宽度（双击重置）"></div>
+
+  <div id="logs"><div class="empty">等待日志…</div></div>
+
+  <div class="splitter" id="splitRight" title="拖动调整详情栏宽度（双击重置）"></div>
+
+  <aside id="detail"><div class="hint">点左侧任意一行日志，这里显示完整内容与异常堆栈。</div></aside>
+</div>
+
+<footer>
+  <span id="fUrl"></span>
+  <span id="fInfo"></span>
+</footer>
+
+<script>
+// 整个脚本包在 IIFE 里。
+// 别把这些声明放到全局作用域："var status" 会撞上遗留的 window.status
+// （DOMString → 赋对象会被强制转成字符串，读回来就是 undefined），
+// 这类墓碑属性还有 name / length / top / parent / origin 等。
+// 包一层就一次性根除这一类问题。
+(function () {
+"use strict";
+
+// ---------------------------------------------------------------------------
+// 令牌从本页 URL 里取 —— EventSource 没法自定义请求头，所以只能走查询串。
+// 页面本身（GET /）不需要令牌，数据接口（/api/*）才需要。
+// ---------------------------------------------------------------------------
+var TOKEN = new URLSearchParams(location.search).get("token") || "";
+
+function api(path) {
+  var u = new URL(path, location.origin);
+  u.searchParams.set("token", TOKEN);
+  return u.toString();
+}
+
+var LEVELS = ["Fatal", "Error", "Warning", "Message", "Info", "Debug"];
+var MAX_ROWS = 6000;          // 只渲染最近这么多行，防止 DOM 无限膨胀
+var EMPTY_HTML = '<div class="empty">等待日志…</div>';
+
+// records 里的元素是 { r, row }：
+//   r    —— 服务端发来的原始记录
+//   row  —— 对应的 DOM 行；null 表示这一条被筛掉、没渲染
+// 把 DOM 节点挂在条目上，就能做到「追加 O(1)」「裁剪 O(1)」——
+// 不需要每次来新日志都整表重建。
+var records = [];
+var knownIds = Object.create(null);
+var levelCounts = Object.create(null);
+var levelOn = Object.create(null);
+var sources = Object.create(null);
+var selectedKey = null;
+var paused = false;
+var sessionId = null;
+var lastStatus = null;        // 不要叫 status（见脚本开头的注释）
+var events = null;
+
+// 渲染状态
+var shownCount = 0;           // 当前 DOM 里有多少行
+var needsFullRender = true;   // 筛选变了 / 刚清空 → 下次整表重建
+var matcherCache;             // compileMatcher() 的缓存；undefined = 未缓存（compileMatcher 本身可能返回 null）
+
+var elLogs = document.getElementById("logs");
+// elDetail 在下面的「三栏布局」一节里声明，因为那里跟分隔条一起初始化。
+
+LEVELS.forEach(function (l) { levelOn[l] = true; levelCounts[l] = 0; });
+
+// ---------------------------------------------------------------------------
+// 设置持久化（同一浏览器下次打开还认得你的筛选）
+// ---------------------------------------------------------------------------
+function save(k, v) { try { localStorage.setItem("dshlog." + k, v); } catch (e) {} }
+function load(k, d) { try { var v = localStorage.getItem("dshlog." + k); return v === null ? d : v; } catch (e) { return d; } }
+
+var qEl = document.getElementById("q");
+var reEl = document.getElementById("cRegex");
+var foEl = document.getElementById("cFollow");
+var srcEl = document.getElementById("src");
+
+qEl.value = load("q", "");
+reEl.checked = load("regex", "") === "1";
+foEl.checked = load("follow", "1") === "1";
+var savedLevels = load("levels", "");
+if (savedLevels) {
+  LEVELS.forEach(function (l) { levelOn[l] = savedLevels.indexOf(l) >= 0; });
+}
+
+// 筛选一变就得整表重建；输入框额外做去抖，否则每敲一个字符都重建几千行
+var qTimer = null;
+qEl.addEventListener("input", function () {
+  save("q", qEl.value);
+  if (qTimer !== null) clearTimeout(qTimer);
+  qTimer = setTimeout(function () { qTimer = null; applyFilters(); }, 150);
+});
+reEl.addEventListener("change", function () { save("regex", reEl.checked ? "1" : "0"); applyFilters(); });
+foEl.addEventListener("change", function () { save("follow", foEl.checked ? "1" : "0"); if (foEl.checked) scrollEnd(); });
+srcEl.addEventListener("change", applyFilters);
+
+// ---------------------------------------------------------------------------
+// 三栏布局：拖动分隔条调宽度
+//
+// 宽度只存在两个 CSS 变量（--w-left / --w-right）里，element 的 width 直接引用它们。
+// 这样拖动时只改一个变量，不需要去动任何元素的 style.width，也就不会把
+// 布局信息散落到 JS 里。localStorage 记忆的是「你想要的宽度」而不是「当前显示的
+// 宽度」—— 窗口被压窄时会临时缩，拉回来还能恢复成你要的宽度。
+// ---------------------------------------------------------------------------
+var elMain = document.getElementById("main");
+var elDetail = document.getElementById("detail");
+var elSplitLeft = document.getElementById("splitLeft");
+var elSplitRight = document.getElementById("splitRight");
+var rootStyle = document.documentElement.style;
+
+var W_LEFT = { def: 220, min: 150, max: 560 };
+var W_RIGHT = { def: 420, min: 240, max: 900 };
+var MIN_LOGS = 260;             // 中间日志区至少要留的宽度
+
+function clampW(v, spec) { return Math.max(spec.min, Math.min(spec.max, v)); }
+
+function readWidth(key, spec) {
+  var v = parseInt(load(key, ""), 10);
+  return isFinite(v) ? clampW(v, spec) : spec.def;
+}
+
+/// 当前真实生效的栏宽（= CSS 变量值），用于拖动起点
+function currentWidth(name) {
+  var v = parseFloat(rootStyle.getPropertyValue(name));
+  return isFinite(v) ? Math.round(v) : 0;
+}
+
+var wLeft = readWidth("wLeft", W_LEFT);
+var wRight = readWidth("wRight", W_RIGHT);
+
+/// 把想要的宽度落到 CSS 变量上；实在挤不下时临时压缩（只影响显示，不改 wLeft/wRight）
+function applyWidths() {
+  var splits = (elSplitLeft.offsetWidth || 0) + (elSplitRight.offsetWidth || 0);
+  var detailOpen = !elMain.classList.contains("no-detail");
+  var avail = (elMain.clientWidth || 0) - splits - MIN_LOGS;
+
+  var l = wLeft;
+  var r = detailOpen ? wRight : 0;
+
+  if (!detailOpen) {
+    // 右栏收起来了，空间全归左栏（但仍受它自己的上限约束）
+    l = clampW(Math.min(wLeft, Math.max(W_LEFT.min, avail)), W_LEFT);
+  } else if (l + r > avail) {
+    // 先压右栏（它更容易被拖过头），压到底还不够再压左栏
+    r = Math.max(W_RIGHT.min, Math.min(r, avail - W_LEFT.min));
+    l = Math.max(W_LEFT.min, Math.min(l, avail - r));
+  }
+
+  rootStyle.setProperty("--w-left", l + "px");
+  rootStyle.setProperty("--w-right", r + "px");
+}
+
+/// 详情栏的开关。以前是给 <aside> 加 .open，现在整个右栏（含分隔条）一起收起来，
+/// 因为分隔条已经没有存在的意义了。
+function setDetailOpen(open) {
+  elMain.classList.toggle("no-detail", !open);
+  applyWidths();
+}
+
+function dragPane(el, isLeft) {
+  el.addEventListener("pointerdown", function (ev) {
+    if (ev.button !== 0) return;
+    ev.preventDefault();
+
+    var startX = ev.clientX;
+    // 以「当前实际显示的宽度」为起点，而不是记忆里的 wLeft/wRight：
+    // 窗口被压窄时 applyWidths 会临时压缩显示宽度，两者会不一致，
+    // 用记忆值作起点会跳一下。
+    var startW = currentWidth(isLeft ? "--w-left" : "--w-right");
+    var spec = isLeft ? W_LEFT : W_RIGHT;
+
+    el.classList.add("dragging");
+    document.body.classList.add("resizing");
+    try { el.setPointerCapture(ev.pointerId); } catch (e) { /* 老浏览器没有也无所谓 */ }
+
+    function onMove(e) {
+      // 往右拖：左栏变宽、右栏变窄（所以右栏的方向取反）。
+      // 取整：clientX 有小数，不取整的话 220+139.99998 = 359.99998 会一路
+      // 写进 CSS 变量和 localStorage 里。
+      var delta = (e.clientX - startX) * (isLeft ? 1 : -1);
+      var v = clampW(Math.round(startW + delta), spec);
+      if (isLeft) wLeft = v; else wRight = v;
+      applyWidths();
+    }
+
+    function onUp(e) {
+      el.removeEventListener("pointermove", onMove);
+      el.removeEventListener("pointerup", onUp);
+      el.removeEventListener("pointercancel", onUp);
+      el.classList.remove("dragging");
+      document.body.classList.remove("resizing");
+      try { el.releasePointerCapture(e.pointerId); } catch (e2) { /* 同上 */ }
+
+      // 松手才写 localStorage：拖动过程中每帧都写会明显拖慢
+      save("wLeft", String(wLeft));
+      save("wRight", String(wRight));
+    }
+
+    el.addEventListener("pointermove", onMove);
+    el.addEventListener("pointerup", onUp);
+    el.addEventListener("pointercancel", onUp);
+  });
+
+  // 双击恢复默认：不用去左边找那个按钮
+  el.addEventListener("dblclick", function () {
+    if (isLeft) wLeft = W_LEFT.def; else wRight = W_RIGHT.def;
+    save("wLeft", String(wLeft));
+    save("wRight", String(wRight));
+    applyWidths();
+  });
+}
+
+dragPane(elSplitLeft, true);
+dragPane(elSplitRight, false);
+
+// 窗口变小/变大都要重新算一遍能不能装下
+window.addEventListener("resize", applyWidths);
+applyWidths();
+
+document.getElementById("bResetW").addEventListener("click", function () {
+  wLeft = W_LEFT.def;
+  wRight = W_RIGHT.def;
+  save("wLeft", String(wLeft));
+  save("wRight", String(wRight));
+  applyWidths();
+  toast("分栏宽度已重置");
+});
+
+// ---------------------------------------------------------------------------
+// 等级筛选条
+// ---------------------------------------------------------------------------
+var elLevels = document.getElementById("levels");
+LEVELS.forEach(function (l) {
+  var d = document.createElement("div");
+  d.className = "lv " + l;
+  d.dataset.level = l;
+  d.innerHTML = '<span>' + l + '</span><span class="n">0</span>';
+  d.addEventListener("click", function () {
+    levelOn[l] = !levelOn[l];
+    d.classList.toggle("off", !levelOn[l]);
+    save("levels", LEVELS.filter(function (x) { return levelOn[x]; }).join(","));
+    applyFilters();
+  });
+  if (!levelOn[l]) d.classList.add("off");
+  elLevels.appendChild(d);
+});
+var levelNodes = {};
+Array.prototype.forEach.call(elLevels.children, function (n) { levelNodes[n.dataset.level] = n; });
+
+// ---------------------------------------------------------------------------
+// 过滤
+// ---------------------------------------------------------------------------
+function compileMatcher() {
+  var raw = qEl.value.trim();
+  if (!raw) return null;
+
+  if (reEl.checked) {
+    try { return { re: new RegExp(raw, "i") }; }
+    catch (e) { return { bad: e.message }; }
+  }
+
+  var terms = raw.toLowerCase().split(/\s+/).filter(Boolean);
+  return { terms: terms };
+}
+
+function match(r, m) {
+  if (!m) return true;
+  var text = r.message + " " + r.source + " " + (r.detail || "");
+  if (m.bad) return true;                   // 正则写错了就先不过滤，别让页面变空
+  if (m.re) return m.re.test(text);
+  text = text.toLowerCase();
+  for (var i = 0; i < m.terms.length; i++) {
+    if (text.indexOf(m.terms[i]) < 0) return false;
+  }
+  return true;
+}
+
+function currentMatcher() {
+  if (matcherCache === undefined) matcherCache = compileMatcher();
+  return matcherCache;
+}
+
+function passesFilters(r, m, srcFilter) {
+  if (!levelOn[r.level]) return false;
+  if (srcFilter && r.source !== srcFilter) return false;
+  return match(r, m);
+}
+
+/// 筛选条件变了：丢掉缓存的 matcher、标脏、整表重建
+function applyFilters() {
+  matcherCache = undefined;
+  needsFullRender = true;
+  render();
+}
+
+// ---------------------------------------------------------------------------
+// 渲染
+//
+// 分两条路（这里是本页性能的关键）：
+//   1) 新日志到达 → appendRow()，O(1)，不动已有行。
+//      整表重建过一次就会知道代价：几千个节点 × 每秒十几次，游戏正跑着的时候
+//      卡的就是这个，而且会打断正在看的行的选中与 hover。
+//   2) 筛选变化 / 历史被裁剪 / 清空 → render() 整表重建。
+// ---------------------------------------------------------------------------
+
+function shortLevel(l) {
+  return l === "Warning" ? "WARN" : l === "Message" ? "MSG" : l.toUpperCase().slice(0, 5);
+}
+
+function scrollEnd() {
+  elLogs.scrollTop = elLogs.scrollHeight;
+}
+
+function createRow(r) {
+  var row = document.createElement("div");
+  row.className = "row " + r.level + (r.id === selectedKey ? " sel" : "");
+  row.dataset.key = r.id;
+
+  var t = document.createElement("span"); t.className = "t"; t.textContent = r.time;
+  var lv = document.createElement("span"); lv.className = "l"; lv.textContent = shortLevel(r.level);
+  var s = document.createElement("span"); s.className = "s"; s.textContent = r.source; s.title = r.source;
+  var ms = document.createElement("span"); ms.className = "m";
+  ms.textContent = r.detail ? r.message + "  \u2935" : r.message;
+  ms.title = r.message;
+
+  row.appendChild(t); row.appendChild(lv); row.appendChild(s); row.appendChild(ms);
+  return row;
+}
+
+function removePlaceholder() {
+  var first = elLogs.firstElementChild;
+  if (first && first.className === "empty") elLogs.removeChild(first);
+}
+
+function ensurePlaceholder() {
+  if (elLogs.children.length > 0) return;
+  elLogs.innerHTML = '<div class="empty">' +
+    (records.length ? "没有符合筛选的日志" : "等待日志…") + "</div>";
+}
+
+/// 整表重建。只在筛选变化、历史裁剪、清空时调。
+function render() {
+  var m = currentMatcher();
+  var srcFilter = srcEl.value;
+  var frag = document.createDocumentFragment();
+
+  shownCount = 0;
+  for (var i = 0; i < records.length; i++) {
+    var item = records[i];
+    item.row = null;
+    if (!passesFilters(item.r, m, srcFilter)) continue;
+
+    var row = createRow(item.r);
+    item.row = row;
+    frag.appendChild(row);
+    shownCount++;
+  }
+
+  elLogs.textContent = "";
+  if (shownCount > 0) elLogs.appendChild(frag);
+  ensurePlaceholder();
+
+  needsFullRender = false;
+  updateStatusPills();
+  if (foEl.checked) scrollEnd();
+}
+
+/// 只追加一行。新日志走的都是这条路。
+function appendRow(item) {
+  if (!passesFilters(item.r, currentMatcher(), srcEl.value)) return;
+
+  removePlaceholder();
+  var row = createRow(item.r);
+  item.row = row;
+  elLogs.appendChild(row);
+  shownCount++;
+}
+
+function updateStatusPills() {
+  document.getElementById("pBuf").textContent = records.length;
+  document.getElementById("pShown").textContent = shownCount;
+
+  var d = lastStatus ? lastStatus.dropped : 0;
+  document.getElementById("pDrop").innerHTML = "丢弃 <b>" + d + "</b>";
+  document.getElementById("pDrop").className = "pill" + (d > 0 ? " bad" : "");
+
+  LEVELS.forEach(function (l) {
+    var n = levelNodes[l].querySelector(".n");
+    if (n) n.textContent = levelCounts[l] || 0;
+  });
+}
+
+// ---------------------------------------------------------------------------
+// 数据接入
+// ---------------------------------------------------------------------------
+function addSource(name) {
+  if (sources[name]) return;
+  sources[name] = true;
+  var o = document.createElement("option");
+  o.value = name; o.textContent = name;
+  srcEl.appendChild(o);
+}
+
+function addRecord(r) {
+  if (knownIds[r.id]) return;
+  knownIds[r.id] = true;
+
+  var item = { r: r, row: null };
+  records.push(item);
+  levelCounts[r.level] = (levelCounts[r.level] || 0) + 1;
+  addSource(r.source);
+
+  // 只有「不需要整表重建」时才增量追加；否则留给 render() 一并处理，
+  // 避免同一个 tick 里做两遍活。
+  if (!needsFullRender) appendRow(item);
+
+  trimHistory();
+}
+
+/// 超出 MAX_ROWS 就从最旧的开始丢——同时要把 DOM 行、计数、id 集合都清掉，
+/// 否则「缓存」数是准的、等级计数却会一直往上涨。
+function trimHistory() {
+  if (records.length <= MAX_ROWS) return;
+
+  var n = records.length - MAX_ROWS;
+  for (var i = 0; i < n; i++) {
+    var item = records[i];
+
+    levelCounts[item.r.level] = Math.max(0, (levelCounts[item.r.level] || 0) - 1);
+    delete knownIds[item.r.id];
+
+    if (item.row && item.row.parentNode === elLogs) {
+      elLogs.removeChild(item.row);
+      shownCount--;
+    }
+    if (item.r.id === selectedKey) {
+      selectedKey = null;
+      setDetailOpen(false);
+    }
+  }
+  records.splice(0, n);
+  ensurePlaceholder();
+}
+
+function resetAll() {
+  records = []; knownIds = Object.create(null);
+  sources = Object.create(null);
+  LEVELS.forEach(function (l) { levelCounts[l] = 0; });
+  srcEl.innerHTML = '<option value="">全部来源</option>';
+  selectedKey = null;
+  setDetailOpen(false);
+  applyFilters();
+}
+
+function loadHistory() {
+  return fetch(api("/api/history?limit=" + MAX_ROWS))
+    .then(function (r) { return r.json(); })
+    .then(function (list) {
+      resetAll();
+      list.forEach(function (r) { addRecord(r); });
+      // 历史是一次性灌进来的，统一重建比逐条追加快得多
+      needsFullRender = true;
+      render();
+    })
+    .catch(function () { /* 服务端还没准备好时忽略 */ });
+}
+
+function loadStatus() {
+  return fetch(api("/api/status"))
+    .then(function (r) { return r.json(); })
+    .then(function (s) {
+      lastStatus = s;
+      document.getElementById("fUrl").textContent = s.url || "";
+      document.getElementById("fInfo").textContent =
+        "会话 " + String(s.session).slice(0, 8) + " · PID " + s.pid +
+        " · 模式 " + s.accessMode + " · 客户端 " + s.clients +
+        " · 队列 " + s.queueDepth;
+      // 不要去动「连接」那个 pill：它要反映 SSE 的状态（日志到底有没有在流）。
+      // 10 秒一次的轮询去覆盖它，只会在 SSE 已经断掉时把它伪装成正常。
+      updateStatusPills();
+    })
+    .catch(function () {
+      // 轮询失败也不改 pill，理由同上 —— SSE 自己会变成「重连中…」
+    });
+}
+
+function connectEvents() {
+  if (events) events.close();
+  events = new EventSource(api("/api/events"));
+
+  events.onopen = function () {
+    var p = document.getElementById("pConn");
+    p.className = "pill ok";
+    p.innerHTML = "连接 <b>实时</b>";
+  };
+  events.onerror = function () {
+    var p = document.getElementById("pConn");
+    p.className = "pill bad";
+    p.innerHTML = "连接 <b>重连中…</b>";
+  };
+
+  events.addEventListener("session", function (ev) {
+    var s = JSON.parse(ev.data);
+    // 换了会话（游戏重启）→ 之前的历史已经不属于这一局了
+    if (sessionId && s.session !== sessionId) loadHistory();
+    sessionId = s.session;
+    lastStatus = s;
+    updateStatusPills();
+  });
+
+  events.addEventListener("log", function (ev) {
+    if (paused) return;
+
+    addRecord(JSON.parse(ev.data));
+
+    if (needsFullRender) {
+      // 筛选刚改过：等一次整表重建，不要在这里插半张表
+      scheduleRender();
+      return;
+    }
+    updateStatusPills();
+    if (foEl.checked) scrollEnd();
+  });
+}
+
+var renderTimer = null;
+function scheduleRender() {
+  if (renderTimer !== null) return;
+  renderTimer = setTimeout(function () { renderTimer = null; render(); }, 80);
+}
+
+// ---------------------------------------------------------------------------
+// 交互
+// ---------------------------------------------------------------------------
+elLogs.addEventListener("click", function (ev) {
+  var row = ev.target.closest(".row");
+  if (!row) return;
+  var key = Number(row.dataset.key);
+
+  // 只改选中行的 class：整表重建会打断选择、也会让「点一下看详情」变得无从下手
+  var prev = elLogs.querySelector(".row.sel");
+  if (prev) prev.classList.remove("sel");
+
+  if (selectedKey === key) {
+    selectedKey = null;
+    setDetailOpen(false);
+  } else {
+    selectedKey = key;
+    row.classList.add("sel");
+    showDetail(key);
+  }
+});
+
+function showDetail(key) {
+  var r = null;
+  for (var i = 0; i < records.length; i++) if (records[i].r.id === key) { r = records[i].r; break; }
+  if (!r) { setDetailOpen(false); return; }
+
+  elDetail.textContent = "";
+  var head = document.createElement("div");
+  head.className = "dhead";
+  head.innerHTML = '<span class="lv ' + r.level + '">' + r.level + '</span>' +
+    '<b>' + escapeHtml(r.source) + '</b><span style="color:var(--dim)">' + r.time + ' · id ' + r.id + '</span>';
+
+  var btnClose = document.createElement("button");
+  btnClose.className = "close";
+  btnClose.textContent = "×";
+  btnClose.title = "关闭详情";
+  btnClose.addEventListener("click", function () {
+    var sel = elLogs.querySelector(".row.sel");
+    if (sel) sel.classList.remove("sel");
+    selectedKey = null;
+    setDetailOpen(false);
+  });
+  head.appendChild(btnClose);
+  elDetail.appendChild(head);
+
+  var pre = document.createElement("pre");
+  pre.textContent = r.message;
+  elDetail.appendChild(pre);
+
+  if (r.detail) {
+    var st = document.createElement("pre");
+    st.className = "stack";
+    st.textContent = r.detail;
+    elDetail.appendChild(st);
+  }
+  setDetailOpen(true);
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"]/g, function (c) {
+    return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c];
+  });
+}
+
+document.getElementById("bPause").addEventListener("click", function () {
+  paused = !paused;
+  this.classList.toggle("active", paused);
+  this.textContent = paused ? "继续" : "暂停";
+  if (!paused) { loadHistory().then(connectEvents); }
+});
+
+document.getElementById("bCopy").addEventListener("click", function () {
+  var m = currentMatcher();
+  var srcFilter = srcEl.value;
+  var out = [];
+  for (var i = 0; i < records.length; i++) {
+    var r = records[i].r;
+    if (!passesFilters(r, m, srcFilter)) continue;
+    out.push(r.time + " " + r.level + " [" + r.source + "] " + r.message);
+    if (r.detail) out.push(r.detail);
+  }
+  var text = out.join("\n");
+  navigator.clipboard.writeText(text).then(
+    function () { toast("已复制 " + out.length + " 行"); },
+    function () { toast("复制失败（浏览器可能拒绝了剪贴板权限）"); });
+});
+
+document.getElementById("bClearView").addEventListener("click", resetAll);
+
+document.getElementById("bClearSrv").addEventListener("click", function () {
+  fetch(api("/api/clear")).then(function () { toast("服务端缓存已清空"); });
+});
+
+document.getElementById("bConsole").addEventListener("click", function () {
+  fetch(api("/api/console?action=toggle"))
+    .then(function (r) { return r.json(); })
+    .then(function (j) {
+      if (!j.ok) {
+        toast(j.reason === "no-console" ? "没有控制台窗口"
+          : j.reason === "not-our-window" ? "控制台属于父进程，不能隐藏"
+          : "该功能已在配置里关闭");
+        return;
+      }
+      toast(j.visible ? "控制台窗口已显示" : "控制台窗口已隐藏");
+    })
+    .catch(function () { toast("请求失败"); });
+});
+
+function toast(text) {
+  var d = document.createElement("div");
+  d.textContent = text;
+  d.style.cssText = "position:fixed;left:50%;bottom:36px;transform:translateX(-50%);" +
+    "background:#2a3a4d;border:1px solid #5aa9e6;border-radius:6px;padding:6px 14px;" +
+    "font-size:12px;z-index:99;pointer-events:none";
+  document.body.appendChild(d);
+  setTimeout(function () { d.remove(); }, 1800);
+}
+
+// ---------------------------------------------------------------------------
+// 启动
+// ---------------------------------------------------------------------------
+loadStatus().then(loadHistory).then(connectEvents);
+setInterval(loadStatus, 10000);
+window.addEventListener("beforeunload", function () { if (events) events.close(); });
+
+})();
+</script>
+</body>
+</html>

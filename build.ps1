@@ -9,9 +9,10 @@
 #   .\build.ps1 -Mod lab -Pack         只构建 LaboratoryMod 并打包
 #   .\build.ps1 -Clean -Pack           全部：先清再建，并打包
 #   .\build.ps1 -Mod dsh -PackDevKit   打「不含 DSHCore 源码」的便携开发环境包
+#   .\build.ps1 -Pack -NoRuntime       全部：打「只含插件」的轻量包（不带 BepInEx）
 #   .\build.ps1 -Pack -Launch          全部：打包后启动游戏
 #
-# 参数会原样透传给各 mod 的 build.ps1（-PackDevKit / -NoRuntime 只传给 DSHCore）。
+# 参数会原样透传给各 mod 的 build.ps1（只有 -PackDevKit 是 DSHCore 专属）。
 # 只想构建单个 mod 时，直接运行该 mod 目录下的 build.ps1 更直观。
 #
 # 注：在精简工作区（例如 DevKit 包里剔掉了 DSHCore 源码）里跑 -Mod all 时，
@@ -35,7 +36,7 @@ $ErrorActionPreference = 'Stop'
 
 # 依赖顺序：前置在前
 $all = @(
-    @{ Key = 'dsh';   Dir = 'DSHCore';       Title = 'DSHCore (大肥鱼核心)' },
+    @{ Key = 'dsh';   Dir = 'DSHCore';       Title = 'DSHCore' },
     @{ Key = 'lab';   Dir = 'LaboratoryMod'; Title = 'MVZ2 Laboratory Content' },
     @{ Key = 'curse'; Dir = 'ModularCurse';  Title = 'MVZ2 Modular Curse' }
 )
@@ -71,12 +72,13 @@ foreach ($m in $selected) {
         continue
     }
 
-    # -PackDevKit / -NoRuntime 只有 DSHCore 的 build.ps1 认识，别传给其它 mod
+    # -PackDevKit 只有 DSHCore 的 build.ps1 认识，别传给其它 mod。
+    # （-NoRuntime 三个 mod 都认识：DSHCore 用它跳过运行环境，
+    #   内容 mod 用它把包体从「自包含」切成「只含插件」。）
     $p = @{}
     foreach ($k in $passthru.Keys) { $p[$k] = $passthru[$k] }
     if ($m.Key -ne 'dsh') {
         [void]$p.Remove('PackDevKit')
-        [void]$p.Remove('NoRuntime')
     }
 
     Write-Host ""

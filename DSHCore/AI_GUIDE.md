@@ -108,6 +108,7 @@ foreach ($t in $a.MainModule.Types) {
 | `ModInfos`     | `Create(nsp, logic, displayName)`、`OnRegister(handler)`、`EmptyLocator(nsp)`、`LevelDataVersion` | 构造 ModInfo、订阅官方注册点                           |
 | `CoreRegistry` | `Register(RegisteredMod)`、`Get(nsp)`、`GetAll()`、`FormatAll()`                                  | 登记表（一般由`ModBootstrap` 代劳）                    |
 | `VTableRebind` | `Ensure(Type logicType)`                                                                          | 手动兜底重绑 vtable 槽                                 |
+| `LogViewer`    | `Url`、`OpenInBrowser()`、`CapturedCount`、`DroppedCount`、`Report(src,level,msg)`、`HideConsole()`/`ShowConsole()`、`Shutdown()` | 看实时日志、藏控制台窗口                               |
 | `Plugin`       | `GUID`、`NAME`、`VERSION`、`Log`                                                                  | `[BepInDependency(DSHCore.Plugin.GUID)]`、共用日志通道 |
 
 ### `Il2CppPin.Pin`
@@ -181,6 +182,115 @@ private static Il2CppSystem.Threading.Tasks.Task OnRegisterModInfos(
 ```
 
 `OnRegister` 内部完成 `System.Func` → `Il2CppSystem.Func` 的委托转换 + 事件订阅。
+
+### `LogViewer` —— 本地网页日志查看器
+
+把所有插件的 BepInEx 日志实时推到浏览器（只监听 `127.0.0.1`），
+于是不需要再盯着那个挡在游戏前面的控制台窗口。
+
+**默认不开**：日志从游戏启动就捕获进内存环形缓冲（不监听端口、不弹浏览器），
+需要时在游戏里输入：
+
+```
+/dshlog        开启（已开启则显示状态）
+/dshlog off    关闭并释放端口      /dshlog open   用浏览器打开
+/dshlog url    只打印地址          /dshlog status 显示状态
+/dshlog console 显示/隐藏控制台     /dshlog clear  清空内存历史
+```
+
+指令名与子指令**支持 Tab 补全**：`/ds` + Tab → `/dshlog`；`/dshlog o` + Tab → `off`/`open`。
+实现见下面的「想加自己的游戏内指令」第 3 条。
+
+> 为什么要拆成「一直捕获 + 按需开网页」：**调试时你要的是游戏启动到出问题那一段**。
+> 捕获只是一个环形缓冲 + 一个后台线程；等出问题了再 `/dshlog`，打开就是完整历史。
+
+配置在 `BepInEx/config/qoznos.mvz2.core.cfg` 的 `[LogViewer]` 段：
+
+```ini
+Enabled             = false     # true = 游戏启动时就自动开好网页
+Port                = 18742     # 被占用会往后顺延
+PortFallbackCount   = 10        # 顺延几个
+AutoOpen            = true      # 开网页服务时自动开浏览器
+LanAccess           = false     # 只监听回环；同网段机器要看得开它
+RingBufferCapacity  = 5000      # 内存里留多少条历史（始终在记）
+QueueCapacity       = 20000     # 队列上限，超出丢弃并计数（不会拖慢游戏）
+AccessToken         = ...       # 自动生成；/api/* 都要它
+HideConsoleWindow   = false     # 插件加载后自动藏起控制台窗口
+AllowConsoleToggle  = true      # 允许网页里显示/隐藏控制台
+```
+
+| 路径 | 作用 |
+| ---- | ---- |
+| `GET /` | 查看器页面（内嵌在 DLL 里，**不需要令牌**） |
+| `GET /api/status` | 会话 / 进程 / 缓冲 / 队列 / 客户端计数 |
+| `GET /api/history?limit=N` | 最近 N 条历史 |
+| `GET /api/events` | SSE 实时流 |
+| `GET /api/console?action=show\|hide\|toggle` | 显示 / 隐藏控制台窗口 |
+| `GET /api/clear` | 清空内存历史（磁盘日志不受影响） |
+
+前端是单文件 `Diagnostics/logviewer.html`（内嵌进 DLL，可用
+`<config>/DSHCore/logviewer.html` 覆盖而不重编译）。界面为**三栏**：左筛选 / 中日志 / 右详情，
+两条分隔条可拖动调宽（双击分隔条或「重置分栏宽度」恢复默认），宽度记在 `localStorage`。
+没选中行时 `#main` 带 `.no-detail`，右栏连同右分隔条一起 `display:none`。
+
+> 布局只用两个 CSS 变量 `--w-left` / `--w-right`（拖动时改变量，不碰元素 `style.width`）。
+> 窗口变窄时 `applyWidths()` 会临时压缩**显示**宽度，但 `wLeft`/`wRight` 记的仍是你想要的宽度，
+> 拉回来就恢复；拖动起点取的是 CSS 变量当前值（不是记忆值），否则会出现一次跳变。
+
+其它 mod 也可以直接用，不需要自己起服务：
+
+```csharp
+DSHCore.LogViewer.StartServer(out var msg);       // 开启（游戏内 /dshlog 调的就是它）
+DSHCore.LogViewer.StopServer(out var msg);        // 关闭
+DSHCore.LogViewer.Url;                            // 带令牌的地址
+DSHCore.LogViewer.Report("MyMod", LogLevel.Warning, "自定义诊断"); // 不想建 ManualLogSource 时
+DSHCore.LogViewer.DroppedCount;                   // 日志是否被丢弃
+```
+
+不想开浏览器时，用命令行也能取：
+
+```powershell
+# 带令牌的完整 URL 用 /dshlog url 打出来，直接抄即可
+$u = 'http://127.0.0.1:18742/api/history?limit=20&token=<粘贴令牌>'
+(Invoke-WebRequest $u).Content | ConvertFrom-Json | Select-Object time,level,source,message
+```
+
+关于日志窗口：本仓库自带的 `runtime/BepInEx/config/BepInEx.cfg` 已经把
+`[Logging.Console] Enabled` 设成 `false`（黑窗根本不创建）。想要它回来：改回 `true`，
+或游戏内 `/dshlog console` 临时显示；配置 `HideConsoleWindow = true` 也能自动藏。
+
+#### 想加自己的游戏内指令？
+
+照 `Diagnostics/DebugCommands.cs` 抄，或看 `ModularCurse/CurseCommand.cs` 的 `/curse`。
+两个关键约定：
+
+1. **不能用 `CommandUtility.SplitCommand` 之外的东西去猜参数**，也别指望官方
+   `CommandDefinition` —— 它要求定义注册在 mod 自己的命名空间下，而裸命令名解析用的
+   默认命名空间是 `mvz2`，拿不到 `/你的命令`。
+2. **prefix 可以多个共存**：Harmony 会跑完所有 prefix，只有全部返回 `true` 才交给原方法。
+   所以 DSHCore 的 `/dshlog` 与其它 mod 的指令互不干扰。
+3. **想进 Tab 补全列表就得自己补**：官方 `FillSuggestions` 只遍历已注册的
+   `CommandDefinition`，不走那条路（见第 1 条）就不会出现在补全里。
+   做法是再挂一条 prefix：
+
+   ```csharp
+   // 签名取自 interop（C# 里的 string[] / List<string> 到 interop 就是这两个类型）
+   AccessTools.Method(typeof(DebugManager), "FillSuggestions",
+       new[] { typeof(Il2CppStringArray), typeof(Il2CppSystem.Collections.Generic.List<string>) })
+   ```
+
+   三个必须记住的点：
+   - prefix 必须是 **void**（只追加不拦截）。返回 `false` 会把官方补全全弄没。
+   - **建议项是整个「当前词」**：`DebugConsoleController.AutoComplete()` 把
+     `currentSuggestions[i]` 当最后一个 token 直接拼回去（前面用 `SkipLast(1)`）。
+     所以要返回 `dshlog` / `off` 这种**裸词**，不能带 `/` 或前面的部分。
+   - `parts[0]` **已去掉开头 `/`**（`FillSuggestions` 内部拿它当指令名做 `NamespaceID.TryParse`），
+     所以匹配规则对齐官方 `FillNameSuggestions` 的 `StartsWith(..., OrdinalIgnoreCase)` 即可。
+
+   写完的东西放在纯托管的 `LogViewerCommand.Suggest()` 里（进的是 `string[]`、出的也是
+   `string[]`），游戏胶水（读 `Il2CppStringArray`、写 interop `List`）只留在 `DebugCommands.cs`。
+   这样补全规则能离线测，而碰 interop 的那几行全部包在 try/catch 里 —— 补全只需吞异常，
+   绝不把整个输入框的刷新弄断。
 
 ---
 
@@ -556,23 +666,75 @@ meta 既然由 `MetaInjection` 直读磁盘，空 locator 返回空集是安全�
 
 ---
 
+### ⑮ 后台线程绝不能碰 IL2CPP / 游戏类型
+
+托管线程没有 attach 到 IL2CPP 域时调用游戏 API **会直接崩，而且不产生任何托管栈**
+（只留在 `ErrorLog.log`，看起来就像随机 AV）。
+
+这条直接影响日志查看器的写法：它的队列消费线程与所有 HTTP 线程都是**纯托管**的 ——
+只碰 `ConcurrentQueue`、`TcpListener`、`NetworkStream`，从不读游戏字段、不调游戏方法、
+不看 `UnityEngine.*`。往 `DSHCore/Diagnostics/` 里加功能时请维持这个边界。
+
+同理，日志回调（`ILogListener.LogEvent`）跑在**发起日志的那个线程**上，可能是 Unity
+主线程 —— 所以那里只能入队，**绝不能**做 I/O 或加锁等待。
+
+### ⑯ 控制台窗口只能藏「自己进程」的那个
+
+游戏如果是从已有终端（cmd / PowerShell / Windows Terminal）启动的，BepInEx 不会新建
+控制台，而是**附着**到父窗口；此时 `GetConsoleWindow()` 返回的是那个终端的窗口 ——
+把它藏起来等于把用户自己的终端弄没了。
+
+所以 `ConsoleWindow.Hide()` 会先用 `GetWindowThreadProcessId` 比对窗口的所属进程，
+只有确实属于本进程时才动手（否则返回 `false` 且什么都不做）。从网页点「控制台」
+得到 `not-our-window` 就是这个保护生效了，不是 bug。
+
+### ⑰ 「只追加」的 prefix 必须返回 void
+
+想往官方列表里塞东西（典型例子：把自家指令塞进 Tab 补全的
+`DebugManager.FillSuggestions`），prefix 必须声明成 `void`。
+如果写成 `bool` 并返回了 `false`，你会把那个方法**整个跳过** —— 官方的建议全没，
+而且不报错，只表现为「补全面板少了点东西」，很难联想到是前一个 mod 干的。
+
+两个配套细节：
+
+- `AccessTools.Method(typeof(X), "Y", new[] { ... })` 是按**精确类型**匹配的。
+  interop 方法面对应的是 `Il2CppInterop.Runtime.InteropTypes.Arrays.Il2CppStringArray`、
+  `Il2CppSystem.Collections.Generic.List<string>` 这类类型，写 `string[]` / `List<string>`
+  是找不到的（找不到就静默失效）。用 Cecil 把签名打出来确认，别猜。
+- il2cpp 集合的索引器返回的就是 `System.String`，但**元素写入必须走 `List.Add`**；
+  别试图拿 `IList<T>` 去强转（它是 il2cpp 代理，不是 BCL 集合）。
+
+---
+
 ## 6. 自检与验收
 
-改完东西，**先看日志再下结论**。游戏目录的
-`BepInEx/LogOutput.log`（普通日志）与 `BepInEx/ErrorLog.log`（原生崩溃）。
+改完东西，**先看日志再下结论**。
+
+**首选方式是网页日志查看器** —— 它就在游戏旁边实时滚动，不用切窗口、不用重开日志文件：
+
+- 游戏内按 `/` 打开调试控制台，输入 `/dshlog` 开启（会自动开浏览器）
+- 左侧点等级过滤，左栏可以搜关键词 / 选来源，点某一行看完整内容与异常堆栈
+- 两条分隔条能拖（双击恢复默认），没选中行时右栏自动收起
+- 「复制可见」把当前筛选结果拷成纯文本，直接贴进 issue
+- 日志是从游戏启动就开始记的，所以一开就能看到之前的完整历史
+
+落盘的两个文件仍然要看，尤其是崩溃：
+游戏目录的 `BepInEx/LogOutput.log`（普通日志）与 `BepInEx/ErrorLog.log`（原生崩溃）。
 
 ### 启动顺序上必须出现的行
 
 ```
 [Info   :   BepInEx] 3 plugins to load
-[Info   :   BepInEx] Loading [DSHCore (大肥鱼核心) 0.2.0]
+[Info   :   BepInEx] Loading [DSHCore 0.3.0]
+[Info   :DSHCore ...] 日志查看器待命（捕获已开启，共 5000 条环形缓冲）。游戏内输入 /dshlog 开启网页。
+[Info   :DSHCore ...] 游戏内指令已就绪：/dshlog（含 Tab 补全）
 [Info   :DSHCore ...] ClassInjector generic vtable patch applied
 [Info   :DSHCore ...] MetaInjection patches applied
 [Info   :DSHCore ...] SaveManager.LoadModData patch applied
 [Info   :DSHCore ...] SaveManager.WriteSaveData patch applied
 [Info   :DSHCore ...] ModManager.LoadMods patch applied
 [Info   :DSHCore ...] ArcadeIndexFix patch applied
-[Info   :DSHCore ...] DSHCore (大肥鱼核心) v0.2.0 loaded (infrastructure ready)
+[Info   :DSHCore ...] DSHCore v0.3.0 loaded (infrastructure ready)
 [Info   :DSHCore ...] [CoreRegistry] registered nsp=mvz2_lab logic=LaboratoryMod.LabMod xmlDefault=mvz2
 [Info   :DSHCore ...] [ModBootstrap] mvz2_lab ready  logic=LabMod  injected=[LabMod, RealPrologueStage, ...]
 [Info   :DSHCore ...] [ModInfos] OnRegisterModInfos 订阅完成
@@ -610,6 +772,10 @@ meta 既然由 `MetaInjection` 直读磁盘，空 locator 返回空集是安全�
 | XML 读了但报`Root element is missing` | §3-需要 XML metas 时（别用官方 string 重载）                                                                         |
 | 报 NRE 且与 meta 子节点有关           | XML 里写了注释 → §3                                                                                                 |
 | 改了 GUID 后别人装不上                | GUID 是稳定契约，见 §0                                                                                               |
+| 网页查看器打不开                      | 端口被占（看日志里实际用的端口）；或 `[LogViewer] Enabled = false`；或防火墙拦了回环（少见） |
+| 网页里没有某条日志                    | `DroppedCount` 在涨？→ 调大 `QueueCapacity`。否则是 BepInEx 自己的 `[Logging.Disk] LogLevels` 把它过滤了 |
+| 网页点「控制台」报 `not-our-window`   | §5-⑯：你是从终端启动的游戏，藏了会连你自己的终端一起没 |
+| Tab 补不出 `/dshlog`                  | 启动日志里有没有 `游戏内指令已就绪：/dshlog（含 Tab 补全）`？如果只看到「找不到 `DebugManager.FillSuggestions`」的警告，就是 interop 签名对不上 → §5-⑰ |
 
 ---
 
@@ -625,6 +791,13 @@ meta 既然由 `MetaInjection` 直读磁盘，空 locator 返回空集是安全�
 | `LaboratoryMod/LoadStagesPatch.cs`          | 在官方时机创建定义（替代 provider 的方案）       |
 | `ModularCurse/CurseBuffs/CurseBuffs.cs`     | 批量创建 BuffDefinition + 修饰符                 |
 | `ModularCurse/CURSES.md`                    | 接入原版诅咒系统的完整设计与踩坑记录             |
+| `DSHCore/Diagnostics/LogPipeline.cs`        | 日志捕获的线程模型与背压取舍（**加功能前先读**） |
+| `DSHCore/Diagnostics/LogViewerServer.cs`    | 手写 HTTP/1.1 + SSE 的完整实现（含为何不用 `HttpListener`） |
+| `DSHCore/Diagnostics/ConsoleWindow.cs`      | 安全地藏控制台窗口（含「父进程终端」防护） |
+| `DSHCore/Diagnostics/LogViewerCommand.cs`   | 游戏内指令的解析与输出（**纯托管、可离线测试**） |
+| `DSHCore/Diagnostics/DebugCommands.cs`      | Harmony 拦 `DebugManager.ExecuteCommand` 的写法 |
+| `ModularCurse/CurseCommand.cs`              | 另一条游戏内指令（`/curse`），与本库同样思路 |
+| `DSHCore/Diagnostics/logviewer.html`        | 查看器前端（单文件，内嵌进 DLL） |
 
 ---
 

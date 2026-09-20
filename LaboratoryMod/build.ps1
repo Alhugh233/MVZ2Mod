@@ -4,7 +4,8 @@
 #   .\build.ps1                   构建（若游戏目录存在则自动部署）
 #   .\build.ps1 -Clean            先清 bin/ obj/ 再构建
 #   .\build.ps1 -KeepGame         不结束正在运行的游戏
-#   .\build.ps1 -Pack             额外打包可分发 zip 到 dist\
+#   .\build.ps1 -Pack             额外打包可分发 zip 到 dist\（**含 BepInEx 运行环境**）
+#   .\build.ps1 -Pack -NoRuntime  打包时不带 BepInEx（体积从 ~44MB 降到几十 KB）
 #   .\build.ps1 -Pack -Launch     打包后启动游戏冒烟
 #
 # 说明：
@@ -13,7 +14,8 @@
 #   - DSHCore 前置的引用方式由 ..\Directory.Build.props 决定：仓库里有
 #     DSHCore 源码就编译源码，没有就引用 _refs\DSHCore\DSHCore.dll
 #     （便携开发环境 / DevKit 走的就是这条）。
-#   - 本 mod 的包体「不含」BepInEx 运行环境：需先安装 DSHCore 的包。
+#   - 包体默认自包含：插件 + 资源 + DSHCore.dll + 完整的 BepInEx 运行环境，
+#     玩家解压到游戏根目录即可，不需要先单独装 DSHCore 的包。
 # =====================================================================
 param(
     [string]$GameDir = "",
@@ -91,6 +93,9 @@ if (-not $Pack) {
         Namespace     = $namespace
         InstallReadme = $readme
     }
+    # 包体带不带 BepInEx 运行环境。默认带：玩家只装一个 zip 就能用，
+    # 代价是包从几十 KB 变成 ~44MB。只要插件本体时加 -NoRuntime。
+    if (-not $NoRuntime) { $pkgArgs['IncludeRuntime'] = $true }
     New-ModPackage @pkgArgs | Out-Null
 }
 

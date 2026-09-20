@@ -4,9 +4,10 @@
 #   .\build.ps1                   构建（若游戏目录存在则自动部署）
 #   .\build.ps1 -Clean            先清 bin/ obj/ 再构建
 #   .\build.ps1 -KeepGame         不结束正在运行的游戏
-#   .\build.ps1 -Pack             额外打包可分发 zip 到 dist\
+#   .\build.ps1 -Pack             额外打包可分发 zip 到 dist\（**含 BepInEx 运行环境**）
+#   .\build.ps1 -Pack -NoRuntime  打包时不带 BepInEx（只要插件 DLL 本体时用）
 #   .\build.ps1 -PackDevKit       额外打「不含 DSHCore 源码」的便携开发环境包
-#   .\build.ps1 -PackDevKit -NoRuntime   同上，但包里不带 runtime\
+#   .\build.ps1 -PackDevKit -NoRuntime   同上，但包里不带 BepInEx
 #   .\build.ps1 -Pack -Launch     打包后启动游戏冒烟
 #
 # 说明：
@@ -45,7 +46,7 @@ $version = Get-PluginVersion $pluginCs
 $dotnet  = Find-Dotnet
 $hasGame = Test-GameDir $GameDir
 
-Write-Host ("DSHCore (大肥鱼核心) v" + $version) -ForegroundColor White
+Write-Host ("DSHCore v" + $version) -ForegroundColor White
 Write-Info ("dotnet   : " + $dotnet)
 Write-Info ("game dir : " + $GameDir + $(if ($hasGame) { '' } else { '   [不存在 -> 只构建]' }))
 
@@ -95,9 +96,11 @@ if (-not $Pack) {
         OutDir         = $outDir
         RuntimeDir     = $runtime
         PluginDlls     = @($pluginDll)
-        IncludeRuntime = $true
         InstallReadme  = $readme
     }
+    # 默认带运行环境（这是「前置包」的存在意义）。
+    # -NoRuntime 时只出插件 DLL —— 适合「游戏里已经装好了，只想换 DLL」。
+    if (-not $NoRuntime) { $pkgArgs['IncludeRuntime'] = $true }
     New-ModPackage @pkgArgs | Out-Null
 }
 

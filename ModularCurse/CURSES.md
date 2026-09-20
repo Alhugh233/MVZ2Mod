@@ -574,15 +574,16 @@ MinecraftVSZombies2_Data/StreamingAssets/Mods/modular_curse/Content/sprites/{cur
 
 注意事项：
 
-- **必须先装 DSHCore 的包**（`dist\DSHCore_v0.2.0_0.7.0.zip`，约 44 MB）。
-  只有那个包携带 BepInEx 运行环境（be.788 x86：`winhttp.dll` / `dotnet/` /
-  `BepInEx\{core,interop,unity-libs,patchers,config}`）；本包只有插件和资源，
-  单独解压到一个没有 BepInEx 的游戏目录是不会生效的。
+- **包体是自包含的**（约 44 MB）：里面已含 BepInEx 6 运行环境（be.788 x86：
+  `winhttp.dll` / `dotnet/` / `BepInEx\{core,interop,unity-libs,patchers,config}`）、
+  `DSHCore.dll` 与本 mod 的插件+资源 —— 解压到游戏根目录即可，不需要先装前置包。
+  只要插件本体（不给新环境）时用 `-NoRuntime` 打包，体积降到几十 KB。
 - 运行时里的 interop 只对应 **0.7.0 test-4**。其他版本需删掉 `BepInEx/interop` 并把
   `BepInEx/config/BepInEx.cfg` 的 `UpdateInteropAssemblies` 置 true 后启动一次重新生成。
 - `LaboratoryMod.dll` 不打包（与诅咒无关的测试内容）。
 - 打包必须用「拷内容」而不是「拷目录」（`Copy-Item <assets>\* <dst>`），否则会出现
   `Mods/modular_curse/modular_curse/...` 这种多套一层、游戏读不到 XML 的包。
+- 排障看日志：游戏内按 `/` 输入 `/dshlog` 开启网页日志查看器（DSHCore 提供）。
 
 ---
 

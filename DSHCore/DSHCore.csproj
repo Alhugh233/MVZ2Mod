@@ -60,6 +60,14 @@
     </Reference>
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- 网页日志查看器的前端页面。
+         内嵌进 DLL 而不是放磁盘：不需要 Node 工具链打包，没有运行时资源路径
+         解析问题，也不会出现「页面与 DLL 版本不一致」。
+         运行时可用 <BepInEx>\config\DSHCore\logviewer.html 覆盖它（改前端不用重编译）。 -->
+    <EmbeddedResource Include="Diagnostics\logviewer.html" LogicalName="DSHCore.logviewer.html" />
+  </ItemGroup>
+
   <!-- 构建后拷贝到部署游戏目录（仅当 GameDir 有效时） -->
   <Target Name="CopyToPlugins" AfterTargets="Build"
           Condition="'$(GameDir)' != '' And Exists('$(GameDir)MinecraftVSZombies2.exe')">

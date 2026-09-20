@@ -12,21 +12,21 @@
 
 | 目录 | 名称 | 游戏内命名空间 | 说明 | 前置 |
 | ---- | ---- | ---- | ---- | ---- |
-| [`DSHCore/`](DSHCore/README.md) | **DSHCore**（工具 + 前置库） | — | IL2CPP 注入基建：ClassInjector 缺陷修复、注入类 vtable 重绑、磁盘 XML metas 注入、存档兜底、街机 Index 平移；并提供 `Il2CppPin` / `InjectedMod` / `ModBootstrap` / `ModInfos` 等公共 API。**同时提供 BepInEx 运行环境**（只有它的包体包含） | — |
+| [`DSHCore/`](DSHCore/README.md) | **DSHCore**（工具 + 前置库） | — | IL2CPP 注入基建：ClassInjector 缺陷修复、注入类 vtable 重绑、磁盘 XML metas 注入、存档兜底、街机 Index 平移；并提供 `Il2CppPin` / `InjectedMod` / `ModBootstrap` / `ModInfos` 等公共 API。**同时提供 BepInEx 运行环境**（只有它的包体包含）与**本地网页日志查看器** | — |
 | [`LaboratoryMod/`](LaboratoryMod/README.md) | **MVZ2 Laboratory Content**（实验室小游戏） | `mvz2_lab` | 三个实验小游戏：真正的序章 / 零度空间 / 真理伪证殿堂 | DSHCore |
 | [`ModularCurse/`](ModularCurse/README.md) | **MVZ2 Modular Curse**（模块化诅咒） | `modular_curse` | 25 条自定义诅咒接入**原版诅咒系统**，按 QC / SC 两个诅咒池组织与切换 | DSHCore |
 
 > 📖 **想写新 mod？先读 [`DSHCore/AI_GUIDE.md`](DSHCore/AI_GUIDE.md)** ——
 > 面向 AI 与后来者的开发参考：AI 协作工作流、公共 API 速查、最小 mod 骨架、
-> 0.7 官方集成链时序图，以及 14 条「症状 → 根因 → 对策」陷阱清单。
+> 0.7 官方集成链时序图，以及 16 条「症状 → 根因 → 对策」陷阱清单。
 
 ```mermaid
 flowchart LR
-    C["DSHCore<br/>工具 + 前置库 + BepInEx 运行环境"]
+    C["DSHCore<br/>工具 + 前置库 + BepInEx 运行环境 + 日志查看器"]
     L["LaboratoryMod<br/>实验室小游戏"]
     M["ModularCurse<br/>模块化诅咒"]
-    L -->|ProjectReference + BepInDependency| C
-    M -->|ProjectReference + BepInDependency| C
+    L -->|编译引用 + BepInDependency| C
+    M -->|编译引用 + BepInDependency| C
 ```
 
 ---
@@ -48,15 +48,61 @@ flowchart LR
 | `-Clean` | 先删除 `bin/` `obj/` |
 | `-SkipBuild` | 跳过 `dotnet build`，直接用已有产物 |
 | `-KeepGame` | 不结束正在运行的游戏（**游戏会锁住插件 DLL**，一般不要用） |
-| `-Pack` | 打包可分发 zip 到 `dist\` |
+| `-Pack` | 打包可分发 zip 到 `dist\`（默认**含** BepInEx 运行环境） |
 | `-PackDevKit` | 额外打「不含 DSHCore 源码」的便携开发环境包（只对 `dsh` 有效） |
-| `-NoRuntime` | DevKit 里不带 `runtime\`（使用者靠自己的游戏目录编译） |
+| `-NoRuntime` | 打包时**不带** BepInEx（包体从 ~44MB 降到几十 KB） |
 | `-Launch` | 构建/打包后启动游戏 |
 
 VS Code 里这套命令已注册为任务（`Ctrl+Shift+P` → `Tasks: Run Task`）：
 构建全部 / 构建全部 + 打包 / 三个 mod 单独构建 / 打包 DevKit / 同步 runtime /
 清理构建产物 / 查看 BepInEx 日志（含 `ErrorLog.log`）。
 （多根工作区里用 `MVZ2Mod.code-workspace` 自带的那份任务。）
+
+---
+
+## 看日志 / 那个黑色日志窗口
+
+装了 DSHCore 之后，可以在游戏里当场把日志开到网页上看。**默认不开**
+（不占端口、不弹浏览器），需要时：
+
+```
+进游戏 → 按 / 打开调试控制台 → 输入 /dshlog
+```
+
+会起一个**只监听 `127.0.0.1`** 的本地网页并自动用浏览器打开，实时显示**所有插件**的日志。
+日志是从**游戏启动**就开始记的，所以一开就能看到之前的完整历史。
+
+指令名支持 **Tab 补全**：输个 `/ds` 按 Tab 就会补成 `/dshlog`，再接着输 `o` 能补出
+`off` / `open` 等子指令，不用背。
+
+| 指令 | 作用 |
+| ---- | ---- |
+| `/dshlog` | 开启（已开启则显示状态） |
+| `/dshlog off` | 关闭并释放端口（内存历史保留） |
+| `/dshlog open` | 用默认浏览器打开 |
+| `/dshlog url` | 只打印带令牌的地址 |
+| `/dshlog status` | 显示状态 |
+| `/dshlog console` | 显示 / 隐藏 BepInEx 控制台窗口 |
+| `/dshlog clear` | 清空内存里的历史 |
+| `/dshlog help` | 帮助 |
+
+> 调试控制台需要存档用户名是 `debug` —— 这是游戏自身的限制。
+> URL 里的令牌只在本会话有效，`/api/status` 不会把它回吐出去。
+
+网页是**三栏**：左边筛选（等级 / 来源 / 关键词）、中间日志、右边点开的详情。
+两条分隔条都能拖动调宽度，双击分隔条或点「重置分栏宽度」恢复默认，
+宽度会记住（存在浏览器本地）。没选中行时右栏收起，日志区自动变宽。
+
+配置在 `BepInEx/config/qoznos.mvz2.core.cfg` 的 `[LogViewer]` 段
+（端口、是否开机自动开启、内存历史条数、局域网访问等）。
+
+**控制台黑窗口**：本仓库的 `runtime/BepInEx/config/BepInEx.cfg` 已经把
+`[Logging.Console] Enabled` 设为 `false`，所以黑窗不会再出现（日志照旧写磁盘）。
+想要它回来：改回 `true`，或游戏内 `/dshlog console` 临时显示。
+
+> 如果游戏是从已有终端启动的，BepInEx 是**附着**到那个终端的窗口，
+> 此时隐藏会被**主动拒绝**（藏了会连你自己的终端一起没），网页里表现为
+> `not-our-window` —— 这是保护，不是故障。
 
 ---
 
@@ -217,10 +263,11 @@ MVZ2-Mod-DevKit/
 | ---- | ---- | ---- |
 | `DSHCore_v*_0.7.0.zip` | **BepInEx 运行环境** + 插件 | 完整独立安装包，解压到游戏根目录即可用 |
 | `DSHCore-DevKit_v*_0.7.0.zip` | 运行环境 + 开发工具 + **两个范例 mod 源码** + `_refs\` | 便携开发环境，**不含 DSHCore 源码** |
-| `LaboratoryMod_v*_0.7.0.zip` | 插件 + 资源（+ `DSHCore.dll`） | **不含**运行环境，需先装 DSHCore 包 |
-| `ModularCurse_v*_0.7.0.zip` | 插件 + 资源（+ `DSHCore.dll`） | 同上 |
+| `LaboratoryMod_v*_0.7.0.zip` | **BepInEx 运行环境** + 插件 + 资源 + `DSHCore.dll` | 完整独立安装包（不需先装前置） |
+| `ModularCurse_v*_0.7.0.zip` | **BepInEx 运行环境** + 插件 + 资源 + `DSHCore.dll` | 同上 |
 
-> 即：**只有前置核心的包体携带 BepInEx**，其余 mod 的包体保持轻量。
+> 即：**每个包都是自包含的**，玩家装一个 zip 就能用（每个 ~44 MB）。
+> 只要插件本体（比如给已装好的游戏换个 DLL）时加 `-NoRuntime`，包体就降到几十 KB。
 
 ---
 
