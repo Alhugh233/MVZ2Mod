@@ -20,7 +20,7 @@
 # =====================================================================
 [CmdletBinding()]
 param(
-    [ValidateSet('all', 'dsh', 'lab', 'curse')]
+    [ValidateSet('all', 'dsh', 'lab', 'curse', 'gc')]
     [string]$Mod = 'all',
     [string]$GameDir = "",
     [switch]$SkipBuild,
@@ -36,9 +36,10 @@ $ErrorActionPreference = 'Stop'
 
 # 依赖顺序：前置在前
 $all = @(
-    @{ Key = 'dsh';   Dir = 'DSHCore';       Title = 'DSHCore' },
-    @{ Key = 'lab';   Dir = 'LaboratoryMod'; Title = 'MVZ2 Laboratory Content' },
-    @{ Key = 'curse'; Dir = 'ModularCurse';  Title = 'MVZ2 Modular Curse' }
+    @{ Key = 'dsh';   Dir = 'DSHCore';        Title = 'DSHCore' },
+    @{ Key = 'lab';   Dir = 'LaboratoryMod';  Title = 'MVZ2 Laboratory Content' },
+    @{ Key = 'curse'; Dir = 'ModularCurse';   Title = 'MVZ2 Modular Curse' },
+    @{ Key = 'gc';    Dir = 'GraphicConsole'; Title = 'MVZ2 Graphic Console' }
 )
 
 $selected = if ($Mod -eq 'all') { $all } else { @($all | Where-Object { $_.Key -eq $Mod }) }

@@ -32,3 +32,6 @@ _Scripts/
 *.log
 _dump_out/
 TODO.txt
+Loadout.txt
+GraphicConsole/bin/
+GraphicConsole/obj/

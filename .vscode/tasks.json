@@ -3,7 +3,7 @@
 	"tasks": [
 		{
 			"label": "构建全部",
-			"detail": "依次构建 DSHCore / LaboratoryMod / ModularCurse（有游戏目录则自动部署）",
+			"detail": "依次构建 DSHCore / LaboratoryMod / ModularCurse / GraphicConsole（有游戏目录则自动部署）",
 			"type": "shell",
 			"command": "powershell",
 			"args": [
@@ -21,7 +21,7 @@
 		},
 		{
 			"label": "构建全部 + 打包",
-			"detail": "构建三个 mod 并输出可分发 zip 到 dist\\",
+			"detail": "构建所有 mod 并输出可分发 zip 到 dist\\",
 			"type": "shell",
 			"command": "powershell",
 			"args": [
@@ -117,6 +117,39 @@
 			"problemMatcher": []
 		},
 		{
+			"label": "构建: GraphicConsole",
+			"detail": "图形化控制台面板（qoznos.mvz2.graphicconsole）",
+			"type": "shell",
+			"command": "powershell",
+			"args": [
+				"-NoProfile",
+				"-ExecutionPolicy",
+				"Bypass",
+				"-File",
+				"${workspaceFolder}\\build.ps1",
+				"-Mod",
+				"gc"
+			],
+			"problemMatcher": []
+		},
+		{
+			"label": "构建: GraphicConsole + 启动",
+			"detail": "面板的日常开发回路：构建 → 部署 → 启动游戏",
+			"type": "shell",
+			"command": "powershell",
+			"args": [
+				"-NoProfile",
+				"-ExecutionPolicy",
+				"Bypass",
+				"-File",
+				"${workspaceFolder}\\build.ps1",
+				"-Mod",
+				"gc",
+				"-Launch"
+			],
+			"problemMatcher": []
+		},
+		{
 			"label": "打包: DSHCore DevKit",
 			"detail": "生成不含 DSHCore 源码的便携开发环境包到 dist\\",
 			"type": "shell",
@@ -149,7 +182,7 @@
 		},
 		{
 			"label": "清理构建产物",
-			"detail": "删除三个 mod 的 bin/ obj/",
+			"detail": "删除所有 mod 的 bin/ obj/",
 			"type": "shell",
 			"command": "powershell",
 			"args": [
@@ -157,7 +190,7 @@
 				"-ExecutionPolicy",
 				"Bypass",
 				"-Command",
-				"Remove-Item -Recurse -Force '${workspaceFolder}\\DSHCore\\bin','${workspaceFolder}\\DSHCore\\obj','${workspaceFolder}\\LaboratoryMod\\bin','${workspaceFolder}\\LaboratoryMod\\obj','${workspaceFolder}\\ModularCurse\\bin','${workspaceFolder}\\ModularCurse\\obj' -ErrorAction SilentlyContinue; Write-Host 'bin/obj 已清理'"
+				"Remove-Item -Recurse -Force '${workspaceFolder}\\DSHCore\\bin','${workspaceFolder}\\DSHCore\\obj','${workspaceFolder}\\LaboratoryMod\\bin','${workspaceFolder}\\LaboratoryMod\\obj','${workspaceFolder}\\ModularCurse\\bin','${workspaceFolder}\\ModularCurse\\obj','${workspaceFolder}\\GraphicConsole\\bin','${workspaceFolder}\\GraphicConsole\\obj' -ErrorAction SilentlyContinue; Write-Host 'bin/obj 已清理'"
 			],
 			"problemMatcher": []
 		},

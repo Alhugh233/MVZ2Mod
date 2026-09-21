@@ -1,0 +1,62 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    图形化控制台（Graphic Console）—— 用可视化面板替代原版调试控制台的输入窗口。
+
+    设计要点（都是为了「最大兼容性」）：
+      - **不注入任何 il2cpp 类型、不注册任何 Definition、不注册自己的 ModInfo**。
+        全部功能落在「读/写原版已有的关卡属性」+「调用原版已有的指令」+「克隆原版已有的 UI」上，
+        因此完全避开 metadata v31 下注入类的那些坑（LINQ 遍历、vtable 重置、GC 回收）。
+      - 唯一的 Harmony 补丁是**只读/只追加**性质的（见 Patches\），且都可以被
+        「兼容性等级」在运行时关掉。
+      - 关卡内面板只写关卡（level）级属性 —— 关卡状态本来就随 .lvl 存读，
+        与「重载 / 重开」天然可逆；面板**绝不**改全局 options。
+
+    工程结构与限制见同目录 README.md。
+  -->
+
+  <PropertyGroup>
+    <TargetFramework>net6.0</TargetFramework>
+    <AssemblyName>GraphicConsole</AssemblyName>
+    <RootNamespace>GraphicConsole</RootNamespace>
+    <LangVersion>9.0</LangVersion>
+    <Nullable>disable</Nullable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <DebugType>portable</DebugType>
+    <!-- RuntimeDir / RuntimeCoreDir / RuntimeInteropDir / GameDir，
+         以及 DSHCore 前置的引用方式，均来自同目录的 Directory.Build.props -->
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Reference Include="BepInEx.Core">
+      <HintPath>$(RuntimeCoreDir)BepInEx.Core.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="BepInEx.Unity.IL2CPP">
+      <HintPath>$(RuntimeCoreDir)BepInEx.Unity.IL2CPP.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="Il2CppInterop.Runtime">
+      <HintPath>$(RuntimeCoreDir)Il2CppInterop.Runtime.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="0Harmony">
+      <HintPath>$(RuntimeCoreDir)0Harmony.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- 0.7.0 test-4 类型代理程序集（预生成，见 runtime/BepInEx/interop） -->
+    <Reference Include="$(RuntimeInteropDir)*.dll">
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+
+  <!-- 构建后拷贝到部署游戏目录（仅当 GameDir 有效时） -->
+  <Target Name="CopyToPlugins" AfterTargets="Build" Condition="'$(GameDir)' != '' And Exists('$(GameDir)MinecraftVSZombies2.exe')">
+    <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(GameDir)BepInEx\plugins\" />
+  </Target>
+
+</Project>
