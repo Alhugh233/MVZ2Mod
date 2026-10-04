@@ -161,6 +161,60 @@ function Test-GameDir {
     return (Test-Path (Join-Path $GameDir 'MinecraftVSZombies2.exe'))
 }
 
+# --- 回放目录 ----------------------------------------------------------
+
+function Get-SaveUserDataRoot {
+    # 原版存档根：%USERPROFILE%\AppData\LocalLow\<公司>\<游戏名>\userdata
+    # 调试版游戏名是 MinecraftVSZombies2Test，正式版是 MinecraftVSZombies2。
+    param([string]$GameDir)
+    $company = 'Cuerzor'
+    $names = @('MinecraftVSZombies2Test', 'MinecraftVSZombies2')
+    foreach ($n in $names) {
+        $p = Join-Path $env:USERPROFILE ("AppData\LocalLow\" + $company + "\" + $n + "\userdata")
+        if (Test-Path -LiteralPath $p) { return $p }
+    }
+    return (Join-Path $env:USERPROFILE ("AppData\LocalLow\" + $company + "\" + $names[0] + "\userdata"))
+}
+
+function Get-ReplayDirs {
+    # 回放现在放在存档目录里（按用户分），旧版在 <游戏根>\BepInEx\replays。
+    # 两个都返回：读取时当前位置优先，写入/迁移时才需要区分。
+    param([string]$GameDir)
+    $list = New-Object System.Collections.Generic.List[string]
+    $root = Get-SaveUserDataRoot $GameDir
+    if (Test-Path -LiteralPath $root) {
+        $users = @(Get-ChildItem -LiteralPath $root -Directory -Filter 'user*' -ErrorAction SilentlyContinue |
+                   Sort-Object Name)
+        for ($i = $users.Count - 1; $i -ge 0; $i--) {
+            $r = Join-Path $users[$i].FullName 'replays'
+            if (Test-Path -LiteralPath $r) { $list.Add($r) }
+        }
+    }
+    if (-not [string]::IsNullOrWhiteSpace($GameDir)) {
+        $legacy = Join-Path $GameDir 'BepInEx\replays'
+        if (Test-Path -LiteralPath $legacy) { $list.Add($legacy) }
+    }
+    return $list
+}
+
+function Find-ReplayFile {
+    # 在当前位置 + 旧位置里找一个回放（返回 .mrep.json 优先，其次 .mrep）。
+    param([string]$GameDir, [string]$Name)
+    if ([string]::IsNullOrWhiteSpace($Name)) { return $null }
+    if ($Name -match '[/\\]' -and (Test-Path -LiteralPath $Name)) { return $Name }
+    $cands = @()
+    if ($Name.EndsWith('.mrep')) { $cands += $Name }
+    elseif ($Name.EndsWith('.json')) { $cands += $Name }
+    else { $cands += ($Name + '.mrep.json'); $cands += ($Name + '.mrep') }
+    foreach ($d in (Get-ReplayDirs $GameDir)) {
+        foreach ($c in $cands) {
+            $p = Join-Path $d $c
+            if (Test-Path -LiteralPath $p) { return $p }
+        }
+    }
+    return $null
+}
+
 # --- 进程管理 ----------------------------------------------------------
 
 function Stop-GameProcess {

@@ -1,0 +1,19 @@
+<Project>
+
+  <!-- ==================================================================
+       把本工程接入「MVZ2 mod 共享编译环境解析」。
+
+       MSBuild 只自动导入**离工程最近的那一个** Directory.Build.props，
+       而它又在 csproj 正文之前求值，所以必须在更早的地方声明
+       <Mvz2Mod>true</Mvz2Mod> 再导入仓库根那份。
+       ================================================================== -->
+
+  <PropertyGroup>
+    <Mvz2Mod>true</Mvz2Mod>
+    <!-- 沿目录向上找到仓库根的 Directory.Build.props -->
+    <Mvz2RootProps>$([MSBuild]::GetPathOfFileAbove('Directory.Build.props', '$(MSBuildThisFileDirectory)../'))</Mvz2RootProps>
+  </PropertyGroup>
+
+  <Import Project="$(Mvz2RootProps)" Condition="'$(Mvz2RootProps)' != ''" />
+
+</Project>

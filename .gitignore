@@ -5,6 +5,12 @@ LaboratoryMod/bin/
 LaboratoryMod/obj/
 ModularCurse/bin/
 ModularCurse/obj/
+Loadout/bin/
+Loadout/obj/
+UiGallery/bin/
+UiGallery/obj/
+Replay/bin/
+Replay/obj/
 tools/InteropGen/bin/
 tools/InteropGen/obj/
 
@@ -31,9 +37,9 @@ _Scripts/
 # ---------------- 日志与转储 ----------------
 *.log
 _dump_out/
+# tools/run-replay-selftest.ps1 跑完后会留一份报告副本在这里，方便直接看
+_replay_report.txt
 TODO.txt
 Loadout.txt
 GraphicConsole/bin/
 GraphicConsole/obj/
-UiGallery/bin/
-UiGallery/obj/

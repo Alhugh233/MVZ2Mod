@@ -1,0 +1,62 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    MVZ2 Replay —— 关卡回放录制 mod（依赖 DSHCore 前置库）。
+
+    记录模型（详见同目录 DESIGN.md）：
+      · 起始关键帧 = LevelController.SaveGame()（= 整关 SerializableLevelController）
+      · 动作日志   = 玩家输入的 5 个汇聚点（格子 / 实体 / 选卡 / 选卡热键 / 草坪）
+                     + 手持物状态变化（工具按钮与热键）
+      · 指纹校验   = 每 N tick 采样（能量 / 波次 / 旗数 + 7 条 RNG 的哈希）
+
+    文件 .mrep = gzip 压缩的逐行 JSON：
+      第 1 行 header，之后是 keyframe / 事件 / 指纹，每行一个 JSON 对象。
+
+    为什么是「语义事件」而不是原始鼠标键盘：见 DESIGN.md 第 3 节。
+    本 mod 目前只做**录制**（写出 .mrep），播放留给下一阶段。
+  -->
+
+  <PropertyGroup>
+    <TargetFramework>net6.0</TargetFramework>
+    <AssemblyName>Replay</AssemblyName>
+    <RootNamespace>Replay</RootNamespace>
+    <LangVersion>9.0</LangVersion>
+    <Nullable>disable</Nullable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <DebugType>portable</DebugType>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- BepInEx 6 核心程序集（与 runtime/ 内版本完全一致） -->
+    <Reference Include="BepInEx.Core">
+      <HintPath>$(RuntimeCoreDir)BepInEx.Core.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="BepInEx.Unity.IL2CPP">
+      <HintPath>$(RuntimeCoreDir)BepInEx.Unity.IL2CPP.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="Il2CppInterop.Runtime">
+      <HintPath>$(RuntimeCoreDir)Il2CppInterop.Runtime.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="0Harmony">
+      <HintPath>$(RuntimeCoreDir)0Harmony.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- 0.7.0 test-9 类型代理程序集（预生成，见 runtime/BepInEx/interop） -->
+    <Reference Include="$(RuntimeInteropDir)*.dll">
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+
+  <!-- 构建后拷贝到部署游戏目录（仅当 GameDir 有效时） -->
+  <Target Name="CopyToPlugins" AfterTargets="Build" Condition="'$(GameDir)' != '' And Exists('$(GameDir)MinecraftVSZombies2.exe')">
+    <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(GameDir)BepInEx\plugins\" />
+  </Target>
+
+</Project>

@@ -4,7 +4,7 @@
 > 三个相互独立的 mod 共用一个 BepInEx / IL2CPP 构建环境与工具链。
 
 > ⚠️ 本项目为社区制作的**非官方**内容，与游戏原作者无关。
-> ⚠️ 全部仅适配 **0.7.0 test-6**（Windows **x86** / IL2CPP / Unity 2022.3.62f3）。
+> ⚠️ 全部仅适配 **0.7.0 test-9**（Windows **x86** / IL2CPP / Unity 2022.3.62f3）。
 
 ---
 
@@ -18,6 +18,7 @@
 | [`ModularCurse/`](ModularCurse/README.md)     | **MVZ2 Modular Curse**（模块化诅咒）        | `modular_curse` | 25 条自定义诅咒接入**原版诅咒系统**，按 QC / SC 两个诅咒池组织与切换                                                                                                                                                                                               | DSHCore       |
 | [`GraphicConsole/`](GraphicConsole/README.md) | **MVZ2 Graphic Console**（图形化控制台）    | —              | 用可视化面板替代原版调试控制台的输入窗口。测试工具，最大兼容性优先（零注入）                                                                                                                                                                                       | DSHCore（软） |
 | [`UiGallery/`](UiGallery/README.md)           | **MVZ2 UI Gallery**（UI 组件画廊）          | —              | **开发者工具**：把原版 UI 素材（对话框/按钮/复选/滑条/列表/输入框/悬停提示）以真实观感展示出来，同时是「用原版零件做 UI」的最小可编译范例。`/dshui` 打开                                                                                                           | DSHCore（硬） |
+| [`Replay/`](Replay/README.md)                 | **MVZ2 Replay**（关卡回放录制 / 播放）      | —              | **开发者工具**：把一局关卡录成 `.mrep`（起始关键帧 + 语义化输入事件 + 状态指纹，30 tick 时间轴），并把它放回来重演（播放中只允许暂停/加速）。`/replay` 控制                                                                                                          | DSHCore（硬） |
 
 > 📖 **想写新 mod？先读 [`DSHCore/AI_GUIDE.md`](DSHCore/AI_GUIDE.md)** ——
 > 面向 AI 与后来者的开发参考：AI 协作工作流、公共 API 速查、最小 mod 骨架、
@@ -31,8 +32,10 @@ flowchart LR
     C["DSHCore<br/>工具 + 前置库 + BepInEx 运行环境 + 日志查看器"]
     L["LaboratoryMod<br/>实验室小游戏"]
     M["ModularCurse<br/>模块化诅咒"]
+    R["Replay<br/>关卡回放录制"]
     L -->|编译引用 + BepInDependency| C
     M -->|编译引用 + BepInDependency| C
+    R -->|编译引用 + BepInDependency| C
 ```
 
 ---
@@ -50,7 +53,7 @@ flowchart LR
 
 | 参数                            | 作用                                                                                         |
 | ------------------------------- | -------------------------------------------------------------------------------------------- |
-| `-Mod all|dsh|lab|curse|gc|uig` | 选择构建目标（默认`all`）                                                                    |
+| `-Mod all|dsh|lab|curse|ld|uig|rp` | 选择构建目标（默认`all`）                                                                  |
 | `-GameDir <dir>`                | 部署目标（默认取`MVZ2_GAME_DIR` 或 `Directory.Build.local.props`；都没有时**只构建不部署**） |
 | `-Clean`                        | 先删除`bin/` `obj/`                                                                          |
 | `-SkipBuild`                    | 跳过`dotnet build`，直接用已有产物                                                           |
@@ -61,7 +64,7 @@ flowchart LR
 | `-Launch`                       | 构建/打包后启动游戏                                                                          |
 
 VS Code 里这套命令已注册为任务（`Ctrl+Shift+P` → `Tasks: Run Task`）：
-构建全部 / 构建全部 + 打包 / 三个 mod 单独构建 / 打包 DevKit / 同步 runtime /
+构建全部 / 构建全部 + 打包 / 各 mod 单独构建 / 打包 DevKit / 同步 runtime /
 清理构建产物 / 查看 BepInEx 日志（含 `ErrorLog.log`）。
 （多根工作区里用 `MVZ2Mod.code-workspace` 自带的那份任务。）
 

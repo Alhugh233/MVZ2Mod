@@ -339,7 +339,38 @@
 				"-ExecutionPolicy",
 				"Bypass",
 				"-Command",
-				"Remove-Item -Recurse -Force '${workspaceFolder}\\DSHCore\\bin','${workspaceFolder}\\DSHCore\\obj','${workspaceFolder}\\LaboratoryMod\\bin','${workspaceFolder}\\LaboratoryMod\\obj','${workspaceFolder}\\ModularCurse\\bin','${workspaceFolder}\\ModularCurse\\obj','${workspaceFolder}\\Loadout\\bin','${workspaceFolder}\\Loadout\\obj','${workspaceFolder}\\UiGallery\\bin','${workspaceFolder}\\UiGallery\\obj' -ErrorAction SilentlyContinue; Write-Host 'bin/obj 已清理'"
+				"Remove-Item -Recurse -Force '${workspaceFolder}\\DSHCore\\bin','${workspaceFolder}\\DSHCore\\obj','${workspaceFolder}\\LaboratoryMod\\bin','${workspaceFolder}\\LaboratoryMod\\obj','${workspaceFolder}\\ModularCurse\\bin','${workspaceFolder}\\ModularCurse\\obj','${workspaceFolder}\\Loadout\\bin','${workspaceFolder}\\Loadout\\obj','${workspaceFolder}\\UiGallery\\bin','${workspaceFolder}\\UiGallery\\obj','${workspaceFolder}\\Replay\\bin','${workspaceFolder}\\Replay\\obj' -ErrorAction SilentlyContinue; Write-Host 'bin/obj 已清理'"
 			],
 			"problemMatcher": []
 		},
+		{
+			"label": "构建: Replay",
+			"detail": "回放录制 mod（开发者工具，依赖 DSHCore）",
+			"type": "shell",
+			"command": "powershell",
+			"args": [
+				"-NoProfile",
+				"-ExecutionPolicy",
+				"Bypass",
+				"-File",
+				"${workspaceFolder}\\Replay\\build.ps1"
+			],
+			"group": "build"
+		},
+		{
+			"label": "构建 + 启动: Replay",
+			"detail": "构建后在测试游戏目录里启动游戏（进入关卡即自动开始录制）",
+			"type": "shell",
+			"command": "powershell",
+			"args": [
+				"-NoProfile",
+				"-ExecutionPolicy",
+				"Bypass",
+				"-File",
+				"${workspaceFolder}\\Replay\\build.ps1",
+				"-Launch"
+			],
+			"group": "build"
+		}
+	]
+}

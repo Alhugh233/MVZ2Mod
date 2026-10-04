@@ -7,7 +7,7 @@
 - 游戏内命名空间：`modular_curse`
 - 当前版本：**0.3.0**
 - 前置：**DSHCore**（`qoznos.mvz2.core`，必需）
-- 适配：MVZ2 **0.7.0 test-6**（Windows **x86** / IL2CPP / Unity 2022.3.62f3）
+- 适配：MVZ2 **0.7.0 test-9**（Windows **x86** / IL2CPP / Unity 2022.3.62f3）
 
 > ⚠️ 社区制作的**非官方**内容，与游戏原作者无关。
 > 📖 **每一条诅咒的效果与实现方式、诅咒池 UI 的实现细节，见 [CURSES.md](CURSES.md)。**
@@ -59,7 +59,7 @@ cd ModularCurse
 
 | 参数 | 作用 |
 | ---- | ---- |
-| `-GameDir <dir>` | 部署目标。默认 `E:\Game\PVZ\MVZ2\MVZ2 0.7.0 test-6`；不存在则**只构建不部署** |
+| `-GameDir <dir>` | 部署目标。默认 `E:\Game\PVZ\MVZ2\MVZ2 0.7.0 test-9`；不存在则**只构建不部署** |
 | `-SkipBuild` | 跳过构建，直接用已有产物 |
 | `-Clean` | 先删除 `bin/` `obj/` |
 | `-KeepGame` | 不结束正在运行的游戏（会锁住 DLL，一般不要用） |
@@ -148,7 +148,7 @@ ModularCurse/
 
 ## 已知限制
 
-- 仅适配 0.7.0 test-6（Windows x86 IL2CPP）
+- 仅适配 0.7.0 test-9（Windows x86 IL2CPP）
 - 诅咒名字：每个池前 7 条沿用原版那 7 条诅咒的名字（它们复用的正是那 7 个图标），
   第 8 条起用池内编号（`QC-C8` … / `SC-C8` …）
 - 选卡界面右侧**没有**独立的「诅咒池」按钮：早期版本做过一个克隆入口，实测点不开

@@ -14,7 +14,7 @@
 #   <GameDir>\BepInEx\_selftest.txt   full report (self-test log lines + pixel diffs)
 # =====================================================================
 param(
-    [string]$GameDir = 'E:\Game\PVZ\MVZ2\MVZ2 0.7.0 test-6',
+    [string]$GameDir = 'E:\Game\PVZ\MVZ2\MVZ2 0.7.0 test-9',
     [int]$TimeoutSec = 300,
     [switch]$NoLaunch
 )

@@ -20,7 +20,7 @@
 # =====================================================================
 [CmdletBinding()]
 param(
-    [ValidateSet('all', 'dsh', 'lab', 'curse', 'ld', 'uig')]
+    [ValidateSet('all', 'dsh', 'lab', 'curse', 'ld', 'uig', 'rp')]
     [string]$Mod = 'all',
     [string]$GameDir = "",
     [switch]$SkipBuild,
@@ -40,7 +40,8 @@ $all = @(
     @{ Key = 'lab';   Dir = 'LaboratoryMod';  Title = 'MVZ2 Laboratory Content' },
     @{ Key = 'curse'; Dir = 'ModularCurse';   Title = 'MVZ2 Modular Curse' },
     @{ Key = 'ld';    Dir = 'Loadout';        Title = 'MVZ2 Loadout' },
-    @{ Key = 'uig';   Dir = 'UiGallery';      Title = 'MVZ2 UI Gallery' }
+    @{ Key = 'uig';   Dir = 'UiGallery';      Title = 'MVZ2 UI Gallery' },
+    @{ Key = 'rp';    Dir = 'Replay';         Title = 'MVZ2 Replay' }
 )
 
 $selected = if ($Mod -eq 'all') { $all } else { @($all | Where-Object { $_.Key -eq $Mod }) }
