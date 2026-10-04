@@ -94,7 +94,6 @@ LaboratoryMod/
 ├─ Plugin.cs                   入口：ModBootstrap 登记 + ModInfos.OnRegister 订阅
 ├─ LabMod.cs                   Mod 逻辑主体（PreInit / OnInit / PostInit / 存档）
 ├─ LoadStagesPatch.cs          接管官方 LoadStages：创建三个注入关卡定义
-├─ ModGetDefinitionsPatch.cs   绕过官方 GetDefinitions 的原生 LINQ
 ├─ StageMetaApplier.cs         用稳定 ID 把 XML meta 属性套到注入 def
 ├─ Buffs/
 │   └─ ZeroKSpaceCostBuff.cs   零度空间的费用倍率 buff
@@ -129,7 +128,7 @@ flowchart TD
 | 环节 | 绕过方式 | 原因 |
 | ---- | ---- | ---- |
 | `ModLoader.LoadDefinitionProperties` | 对本 mod **跳过**，改由 `PostInit` 用稳定 ID 手动套 meta | 官方对**注入 def** 做泛型 `SetProperty` 会 `il2cpp_runtime_invoke` AV |
-| `Mod.GetDefinitions()` | `ModGetDefinitionsPatch` 直接返回手工跟踪的数组 | 内部 `SelectMany` 对注入 mod 非确定性失败 → `AddMod` 拷不到 defs → 列表为空 |
+| `Mod.GetDefinitions()` | `DSHCore.InjectedDefinitions` 直接返回手工跟踪的数组（已从本 mod 的私有实现收敛过去） | 内部 `SelectMany` 对注入 mod 非确定性失败 → `AddMod` 拷不到 defs → 列表为空 |
 | `Mod.PostReloadMods()` | 跳过官方实现 | 内部遍历 `definitionGroup.GetDefinitions()`（原生 LINQ） |
 | `IStageDefinitionProvider` | 不注册，改在 `LoadStages` 时机直接建 def | `LoadAll` 会对 provider 做 `OrderBy` 原生 LINQ 分派 |
 

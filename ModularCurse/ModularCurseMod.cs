@@ -43,6 +43,9 @@ namespace ModularCurse
             self = instance;
             // 立刻把 Namespace 字段钉住（详见 EnsureNamespace 注释）。
             EnsureNamespace();
+            // 绑到定义设施（双保险：注入实例的 Namespace 字符串曾经间歇性读到空，
+            // 而归属判定错一次整套补丁就对本文静默失效）。
+            InjectedDefinitions.Bind(spaceName, instance);
             try
             {
                 Plugin.Log?.LogInfo("[ModularCurseMod] CreateInstance ptr=" + instance.Pointer

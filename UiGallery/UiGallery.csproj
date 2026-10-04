@@ -1,0 +1,74 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    UI Gallery（UI 组件画廊）—— 开发者的 UI 参考实现与验证样本。
+
+    定位（见 README.md）：
+      - **开发者工具，不是给玩家装的功能**。它的存在意义是：
+          ① 把 DSHCore.Ui 提供的每个素材以真实观感展示出来，供人肉眼验收；
+          ② 作为「用原版零件做 UI」的最小可编译范例（比文档里的代码片段可靠）；
+          ③ 作为 DSHCore.Ui 的验收样本 —— 它的代码量本身就是一个指标：
+             如果做一个面板需要几百行，说明 API 没设计好。
+      - 与 GraphicConsole 相反：**不计算任何坐标、不定义任何尺寸体系、不自绘任何东西**。
+        所有视觉都来自原版 prefab 的克隆体。
+
+    依赖：DSHCore 是**硬依赖**（UiSkin / UiHost / UiClone 都在它里面）。
+  -->
+
+  <PropertyGroup>
+    <TargetFramework>net6.0</TargetFramework>
+    <AssemblyName>UiGallery</AssemblyName>
+    <RootNamespace>UiGallery</RootNamespace>
+    <LangVersion>9.0</LangVersion>
+    <Nullable>disable</Nullable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <DebugType>portable</DebugType>
+    <!-- RuntimeDir / RuntimeCoreDir / RuntimeInteropDir / GameDir，
+         以及 DSHCore 前置的引用方式，均来自同目录的 Directory.Build.props -->
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Reference Include="BepInEx.Core">
+      <HintPath>$(RuntimeCoreDir)BepInEx.Core.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="BepInEx.Unity.IL2CPP">
+      <HintPath>$(RuntimeCoreDir)BepInEx.Unity.IL2CPP.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="Il2CppInterop.Runtime">
+      <HintPath>$(RuntimeCoreDir)Il2CppInterop.Runtime.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="0Harmony">
+      <HintPath>$(RuntimeCoreDir)0Harmony.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- 0.7.0 test-4 类型代理程序集（预生成，见 runtime/BepInEx/interop） -->
+    <Reference Include="$(RuntimeInteropDir)*.dll">
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+
+  <!-- 构建后拷贝到部署游戏目录（仅当 GameDir 有效时） -->
+  <Target Name="CopyToPlugins" AfterTargets="Build" Condition="'$(GameDir)' != '' And Exists('$(GameDir)MinecraftVSZombies2.exe')">
+    <Copy SourceFiles="$(TargetPath)" DestinationFolder="$(GameDir)BepInEx\plugins\" />
+  </Target>
+
+  <!-- 构建后自动部署 Mod 资源到部署游戏目录（仅当 GameDir 有效时）。
+       assets/ 的内容直接映射到 StreamingAssets\Mods\uig\。
+       只有示例设置项（General.SampleOptions）用到它 —— 项目文件是
+       assets/Content/metas/options.xml，启动时由 DSHCore.MetaInjection 注入。 -->
+  <Target Name="DeployModAssets" AfterTargets="Build" Condition="'$(GameDir)' != '' And Exists('$(GameDir)MinecraftVSZombies2.exe')">
+    <ItemGroup>
+      <ModAsset Include="assets\**\*" />
+    </ItemGroup>
+    <Copy SourceFiles="@(ModAsset)" DestinationFiles="@(ModAsset->'$(GameDir)MinecraftVSZombies2_Data\StreamingAssets\Mods\uig\%(RecursiveDir)%(Filename)%(Extension)')" SkipUnchangedFiles="true" />
+    <Message Importance="high" Text="[DeployModAssets] @(ModAsset-&gt;Count()) 个资源文件已部署到 $(GameDir)MinecraftVSZombies2_Data\StreamingAssets\Mods\uig\" />
+  </Target>
+
+</Project>

@@ -41,18 +41,10 @@ namespace ModularCurse
             Plugin.Log?.LogInfo("[CurseDefinitionPatch] Apply begin");
             harmony = new Harmony(Plugin.GUID + ".defs");
 
-            Patch("Mod.AddDefinition",
-                AccessTools.Method(typeof(Mod), "AddDefinition"),
-                postfix: new HarmonyMethod(typeof(CurseDefinitionPatch), nameof(AddDefinitionPostfix)));
-
-            Patch("Mod.GetDefinitions",
-                AccessTools.Method(typeof(Mod), "GetDefinitions"),
-                prefix: new HarmonyMethod(typeof(CurseDefinitionPatch), nameof(GetDefinitionsPrefix)));
-
-            Patch("Mod.PostReloadMods",
-                AccessTools.Method(typeof(Mod), "PostReloadMods"),
-                prefix: new HarmonyMethod(typeof(CurseDefinitionPatch), nameof(PostReloadModsPrefix)));
-
+            // 「跟踪 Mod.AddDefinition / 拦 Mod.GetDefinitions / 跳 Mod.PostReloadMods」
+            // 三个补丁已收敛到 DSHCore.InjectedDefinitions（公共设施，按命名空间各管一份）——
+            // 本 mod 在 Plugin.Load 里 Register("modular_curse") 即可，不要在这里再装一遍。
+            // 剩下的是**诅咒特有**的时机：定义创建、属性重算、面板顺序。
             Patch("ModLoader.LoadStages",
                 AccessTools.Method(typeof(ModLoader), "LoadStages"),
                 prefix: new HarmonyMethod(typeof(CurseDefinitionPatch), nameof(LoadStagesPrefix)));
@@ -141,68 +133,9 @@ namespace ModularCurse
             }
         }
 
-        /// <summary>跟踪本 nsp 的定义（curses.xml 走官方 LoadCurseMetas 时会调 AddDefinition）。</summary>
-        [HarmonyPostfix]
-        private static void AddDefinitionPostfix(Mod __instance, Definition def)
-        {
-            try
-            {
-                if (!IsOurs(__instance))
-                    return;
-                Plugin.TrackDefinition(def);
-            }
-            catch (Exception e)
-            {
-                Plugin.Log?.LogError("[CurseDefinitionPatch] AddDefinitionPostfix error: " + e);
-            }
-        }
-
-        /// <summary>绕开原生 LINQ，直接返回托管的定义列表。</summary>
-        [HarmonyPrefix]
-        private static bool GetDefinitionsPrefix(Mod __instance, ref Il2CppReferenceArray<Definition> __result)
-        {
-            try
-            {
-                if (!IsOurs(__instance))
-                    return true; // 其它 mod（vanilla 等）走原逻辑
-                lock (Plugin.AllDefinitions)
-                {
-                    var list = Plugin.AllDefinitions;
-                    var arr = new Il2CppReferenceArray<Definition>(list.Count);
-                    for (var i = 0; i < list.Count; i++)
-                        arr[i] = list[i];
-                    __result = arr;
-                }
-                Plugin.Log?.LogInfo("[CurseDefinitionPatch] GetDefinitions intercepted, returned "
-                    + Plugin.AllDefinitions.Count + " defs");
-                return false;
-            }
-            catch (Exception e)
-            {
-                Plugin.Log?.LogError("[CurseDefinitionPatch] GetDefinitionsPrefix error: " + e);
-                return true;
-            }
-        }
-
-        [HarmonyPrefix]
-        private static bool PostReloadModsPrefix(Mod __instance)
-        {
-            try
-            {
-                if (!IsOurs(__instance))
-                    return true;
-                return false; // 本 mod 的定义不实现 ICachedDefinition，跳过官方遍历
-            }
-            catch (Exception e)
-            {
-                Plugin.Log?.LogError("[CurseDefinitionPatch] PostReloadModsPrefix error: " + e);
-                return true;
-            }
-        }
-
         /// <summary>
         /// 官方 LoadStages 时机（LoadDefinitions 内、LoadBuffMetas 之前）注册 24 个诅咒 buff。
-        /// LoadStages 本身对没有 stages.xml 的本 mod 是空操作，因此直接放行原逻辑。
+        /// LoadStages 本来对没有 stages.xml 的本 mod 是空操作，因此直接放行原逻辑。
         /// </summary>
         [HarmonyPrefix]
         private static void LoadStagesPrefix(ModLoader __instance, Mod mod)

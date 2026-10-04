@@ -22,7 +22,7 @@ $ErrorActionPreference = 'Stop'
 $repo    = Get-RepoRoot
 $runtime = Join-Path $repo 'runtime'
 
-$GameDir = Normalize-GameDir $GameDir 'E:\Game\PVZ\MVZ2\MVZ2 0.7.0 test-4'
+$GameDir = Normalize-GameDir $GameDir 'E:\Game\PVZ\MVZ2\MVZ2 0.7.0 test-6'
 if (-not (Test-GameDir $GameDir)) {
     throw ("游戏目录无效（找不到 MinecraftVSZombies2.exe）：" + $GameDir)
 }

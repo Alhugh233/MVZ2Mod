@@ -41,8 +41,12 @@ namespace ModularCurse
             typeof(ScC1Buff), typeof(ScC2Buff), typeof(ScC3Buff), typeof(ScC4Buff),
             typeof(ScC5Buff), typeof(ScC6Buff), typeof(ScC7Buff), typeof(ScC8Buff),
             typeof(ScC9Buff), typeof(ScC10Buff), typeof(ScC11Buff), typeof(ScC12Buff),
-            typeof(ScC13Buff),
-            typeof(ScC7ForEnemyBuff),
+            typeof(ScC13Buff), typeof(ScC14Buff), typeof(ScC15Buff), typeof(ScC16Buff),
+            typeof(ZyC1Buff), typeof(ZyC2Buff), typeof(ZyC3Buff), typeof(ZyC4Buff),
+            typeof(ZyC5Buff), typeof(ZyC6Buff), typeof(ZyC7Buff), typeof(ZyC8Buff),
+            typeof(ZyC9Buff), typeof(ZyC10Buff), typeof(ZyC11Buff), typeof(ZyC12Buff),
+            typeof(ZyC13Buff), typeof(ZyC14Buff), typeof(ZyC15Buff), typeof(ZyC16Buff),
+            typeof(ZyC15DimBuff),
         };
 
         /// <summary>全体诅咒 buff 定义（按注册顺序）。</summary>
@@ -104,9 +108,29 @@ namespace ModularCurse
             Create(mod, CurseBuffBase.Build<ScC11Buff>);
             Create(mod, CurseBuffBase.Build<ScC12Buff>);
             Create(mod, CurseBuffBase.Build<ScC13Buff>);
+            Create(mod, CurseBuffBase.Build<ScC14Buff>);
+            Create(mod, CurseBuffBase.Build<ScC15Buff>);
+            Create(mod, CurseBuffBase.Build<ScC16Buff>);
 
-            // SC-C7 给敌人挂的子 buff（不占诅咒位，不加 CURSE_COUNT）。
-            Create(mod, CurseBuffBase.Build<ScC7ForEnemyBuff>);
+            Create(mod, CurseBuffBase.Build<ZyC1Buff>);
+            Create(mod, CurseBuffBase.Build<ZyC2Buff>);
+            Create(mod, CurseBuffBase.Build<ZyC3Buff>);
+            Create(mod, CurseBuffBase.Build<ZyC4Buff>);
+            Create(mod, CurseBuffBase.Build<ZyC5Buff>);
+            Create(mod, CurseBuffBase.Build<ZyC6Buff>);
+            Create(mod, CurseBuffBase.Build<ZyC7Buff>);
+            Create(mod, CurseBuffBase.Build<ZyC8Buff>);
+            Create(mod, CurseBuffBase.Build<ZyC9Buff>);
+            Create(mod, CurseBuffBase.Build<ZyC10Buff>);
+            Create(mod, CurseBuffBase.Build<ZyC11Buff>);
+            Create(mod, CurseBuffBase.Build<ZyC12Buff>);
+            Create(mod, CurseBuffBase.Build<ZyC13Buff>);
+            Create(mod, CurseBuffBase.Build<ZyC14Buff>);
+            Create(mod, CurseBuffBase.Build<ZyC15Buff>);
+            Create(mod, CurseBuffBase.Build<ZyC16Buff>);
+
+            // ZY-C15 给发光器械挂的光照减益子 buff。
+            Create(mod, CurseBuffBase.Build<ZyC15DimBuff>);
 
             Plugin.Log?.LogInfo("[CurseBuffs] " + definitions.Count + " 个诅咒定义已注册");
         }

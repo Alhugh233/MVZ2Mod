@@ -4,21 +4,27 @@
 > 三个相互独立的 mod 共用一个 BepInEx / IL2CPP 构建环境与工具链。
 
 > ⚠️ 本项目为社区制作的**非官方**内容，与游戏原作者无关。
-> ⚠️ 全部仅适配 **0.7.0 test-4**（Windows **x86** / IL2CPP / Unity 2022.3.62f3）。
+> ⚠️ 全部仅适配 **0.7.0 test-6**（Windows **x86** / IL2CPP / Unity 2022.3.62f3）。
 
 ---
 
 ## Mod 一览
 
-| 目录 | 名称 | 游戏内命名空间 | 说明 | 前置 |
-| ---- | ---- | ---- | ---- | ---- |
-| [`DSHCore/`](DSHCore/README.md) | **DSHCore**（工具 + 前置库） | — | IL2CPP 注入基建：ClassInjector 缺陷修复、注入类 vtable 重绑、磁盘 XML metas 注入、存档兜底、街机 Index 平移；并提供 `Il2CppPin` / `InjectedMod` / `ModBootstrap` / `ModInfos` 等公共 API。**同时提供 BepInEx 运行环境**（只有它的包体包含）与**本地网页日志查看器** | — |
-| [`LaboratoryMod/`](LaboratoryMod/README.md) | **MVZ2 Laboratory Content**（实验室小游戏） | `mvz2_lab` | 三个实验小游戏：真正的序章 / 零度空间 / 真理伪证殿堂 | DSHCore |
-| [`ModularCurse/`](ModularCurse/README.md) | **MVZ2 Modular Curse**（模块化诅咒） | `modular_curse` | 25 条自定义诅咒接入**原版诅咒系统**，按 QC / SC 两个诅咒池组织与切换 | DSHCore |
+
+| 目录                                          | 名称                                        | 游戏内命名空间  | 说明                                                                                                                                                                                                                                                               | 前置          |
+| --------------------------------------------- | ------------------------------------------- | --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------- |
+| [`DSHCore/`](DSHCore/README.md)               | **DSHCore**（工具 + 前置库）                | —              | IL2CPP 注入基建：ClassInjector 缺陷修复、注入类 vtable 重绑、磁盘 XML metas 注入、存档兜底、街机 Index 平移；并提供`Il2CppPin` / `InjectedMod` / `ModBootstrap` / `ModInfos` 等公共 API。**同时提供 BepInEx 运行环境**（只有它的包体包含）与**本地网页日志查看器** | —            |
+| [`LaboratoryMod/`](LaboratoryMod/README.md)   | **MVZ2 Laboratory Content**（实验室小游戏） | `mvz2_lab`      | 三个实验小游戏：真正的序章 / 零度空间 / 真理伪证殿堂                                                                                                                                                                                                               | DSHCore       |
+| [`ModularCurse/`](ModularCurse/README.md)     | **MVZ2 Modular Curse**（模块化诅咒）        | `modular_curse` | 25 条自定义诅咒接入**原版诅咒系统**，按 QC / SC 两个诅咒池组织与切换                                                                                                                                                                                               | DSHCore       |
+| [`GraphicConsole/`](GraphicConsole/README.md) | **MVZ2 Graphic Console**（图形化控制台）    | —              | 用可视化面板替代原版调试控制台的输入窗口。测试工具，最大兼容性优先（零注入）                                                                                                                                                                                       | DSHCore（软） |
+| [`UiGallery/`](UiGallery/README.md)           | **MVZ2 UI Gallery**（UI 组件画廊）          | —              | **开发者工具**：把原版 UI 素材（对话框/按钮/复选/滑条/列表/输入框/悬停提示）以真实观感展示出来，同时是「用原版零件做 UI」的最小可编译范例。`/dshui` 打开                                                                                                           | DSHCore（硬） |
 
 > 📖 **想写新 mod？先读 [`DSHCore/AI_GUIDE.md`](DSHCore/AI_GUIDE.md)** ——
 > 面向 AI 与后来者的开发参考：AI 协作工作流、公共 API 速查、最小 mod 骨架、
-> 0.7 官方集成链时序图，以及 16 条「症状 → 根因 → 对策」陷阱清单。
+> 0.7 官方集成链时序图，以及一条条「症状 → 根因 → 对策」陷阱清单。
+>
+> 🎨 **要写 UI？读 [`DSHCore/UI_GUIDE.md`](DSHCore/UI_GUIDE.md)**（决策树 + 可拷示例 + 硬约定），
+> 背后的调研与完整坑表在 [`DSHCore/UI_RESEARCH.md`](DSHCore/UI_RESEARCH.md)。
 
 ```mermaid
 flowchart LR
@@ -41,17 +47,18 @@ flowchart LR
 
 只想构建单个 mod 时，也可以直接运行该目录下的 `build.ps1`（参数一致）。
 
-| 参数 | 作用 |
-| ---- | ---- |
-| `-Mod all\|dsh\|lab\|curse` | 选择构建目标（默认 `all`） |
-| `-GameDir <dir>` | 部署目标（默认取 `MVZ2_GAME_DIR` 或 `Directory.Build.local.props`；都没有时**只构建不部署**） |
-| `-Clean` | 先删除 `bin/` `obj/` |
-| `-SkipBuild` | 跳过 `dotnet build`，直接用已有产物 |
-| `-KeepGame` | 不结束正在运行的游戏（**游戏会锁住插件 DLL**，一般不要用） |
-| `-Pack` | 打包可分发 zip 到 `dist\`（默认**含** BepInEx 运行环境） |
-| `-PackDevKit` | 额外打「不含 DSHCore 源码」的便携开发环境包（只对 `dsh` 有效） |
-| `-NoRuntime` | 打包时**不带** BepInEx（包体从 ~44MB 降到几十 KB） |
-| `-Launch` | 构建/打包后启动游戏 |
+
+| 参数                            | 作用                                                                                         |
+| ------------------------------- | -------------------------------------------------------------------------------------------- |
+| `-Mod all|dsh|lab|curse|gc|uig` | 选择构建目标（默认`all`）                                                                    |
+| `-GameDir <dir>`                | 部署目标（默认取`MVZ2_GAME_DIR` 或 `Directory.Build.local.props`；都没有时**只构建不部署**） |
+| `-Clean`                        | 先删除`bin/` `obj/`                                                                          |
+| `-SkipBuild`                    | 跳过`dotnet build`，直接用已有产物                                                           |
+| `-KeepGame`                     | 不结束正在运行的游戏（**游戏会锁住插件 DLL**，一般不要用）                                   |
+| `-Pack`                         | 打包可分发 zip 到`dist\`（默认**含** BepInEx 运行环境）                                      |
+| `-PackDevKit`                   | 额外打「不含 DSHCore 源码」的便携开发环境包（只对`dsh` 有效）                                |
+| `-NoRuntime`                    | 打包时**不带** BepInEx（包体从 ~44MB 降到几十 KB）                                           |
+| `-Launch`                       | 构建/打包后启动游戏                                                                          |
 
 VS Code 里这套命令已注册为任务（`Ctrl+Shift+P` → `Tasks: Run Task`）：
 构建全部 / 构建全部 + 打包 / 三个 mod 单独构建 / 打包 DevKit / 同步 runtime /
@@ -75,16 +82,17 @@ VS Code 里这套命令已注册为任务（`Ctrl+Shift+P` → `Tasks: Run Task`
 指令名支持 **Tab 补全**：输个 `/ds` 按 Tab 就会补成 `/dshlog`，再接着输 `o` 能补出
 `off` / `open` 等子指令，不用背。
 
-| 指令 | 作用 |
-| ---- | ---- |
-| `/dshlog` | 开启（已开启则显示状态） |
-| `/dshlog off` | 关闭并释放端口（内存历史保留） |
-| `/dshlog open` | 用默认浏览器打开 |
-| `/dshlog url` | 只打印带令牌的地址 |
-| `/dshlog status` | 显示状态 |
+
+| 指令              | 作用                           |
+| ----------------- | ------------------------------ |
+| `/dshlog`         | 开启（已开启则显示状态）       |
+| `/dshlog off`     | 关闭并释放端口（内存历史保留） |
+| `/dshlog open`    | 用默认浏览器打开               |
+| `/dshlog url`     | 只打印带令牌的地址             |
+| `/dshlog status`  | 显示状态                       |
 | `/dshlog console` | 显示 / 隐藏 BepInEx 控制台窗口 |
-| `/dshlog clear` | 清空内存里的历史 |
-| `/dshlog help` | 帮助 |
+| `/dshlog clear`   | 清空内存里的历史               |
+| `/dshlog help`    | 帮助                           |
 
 > 调试控制台需要存档用户名是 `debug` —— 这是游戏自身的限制。
 > URL 里的令牌只在本会话有效，`/api/status` 不会把它回吐出去。
@@ -108,13 +116,14 @@ VS Code 里这套命令已注册为任务（`Ctrl+Shift+P` → `Tasks: Run Task`
 
 ## 环境要求
 
-| 项 | 要求 |
-| ---- | ---- |
-| 操作系统 | Windows |
-| 脚本环境 | PowerShell 5.1+ |
-| 构建 | [.NET 6 SDK](https://dotnet.microsoft.com/download/dotnet/6.0) |
-| 游戏 | MVZ2 **0.7.0 test-4**，Windows x86 版 |
-| 编译引用 | `runtime\`（可选）**或游戏目录本身**，见下 |
+
+| 项       | 要求                                                           |
+| -------- | -------------------------------------------------------------- |
+| 操作系统 | Windows                                                        |
+| 脚本环境 | PowerShell 5.1+                                                |
+| 构建     | [.NET 6 SDK](https://dotnet.microsoft.com/download/dotnet/6.0) |
+| 游戏     | MVZ2**0.7.0 test-4**，Windows x86 版                           |
+| 编译引用 | `runtime\`（可选）**或游戏目录本身**，见下                     |
 
 ### 告诉构建你的游戏装在哪
 
@@ -207,21 +216,23 @@ MVZ2Mod/
 `LaboratoryMod` / `ModularCurse` 都依赖 DSHCore。引用方式由 `Directory.Build.props`
 自动决定，**不需要改 csproj**：
 
-| 模式 | 触发条件 | 引用 |
-| ---- | ---- | ---- |
-| 源码 | 仓库里存在 `DSHCore\DSHCore.csproj` | `ProjectReference`，一并构建 |
-| 二进制 | 源码不存在（或 `-p:DshCoreFromSource=false`） | `_refs\DSHCore\DSHCore.dll` |
+
+| 模式   | 触发条件                                     | 引用                         |
+| ------ | -------------------------------------------- | ---------------------------- |
+| 源码   | 仓库里存在`DSHCore\DSHCore.csproj`           | `ProjectReference`，一并构建 |
+| 二进制 | 源码不存在（或`-p:DshCoreFromSource=false`） | `_refs\DSHCore\DSHCore.dll`  |
 
 `_refs\DSHCore\DSHCore.dll` 由 **DSHCore 每次构建时自动同步**（`SyncDshCoreRefs` 目标），
 所以不会过期；它**入库**，让只拿到 mod 源码的人也能直接编译。
 
 ### 在 VS Code 里打开
 
-| 打开方式 | 结果 |
-| ---- | ---- |
-| 打开**仓库根**目录 | ✅ 推荐。三个工程都在工作区内，一切正常 |
-| 打开 `MVZ2Mod.code-workspace` | ✅ 侧边栏只显示单个 mod 时用这个（多根工作区） |
-| 直接打开 `LaboratoryMod\` 子目录 | ❌ DSHCore 落在工作区之外，语言服务器会满屏报「未能找到类型或命名空间名 DSHCore」 |
+
+| 打开方式                        | 结果                                                                              |
+| ------------------------------- | --------------------------------------------------------------------------------- |
+| 打开**仓库根**目录              | ✅ 推荐。三个工程都在工作区内，一切正常                                           |
+| 打开`MVZ2Mod.code-workspace`    | ✅ 侧边栏只显示单个 mod 时用这个（多根工作区）                                    |
+| 直接打开`LaboratoryMod\` 子目录 | ❌ DSHCore 落在工作区之外，语言服务器会满屏报「未能找到类型或命名空间名 DSHCore」 |
 
 > 最后一种**只是编辑器的问题** —— `dotnet build` 其实能过。要单开一个 mod，
 > 请用多根工作区，而不是直接打开子目录。
@@ -259,12 +270,13 @@ MVZ2-Mod-DevKit/
 
 ## 打包规则
 
-| 包 | 包含 | 说明 |
-| ---- | ---- | ---- |
-| `DSHCore_v*_0.7.0.zip` | **BepInEx 运行环境** + 插件 | 完整独立安装包，解压到游戏根目录即可用 |
-| `DSHCore-DevKit_v*_0.7.0.zip` | 运行环境 + 开发工具 + **两个范例 mod 源码** + `_refs\` | 便携开发环境，**不含 DSHCore 源码** |
-| `LaboratoryMod_v*_0.7.0.zip` | **BepInEx 运行环境** + 插件 + 资源 + `DSHCore.dll` | 完整独立安装包（不需先装前置） |
-| `ModularCurse_v*_0.7.0.zip` | **BepInEx 运行环境** + 插件 + 资源 + `DSHCore.dll` | 同上 |
+
+| 包                            | 包含                                                  | 说明                                   |
+| ----------------------------- | ----------------------------------------------------- | -------------------------------------- |
+| `DSHCore_v*_0.7.0.zip`        | **BepInEx 运行环境** + 插件                           | 完整独立安装包，解压到游戏根目录即可用 |
+| `DSHCore-DevKit_v*_0.7.0.zip` | 运行环境 + 开发工具 +**两个范例 mod 源码** + `_refs\` | 便携开发环境，**不含 DSHCore 源码**    |
+| `LaboratoryMod_v*_0.7.0.zip`  | **BepInEx 运行环境** + 插件 + 资源 + `DSHCore.dll`    | 完整独立安装包（不需先装前置）         |
+| `ModularCurse_v*_0.7.0.zip`   | **BepInEx 运行环境** + 插件 + 资源 + `DSHCore.dll`    | 同上                                   |
 
 > 即：**每个包都是自包含的**，玩家装一个 zip 就能用（每个 ~44 MB）。
 > 只要插件本体（比如给已装好的游戏换个 DLL）时加 `-NoRuntime`，包体就降到几十 KB。
@@ -280,11 +292,9 @@ MVZ2-Mod-DevKit/
    `GetID()` 值比较静默失败（关卡不出现在列表）、读字符串触发
    `Fatal error. Internal CLR error (0x80131506)`。
    → 必须用 GC 句柄钉住：见 `LaboratoryMod/Il2CppPin.cs`。
-
 2. **游戏二进制更新后，`BepInEx/interop` 必须重新生成。**
    类型代理按 metadata token 解析，token 一重排就失配，表现为**随机 `0xC0000005` AV**
    （崩点漂移、无托管栈）。`UpdateInteropAssemblies = true` 时 BepInEx 会自动重生成。
-
 3. **原生崩溃的托管栈只在 `BepInEx/ErrorLog.log` 里**，`LogOutput.log` 里没有。
    另外：不要在 `PostInit` / `PostReloadMods` 里调用官方的 `DefinitionGroup.GetDefinitions()`
    等 LINQ 链路 —— 注入 def 参与原生 LINQ 枚举时会非确定性失败。

@@ -5,9 +5,9 @@
 
 - 插件 GUID：`qoznos.mvz2.modularcurse`
 - 游戏内命名空间：`modular_curse`
-- 当前版本：**0.2.1**
+- 当前版本：**0.3.0**
 - 前置：**DSHCore**（`qoznos.mvz2.core`，必需）
-- 适配：MVZ2 **0.7.0 test-4**（Windows **x86** / IL2CPP / Unity 2022.3.62f3）
+- 适配：MVZ2 **0.7.0 test-6**（Windows **x86** / IL2CPP / Unity 2022.3.62f3）
 
 > ⚠️ 社区制作的**非官方**内容，与游戏原作者无关。
 > 📖 **每一条诅咒的效果与实现方式、诅咒池 UI 的实现细节，见 [CURSES.md](CURSES.md)。**
@@ -31,14 +31,15 @@ curses.xml (CurseMeta)
 
 ### 诅咒池
 
-诅咒弹窗（标题「选择诅咒」）的滚动区**最上方**多了一行三个「池」条目，
-下面一条横线，横线下才是真正的诅咒列表：
+诅咒弹窗（标题「选择诅咒」）的滚动区**最上方**多了一行四个「池」条目，
+下面一条横线，横线下面才是真正的诅咒列表：
 
 | 池 | 图标 | 诅咒 | 描述 |
 | ---- | ---- | ---- | ---- |
 | 原版池（默认） | 原版诅咒按钮图标 | `mvz2:*` 那 7 条 | 原版诅咒 |
 | QC 池 | `curse_qc.png` | `modular_curse:qc_c1` … `qc_c12`（**12 条**） | QoZnoS的诅咒 |
-| SC 池 | `curse_sc.png` | `modular_curse:sc_c1` … `sc_c13`（**13 条**） | 奇硅箱的诅咒 |
+| SC 池 | `curse_sc.png` | `modular_curse:sc_c1` … `sc_c16`（**16 条**） | 奇硅箱的诅咒 |
+| 咒鵺兼程 | `curse_3q4a.png` | `modular_curse:zy_c1` … `zy_c16`（**16 条**） | 3q4a的诅咒 |
 
 池是**单选且必选**的；换池后列表只显示该池，**其它池已勾选的自动取消**；
 选择**按关卡分别记住**（存在 `userdata/userN/modular_curse/curse_pool.txt`）。
@@ -52,13 +53,13 @@ curses.xml (CurseMeta)
 ```powershell
 cd ModularCurse
 .\build.ps1                 # 构建（含前置 DSHCore）+ 自动部署
-.\build.ps1 -Pack           # 额外打包 dist\ModularCurse_v0.2.1_0.7.0.zip
+.\build.ps1 -Pack           # 额外打包 dist\ModularCurse_v0.3.0_0.7.0.zip
 .\build.ps1 -Pack -Launch   # 打包后启动游戏冒烟
 ```
 
 | 参数 | 作用 |
 | ---- | ---- |
-| `-GameDir <dir>` | 部署目标。默认 `E:\Game\PVZ\MVZ2\MVZ2 0.7.0 test-4`；不存在则**只构建不部署** |
+| `-GameDir <dir>` | 部署目标。默认 `E:\Game\PVZ\MVZ2\MVZ2 0.7.0 test-6`；不存在则**只构建不部署** |
 | `-SkipBuild` | 跳过构建，直接用已有产物 |
 | `-Clean` | 先删除 `bin/` `obj/` |
 | `-KeepGame` | 不结束正在运行的游戏（会锁住 DLL，一般不要用） |
@@ -84,7 +85,7 @@ cd ModularCurse
 assets/
 └─ Content/
    ├─ metas/
-   │   ├─ curses.xml    25 条诅咒的元数据（CurseMeta）
+   │   ├─ curses.xml    44 条诅咒的元数据（CurseMeta）
    │   └─ buffs.xml      对应的 buff 词条
    └─ sprites/
        ├─ curse_qc.png   QC 池图标
@@ -109,7 +110,7 @@ ModularCurse/
 ├─ Plugin.cs                    入口：ModBootstrap 登记 + ModInfos.OnRegister 订阅
 ├─ ModularCurseMod.cs           Mod 逻辑主体
 ├─ CurseIds.cs                  诅咒 ID 表
-├─ CurseDefinitionPatch.cs      拦截官方 LoadStages 时机创建诅咒 buff 定义
+├─ CurseDefinitionPatch.cs      拦截官方 LoadStages 时机创建诅咒 buff 定义（定义跟踪/GetDefinitions 拦截已收敛到 DSHCore.InjectedDefinitions）
 ├─ CurseMetaApplier.cs          把 XML meta 套到注入 def
 ├─ CurseRuntime.cs / CurseState.cs        运行时状态
 ├─ CurseHooks.cs                各条诅咒的 Harmony 挂钩
@@ -121,7 +122,7 @@ ModularCurse/
     ├─ CurseBuffBase.cs         诅咒 buff 基类
     ├─ CurseBuffs.cs            注册表
     ├─ QcBuffs.cs               QC 池 12 条 buff
-    └─ ScBuffs.cs               SC 池 13 条 buff
+    └─ ScBuffs.cs               SC 池 16 条 buff
 ```
 
 ---
@@ -147,7 +148,7 @@ ModularCurse/
 
 ## 已知限制
 
-- 仅适配 0.7.0 test-4（Windows x86 IL2CPP）
+- 仅适配 0.7.0 test-6（Windows x86 IL2CPP）
 - 诅咒名字：每个池前 7 条沿用原版那 7 条诅咒的名字（它们复用的正是那 7 个图标），
   第 8 条起用池内编号（`QC-C8` … / `SC-C8` …）
 - 选卡界面右侧**没有**独立的「诅咒池」按钮：早期版本做过一个克隆入口，实测点不开

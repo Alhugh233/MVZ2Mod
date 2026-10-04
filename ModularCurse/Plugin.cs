@@ -29,7 +29,7 @@ namespace ModularCurse
     {
         public const string GUID = "qoznos.mvz2.modularcurse";
         public const string NAME = "MVZ2 Modular Curse";
-        public const string VERSION = "0.2.1";
+        public const string VERSION = "0.3.0";
 
         internal static new ManualLogSource Log;
 
@@ -38,23 +38,19 @@ namespace ModularCurse
         /// metadata v31 注入环境下 DefinitionGroup.GetDefinitions 的
         /// SelectMany/OfType 非确定性抛 MethodAccessException 或返回空 →
         /// game.AddMod 拷不到 defs → 诅咒列表为空）。
+        ///
+        /// <para>存储与补丁已收敛到 <see cref="InjectedDefinitions"/>（DSHCore 的公共设施，
+        /// 之前 LaboratoryMod 与本 mod 各抄了一份）。返回的是设施内部那个列表对象，
+        /// 所以 <c>lock (AllDefinitions)</c> 依然锁在同一个对象上。</para>
         /// </summary>
-        internal static readonly System.Collections.Generic.List<Definition> AllDefinitions
-            = new System.Collections.Generic.List<Definition>();
+        internal static System.Collections.Generic.List<Definition> AllDefinitions
+        {
+            get { return InjectedDefinitions.ListFor(ModularCurseMod.spaceName); }
+        }
 
         internal static void TrackDefinition(Definition def)
         {
-            if (def == null)
-                return;
-            lock (AllDefinitions)
-            {
-                for (var i = 0; i < AllDefinitions.Count; i++)
-                {
-                    if (AllDefinitions[i] == def)
-                        return;
-                }
-                AllDefinitions.Add(def);
-            }
+            InjectedDefinitions.Track(def);
         }
 
         public override void Load()
@@ -69,6 +65,12 @@ namespace ModularCurse
                 logicType: typeof(ModularCurseMod),
                 xmlDefaultNamespace: "mvz2");
             CurseBuffs.RegisterAll();
+
+            // 定义设施：装补丁 + 声明命名空间。
+            // 「跟踪 / 拦 Mod.GetDefinitions / 跳 Mod.PostReloadMods」这三件事
+            // 已从本 mod 的 CurseDefinitionPatch 收敛到 DSHCore 的公共设施。
+            InjectedDefinitions.Apply();
+            InjectedDefinitions.Register(ModularCurseMod.spaceName);
 
             // 定义/生命周期补丁。
             CurseDefinitionPatch.Apply();

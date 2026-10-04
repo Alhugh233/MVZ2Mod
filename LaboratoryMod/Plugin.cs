@@ -30,7 +30,7 @@ namespace LaboratoryMod
     {
         public const string GUID = "qoznos.mvz2.labmod";
         public const string NAME = "MVZ2 Laboratory Content";
-        public const string VERSION = "0.2.0";
+        public const string VERSION = "0.2.1";
 
         internal static new ManualLogSource Log;
 
@@ -39,23 +39,19 @@ namespace LaboratoryMod
         /// metadata v31 注入环境下 DefinitionGroup.GetDefinitions 的 SelectMany
         /// 接口枚举非确定性抛 MethodAccessException / 返回空 → game.AddMod 拷不到
         /// defs → 列表消失 + ChangeStage missing。作者亦在移除 LINQ 印证此坑）。
+        ///
+        /// <para>存储与补丁已收敛到 <see cref="InjectedDefinitions"/>（DSHCore 的公共设施）。
+        /// 这里保留同名属性只是为了不改动已有调用点 —— 它返回的就是设施内部那个列表，
+        /// 所以 <c>lock (AllDefinitions)</c> 依然锁在同一个对象上。</para>
         /// </summary>
-        internal static readonly System.Collections.Generic.List<Definition> AllDefinitions
-            = new System.Collections.Generic.List<Definition>();
+        internal static System.Collections.Generic.List<Definition> AllDefinitions
+        {
+            get { return InjectedDefinitions.ListFor(LabMod.spaceName); }
+        }
 
         internal static void TrackDefinition(Definition def)
         {
-            if (def == null)
-                return;
-            lock (AllDefinitions)
-            {
-                for (int i = 0; i < AllDefinitions.Count; i++)
-                {
-                    if (AllDefinitions[i] == def)
-                        return;
-                }
-                AllDefinitions.Add(def);
-            }
+            InjectedDefinitions.Track(def);
         }
 
         public override void Load()
@@ -75,6 +71,13 @@ namespace LaboratoryMod
                     typeof(Stages.UnknowPalaceStage),
                     typeof(Buffs.ZeroKSpaceCostBuff)
                 });
+
+            // 定义设施：装补丁 + 声明命名空间。
+            // 本 mod 的定义全部由手工创建（注入类的官方自动注册路径被 interop 堵死，
+            // 见 InjectedDefinitions 的类注释），所以跟踪 / 拦截 / 钉 GC 根这三件事
+            // 都交给 DSHCore 的公共设施，本 mod 不再自带一份。
+            InjectedDefinitions.Apply();
+            InjectedDefinitions.Register(LabMod.spaceName);
 
             // 0.7 中 ModLoader.LoadAll 会对 stageProviders.OrderBy(Priority) 做原生 LINQ
             // 接口分派，注入类实现 IStageDefinitionProvider 在 metadata v31 抛

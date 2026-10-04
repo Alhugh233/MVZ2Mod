@@ -63,6 +63,12 @@ namespace DSHCore
 
             ClassInjector.DerivedConstructorBody(instance);
             instance._Namespace_k__BackingField = spaceName;
+
+            // 上面这行只做了「托管 → il2cpp」的一次转换，字段本身不在 il2cpp GC 的扫描范围内，
+            // 字符串迟早会被回收，之后 mod.Namespace 读到空/悬垂值（症状是间歇性的、
+            // 官方按命名空间找不到本 mod 的内容）。这里把它钉成 GC 根并每次生命周期节点复核。
+            ModNamespacePin.Ensure(instance, spaceName);
+
             instance.definitionGroup = Il2CppPin.Pin(new DefinitionGroup());
             instance.triggers = Il2CppPin.Pin(new List<ITrigger>());
             return instance;

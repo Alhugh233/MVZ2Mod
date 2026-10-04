@@ -1,8 +1,8 @@
 ﻿# =====================================================================
 # MVZ2 Mod 工作区 —— 总构建脚本
 #
-# 依次构建三个 mod。每个 mod 自己的 build.ps1 负责构建 / 部署 / 打包，
-# 本脚本只是编排（依赖顺序：DSHCore → LaboratoryMod / ModularCurse）。
+# 依次构建全部 mod。每个 mod 自己的 build.ps1 负责构建 / 部署 / 打包，
+# 本脚本只是编排（依赖顺序：DSHCore → LaboratoryMod / ModularCurse / Loadout）。
 #
 #   .\build.ps1                        构建全部（有游戏目录则自动部署）
 #   .\build.ps1 -Mod dsh               只构建 DSHCore
@@ -20,7 +20,7 @@
 # =====================================================================
 [CmdletBinding()]
 param(
-    [ValidateSet('all', 'dsh', 'lab', 'curse', 'gc')]
+    [ValidateSet('all', 'dsh', 'lab', 'curse', 'ld', 'uig')]
     [string]$Mod = 'all',
     [string]$GameDir = "",
     [switch]$SkipBuild,
@@ -39,7 +39,8 @@ $all = @(
     @{ Key = 'dsh';   Dir = 'DSHCore';        Title = 'DSHCore' },
     @{ Key = 'lab';   Dir = 'LaboratoryMod';  Title = 'MVZ2 Laboratory Content' },
     @{ Key = 'curse'; Dir = 'ModularCurse';   Title = 'MVZ2 Modular Curse' },
-    @{ Key = 'gc';    Dir = 'GraphicConsole'; Title = 'MVZ2 Graphic Console' }
+    @{ Key = 'ld';    Dir = 'Loadout';        Title = 'MVZ2 Loadout' },
+    @{ Key = 'uig';   Dir = 'UiGallery';      Title = 'MVZ2 UI Gallery' }
 )
 
 $selected = if ($Mod -eq 'all') { $all } else { @($all | Where-Object { $_.Key -eq $Mod }) }

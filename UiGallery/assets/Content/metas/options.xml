@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Sample settings rows contributed by UiGallery, to demonstrate / verify
+  DSHCore.Ui.UiOptions (zero UI code).
+
+  Only used when General.SampleOptions is true (default false; SelfTest forces it on).
+  The rows themselves live in the game's own options screen - the gallery panel shows
+  nothing about them.
+
+  Contract (from MVZ2/Metas/Options/*.cs):
+    root element            = <options>
+    <widgets>               = the option *widgets*; the child element NAME selects the type:
+                              <button> / <toggle> / <dropdown> / <slider>
+    widget attributes       = id (required), category (required NamespaceID), label,
+                              minValue / maxValue / wholeNumber (slider only)
+    a <tooltip> child node  = the hover text
+
+  !! Keep every XML comment OUTSIDE <options>: the parser walks ChildNodes, so a Comment
+     node inside would be visited as a child element.
+  !! category must be an ALREADY EXISTING category id. A bare name resolves against the mod's
+     default namespace (xmlDefaultNamespace="mvz2"), so "general" means "mvz2:general".
+     Legal ids: mvz2:general / mvz2:graphics / mvz2:gameplay / mvz2:hp_bar / mvz2:control / mvz2:about
+     A non-existent category does NOT error out loudly - the whole group is silently dropped.
+-->
+<options>
+  <widgets>
+    <toggle id="uig_sample_toggle" category="general" label="UI 画廊示例开关">
+      <tooltip>由 UiGallery 经 DSHCore.Ui.UiOptions 注入的设置项：这一行没有任何 UI 代码。</tooltip>
+    </toggle>
+    <slider id="uig_sample_slider" category="graphics" label="UI 画廊示例滑条"
+            minValue="0" maxValue="10" wholeNumber="true">
+      <tooltip>同一个封装出来的滑条：标签显示成「标签：值」，拖动时逐帧刷新。</tooltip>
+    </slider>
+  </widgets>
+</options>

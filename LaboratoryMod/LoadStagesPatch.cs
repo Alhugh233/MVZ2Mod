@@ -134,17 +134,9 @@ namespace LaboratoryMod
                 LabMod.RegisterStage(stage, Stages.RealPrologueStage.StageID);
                 LabMod.RegisterStage(zeroStage, Stages.ZeroKSpaceStage.StageID);
                 LabMod.RegisterStage(unknowStage, Stages.UnknowPalaceStage.StageID);
-                // 绕过官方 Mod.GetDefinitions 的原生 LINQ（v31 注入下 AddMod 拷不到
-                // defs → game 无 mvz2_lab:* → 列表消失 + ChangeStage missing）。
-                // 拦截 GetDefinitions 对 mvz2_lab 直接返回 Plugin.AllDefinitions。
-                try
-                {
-                    ModGetDefinitionsPatch.Apply();
-                }
-                catch (System.Exception pe)
-                {
-                    Plugin.Log?.LogError("[LoadStagesPatch] ModGetDefinitionsPatch error: " + pe);
-                }
+
+                // 绕过官方 Mod.GetDefinitions 的原生 LINQ 的补丁由
+                // DSHCore.InjectedDefinitions.Apply() 统一装（在 Plugin.Load 里）。
                 // 跳过原方法（不再遍历 stageProviders）。
                 return false;
             }

@@ -3,8 +3,7 @@
   <!--
     模块化诅咒（Modular Curse）—— 接入原版诅咒系统的诅咒扩展 mod（依赖 DSHCore 前置库）
 
-    原版 0.7.0 诅咒系统（test-4 起）：
-      curses.xml（CurseMeta）
+    原版 0.7.0 诅咒系统（test-4 起）：      curses.xml（CurseMeta）
         → ModLoader.LoadCurseMetas → DefaultCurseDefinition（带 BUFF_ID）
         → 关卡开始前的诅咒选择面板（LevelBlueprintChooseController）
         → Level.AddBuff(buffId)
@@ -56,7 +55,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <!-- 0.7.0 test-4 类型代理程序集（预生成，见 runtime/BepInEx/interop） -->
+    <!-- 0.7.0 test-6 类型代理程序集（预生成，见 runtime/BepInEx/interop） -->
     <Reference Include="$(RuntimeInteropDir)*.dll">
       <Private>false</Private>
     </Reference>

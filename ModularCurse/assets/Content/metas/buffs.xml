@@ -24,4 +24,23 @@
 	<buff id="sc_c11" polarity="negative" level="5000" target="level" />
 	<buff id="sc_c12" polarity="negative" level="5000" target="level" />
 	<buff id="sc_c13" polarity="negative" level="5000" target="level" />
+	<buff id="sc_c14" polarity="negative" level="5000" target="level" />
+	<buff id="sc_c15" polarity="negative" level="5000" target="level" />
+	<buff id="sc_c16" polarity="negative" level="5000" target="level" />
+	<buff id="zy_c1" polarity="negative" level="5000" target="level" />
+	<buff id="zy_c2" polarity="negative" level="5000" target="level" />
+	<buff id="zy_c3" polarity="negative" level="5000" target="level" />
+	<buff id="zy_c4" polarity="negative" level="5000" target="level" />
+	<buff id="zy_c5" polarity="negative" level="5000" target="level" />
+	<buff id="zy_c6" polarity="negative" level="5000" target="level" />
+	<buff id="zy_c7" polarity="negative" level="5000" target="level" />
+	<buff id="zy_c8" polarity="negative" level="5000" target="level" />
+	<buff id="zy_c9" polarity="negative" level="5000" target="level" />
+	<buff id="zy_c10" polarity="negative" level="5000" target="level" />
+	<buff id="zy_c11" polarity="negative" level="5000" target="level" />
+	<buff id="zy_c12" polarity="negative" level="5000" target="level" />
+	<buff id="zy_c13" polarity="negative" level="5000" target="level" />
+	<buff id="zy_c14" polarity="negative" level="5000" target="level" />
+	<buff id="zy_c15" polarity="negative" level="5000" target="level" />
+	<buff id="zy_c16" polarity="negative" level="5000" target="level" />
 </buffs>

@@ -3,7 +3,7 @@
 	"tasks": [
 		{
 			"label": "构建全部",
-			"detail": "依次构建 DSHCore / LaboratoryMod / ModularCurse / GraphicConsole（有游戏目录则自动部署）",
+			"detail": "依次构建 DSHCore / LaboratoryMod / ModularCurse / Loadout / UiGallery（有游戏目录则自动部署）",
 			"type": "shell",
 			"command": "powershell",
 			"args": [
@@ -117,8 +117,8 @@
 			"problemMatcher": []
 		},
 		{
-			"label": "构建: GraphicConsole",
-			"detail": "图形化控制台面板（qoznos.mvz2.graphicconsole）",
+			"label": "构建: Loadout",
+			"detail": "图形化控制台面板（qoznos.mvz2.loadout）",
 			"type": "shell",
 			"command": "powershell",
 			"args": [
@@ -128,12 +128,12 @@
 				"-File",
 				"${workspaceFolder}\\build.ps1",
 				"-Mod",
-				"gc"
+				"ld"
 			],
 			"problemMatcher": []
 		},
 		{
-			"label": "构建: GraphicConsole + 启动",
+			"label": "构建: Loadout + 启动",
 			"detail": "面板的日常开发回路：构建 → 部署 → 启动游戏",
 			"type": "shell",
 			"command": "powershell",
@@ -144,8 +144,157 @@
 				"-File",
 				"${workspaceFolder}\\build.ps1",
 				"-Mod",
-				"gc",
+				"ld",
 				"-Launch"
+			],
+			"problemMatcher": []
+		},
+		{
+			"label": "自测: Loadout（关卡外 + 关卡内）",
+			"detail": "临时打开 SelfTest=all → 启动游戏 → 开面板 / 进第一关 / dump 布局 / 截图 → 报告写到 游戏目录\\BepInEx\\_loadout_selftest.txt（截图 _ld_shot*.png），跑完自动把 SelfTest 关回去",
+			"type": "shell",
+			"command": "powershell",
+			"args": [
+				"-NoProfile",
+				"-ExecutionPolicy",
+				"Bypass",
+				"-File",
+				"${workspaceFolder}\\tools\\run-loadout-selftest.ps1"
+			],
+			"problemMatcher": []
+		},
+		{
+			"label": "构建: UiGallery",
+			"detail": "UI 组件画廊（开发者工具，硬依赖 DSHCore）",
+			"type": "shell",
+			"command": "powershell",
+			"args": [
+				"-NoProfile",
+				"-ExecutionPolicy",
+				"Bypass",
+				"-File",
+				"${workspaceFolder}\\build.ps1",
+				"-Mod",
+				"uig"
+			],
+			"problemMatcher": [
+				"$msCompile"
+			],
+			"group": "build"
+		},
+		{
+			"label": "构建 + 自测: UiGallery",
+			"detail": "构建 → 启动游戏 → 等 SELFTEST_DONE → 逐页布局 dump/截图 + 下拉框探针，报告写到 游戏目录\\BepInEx\\_selftest.txt",
+			"type": "shell",
+			"command": "powershell",
+			"args": [
+				"-NoProfile",
+				"-ExecutionPolicy",
+				"Bypass",
+				"-File",
+				"${workspaceFolder}\\tools\\build-and-selftest.ps1",
+				"-Mod",
+				"uig"
+			],
+			"problemMatcher": [],
+			"group": "build"
+		},
+		{
+			"label": "报告: UiGallery 自测（复用已有日志）",
+			"detail": "游戏还开着时用这个：不重启、不删日志，只重新生成报告与像素差分",
+			"type": "shell",
+			"command": "powershell",
+			"args": [
+				"-NoProfile",
+				"-ExecutionPolicy",
+				"Bypass",
+				"-File",
+				"${workspaceFolder}\\tools\\run-selftest.ps1",
+				"-NoLaunch"
+			],
+			"problemMatcher": [],
+			"group": "build"
+		},
+		{
+			"label": "重置: UiGallery 自测开关并清理截图",
+			"detail": "结束游戏、SelfTest=false、删掉 _uig_*.png 与 _selftest.txt",
+			"type": "shell",
+			"command": "powershell",
+			"args": [
+				"-NoProfile",
+				"-ExecutionPolicy",
+				"Bypass",
+				"-File",
+				"${workspaceFolder}\\tools\\reset-selftest.ps1"
+			],
+			"problemMatcher": [],
+			"group": "build"
+		},
+		{
+			"label": "像素差分（按区域）: 下拉框探针",
+			"detail": "只统计 popup/panel/控制区三块矩形；全屏差分会被标题界面动画淹没",
+			"type": "shell",
+			"command": "powershell",
+			"args": [
+				"-NoProfile",
+				"-ExecutionPolicy",
+				"Bypass",
+				"-File",
+				"${workspaceFolder}\\tools\\diff-dd-regions.ps1"
+			],
+			"problemMatcher": [],
+			"group": "build"
+		},
+		{
+			"label": "检索游戏日志（带上下文）",
+			"detail": "find-log.ps1：默认搜 BepInEx 两个日志；-Which player 搜 Unity 的 Player.log（未捕获异常真正落盘的地方）",
+			"type": "shell",
+			"command": "powershell",
+			"args": [
+				"-NoProfile",
+				"-ExecutionPolicy",
+				"Bypass",
+				"-File",
+				"${workspaceFolder}\\tools\\find-log.ps1",
+				"-Which",
+				"both",
+				"-Context",
+				"10",
+				"-Last",
+				"5"
+			],
+			"problemMatcher": [],
+			"group": "build"
+		},
+		{
+			"label": "查看 BepInEx 日志",
+			"detail": "测试游戏目录的 BepInEx\\LogOutput.log 尾部（游戏目录由环境变量 / Directory.Build.local.props 决定）",
+			"type": "shell",
+			"command": "powershell",
+			"args": [
+				"-NoProfile",
+				"-ExecutionPolicy",
+				"Bypass",
+				"-File",
+				"${workspaceFolder}\\tools\\show-log.ps1",
+				"-Which",
+				"log"
+			],
+			"problemMatcher": []
+		},
+		{
+			"label": "查看 BepInEx 错误日志",
+			"detail": "原生崩溃的托管栈只在 ErrorLog.log 里",
+			"type": "shell",
+			"command": "powershell",
+			"args": [
+				"-NoProfile",
+				"-ExecutionPolicy",
+				"Bypass",
+				"-File",
+				"${workspaceFolder}\\tools\\show-log.ps1",
+				"-Which",
+				"error"
 			],
 			"problemMatcher": []
 		},
@@ -190,41 +339,7 @@
 				"-ExecutionPolicy",
 				"Bypass",
 				"-Command",
-				"Remove-Item -Recurse -Force '${workspaceFolder}\\DSHCore\\bin','${workspaceFolder}\\DSHCore\\obj','${workspaceFolder}\\LaboratoryMod\\bin','${workspaceFolder}\\LaboratoryMod\\obj','${workspaceFolder}\\ModularCurse\\bin','${workspaceFolder}\\ModularCurse\\obj','${workspaceFolder}\\GraphicConsole\\bin','${workspaceFolder}\\GraphicConsole\\obj' -ErrorAction SilentlyContinue; Write-Host 'bin/obj 已清理'"
+				"Remove-Item -Recurse -Force '${workspaceFolder}\\DSHCore\\bin','${workspaceFolder}\\DSHCore\\obj','${workspaceFolder}\\LaboratoryMod\\bin','${workspaceFolder}\\LaboratoryMod\\obj','${workspaceFolder}\\ModularCurse\\bin','${workspaceFolder}\\ModularCurse\\obj','${workspaceFolder}\\Loadout\\bin','${workspaceFolder}\\Loadout\\obj','${workspaceFolder}\\UiGallery\\bin','${workspaceFolder}\\UiGallery\\obj' -ErrorAction SilentlyContinue; Write-Host 'bin/obj 已清理'"
 			],
 			"problemMatcher": []
 		},
-		{
-			"label": "查看 BepInEx 日志",
-			"detail": "测试游戏目录的 BepInEx\\LogOutput.log 尾部（游戏目录由环境变量 / Directory.Build.local.props 决定）",
-			"type": "shell",
-			"command": "powershell",
-			"args": [
-				"-NoProfile",
-				"-ExecutionPolicy",
-				"Bypass",
-				"-File",
-				"${workspaceFolder}\\tools\\show-log.ps1",
-				"-Which",
-				"log"
-			],
-			"problemMatcher": []
-		},
-		{
-			"label": "查看 BepInEx 错误日志",
-			"detail": "原生崩溃的托管栈只在 ErrorLog.log 里",
-			"type": "shell",
-			"command": "powershell",
-			"args": [
-				"-NoProfile",
-				"-ExecutionPolicy",
-				"Bypass",
-				"-File",
-				"${workspaceFolder}\\tools\\show-log.ps1",
-				"-Which",
-				"error"
-			],
-			"problemMatcher": []
-		}
-	]
-}

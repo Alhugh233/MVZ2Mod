@@ -52,6 +52,7 @@ namespace ModularCurse
         private static Sprite vanillaIcon;
         private static Sprite qcIcon;
         private static Sprite scIcon;
+        private static Sprite zyIcon;
         private static Color tint = Color.white;
 
         /// <summary>池图标叠加的 tint（= 原版诅咒按钮图标那个紫色滤镜）。</summary>
@@ -73,9 +74,11 @@ namespace ModularCurse
                     return; // 还没准备好（界面没起来），下次再试
                 qcIcon = LoadPng("curse_qc.png", "curse_qc");
                 scIcon = LoadPng("curse_sc.png", "curse_sc");
+                zyIcon = LoadPng("curse_3q4a.png", "curse_3q4a");
                 prepared = true;
                 Plugin.Log?.LogInfo("[CursePool] 图标已准备：原版 " + (vanillaIcon != null)
                     + " / QC " + (qcIcon != null) + " / SC " + (scIcon != null)
+                    + " / ZY " + (zyIcon != null)
                     + "，紫色滤镜 " + F(tint.r) + "," + F(tint.g) + "," + F(tint.b));
             }
             catch (Exception e)
@@ -91,6 +94,7 @@ namespace ModularCurse
             {
                 case CursePool.Qc: return qcIcon;
                 case CursePool.Sc: return scIcon;
+                case CursePool.Zy: return zyIcon;
                 default: return vanillaIcon;
             }
         }

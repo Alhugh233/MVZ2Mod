@@ -20,9 +20,50 @@
 
 `AI_GUIDE.md` 是本项目**最重要的文档**：面向 AI 与后来者的开发参考，
 包含 AI 协作工作流、公共 API 速查、最小 mod 骨架、0.7 官方集成链时序图，
-以及一份「症状 → 根因 → 对策」的陷阱清单（14 条，全部实测）。
+以及一份「症状 → 根因 → 对策」的陷阱清单（17 条，全部实测）。
 
 如果你是被调用的 AI，**动手前请完整读一遍 `AI_GUIDE.md`**。
+
+## 🎨 要写 UI？读 [`UI_GUIDE.md`](UI_GUIDE.md)（动手）、查 [`UI_RESEARCH.md`](UI_RESEARCH.md)（为什么）
+
+> `UI_GUIDE.md` 是**子 mod 写 UI 时唯一需要读的东西**：决策树 + L1/L2/L3 三套可拷示例 +
+> 七条硬约定 + 坑清单速查 + 验收方法。`UI_RESEARCH.md` 是背后的调研与完整坑表。
+
+原版 UI 是 **prefab 驱动**的：控件依赖私有 `[SerializeField]` 引用（字体、Sprite、点击音效），
+所以 `AddComponent` 造出来的控件必崩或必无效；而 UI prefab 又不在 Addressables 条目里，
+mod 侧加载不到。**原版对 mod 开放的是「语义层」（`ShowDialog` / `ShowAdvice` / HUD 显隐）
+与「数据层」（设置项定义），控件层完全没有开放 —— 唯一的用法是「克隆场景里的原版节点」。**
+
+`DSHCore.Ui` 把这件事固化成了可调用的 API：
+
+```csharp
+var shell = UiSkin.Clone(UiSkinPart.Dialog, UiHost.Resolve(UiLayer.DialogLayer), "MyPanel");
+var row   = UiOptionRow.Create(null, "Row", UiOptionKind.Toggle);
+row.SetStretch().SetToggle("开关", true, v => { }).SetTooltip("标题", "悬停说明");
+
+// 内容多的时候用可滚动列表（底层是官方设置界面那个 ScrollRect）
+var list = UiList.Create(null, "MyList");
+list.SetViewportHeight(UiList.SuggestHeight());
+list.AddButton("第一项", () => { });
+
+UiClone.OnClick(button, () => { /* … */ });
+```
+
+| 类型 | 一句话 |
+| --- | --- |
+| `UiGame` | 官方 UI 引用链（`MainManager.Instance → Scene → ui → dialog`） |
+| `UiFinder` | 按组件找**未激活**的 UI 节点（`FindObjectOfType` 找不到它们） |
+| `UiSkin` | 原版素材的克隆源（对话框壳 / 标题 / 正文 / 按钮行 / **控件行** / 输入框 / **可滚动容器**）；**不改素材字号**，想知道出厂值用 `MeasureFont(part)`，排查“多了个白块”用 `DumpScrollViewGraphics` |
+| `UiHost` | 挂哪里（层解析）+ 己方节点标记 + 插入/新建容器 |
+| `UiClone` | 克隆规范化（`SetActive` 次序、按钮监听器、委托保活）；字号：`SetFontSize` / `DescribeFont` |
+| `UiOptionRow` | **控件行的唯一入口**（复选/滑条/按钮）—— 直接克隆子控件会丢尺寸契约与提示锚点；下拉框那一支**已知不可用** |
+| `UiList` | **纯代码可滚动列表**（底层克隆官方设置界面的 `ScrollRect`） |
+| `UiOptions` | **原生设置项，零 UI 代码**：`DeclareToggle`/`DeclareSlider` + `Attach(mod)` + `ApplyProperties()` + `For`/`Lookup`/`LookupOf` |
+| `ModNamespacePin` | 钉住注入 `Mod` 实例的 `Namespace` 字段（不钉会被 GC 回收 → `mod.Namespace` 间歇性读到空，官方按命名空间找不到本 mod 内容） |
+| `UiTooltip` | 原版悬停提示全链（只加组件是不够的，还要做宿主订阅 + 增一个正确的锚点子节点） |
+
+完整论证、坑清单、子 mod 决策树都在 `UI_RESEARCH.md`；
+**可运行范例 + 视觉验收**见独立 mod **`UiGallery`**（`/dshui` 打开组件画廊）。
 
 ---
 
@@ -216,6 +257,8 @@ flowchart LR
 ```
 DSHCore/
 ├─ AI_GUIDE.md             ★ 面向 AI 与后来者的开发参考（先读这个）
+├─ UI_GUIDE.md             ★ 子 mod 写 UI 的唯一入口：决策树 + 可拷示例 + 硬约定
+├─ UI_RESEARCH.md          MVZ2 原版 UI 体系调研 + DSHCore UI 支持设计（要写 UI 先看它）
 ├─ README.md               本文件
 ├─ build.ps1               构建 / 部署 / 打包 / 打 DevKit
 ├─ install-readme.txt      分发包内的安装说明（打包时注入版本号）
@@ -226,6 +269,8 @@ DSHCore/
 ├─ Plugin.cs               入口：启动日志捕获 + 应用 6 个补丁；GUID / NAME / VERSION / Log
 ├─ LogViewer.cs            网页日志查看器的对外门面（其它 mod 可直接用）
 ├─ CoreRegistry.cs         跨插件登记表
+├─ InjectedDefinitions.cs  注入定义的通用设施（托管定义列表 + 官方链路拦截 + 钉 GC 根 + `NamespaceOf` 归属判定）
+├─ ModNamespacePin.cs      钉住注入 Mod 的 Namespace 字段（否则被 GC 回收后 mod.Namespace 读到空）
 │
 ├─ Diagnostics/            本地网页日志查看器
 │   ├─ LogPipeline.cs        日志捕获、背压、后台消费线程、服务启停
@@ -237,6 +282,19 @@ DSHCore/
 │   ├─ LogViewerCommand.cs   /dshlog 的解析与处理（**纯托管，可离线测试**）
 │   ├─ DebugCommands.cs      Harmony 拦 DebugManager.ExecuteCommand（游戏胶水）
 │   └─ logviewer.html        查看器前端（单文件，内嵌进 DLL）
+│
+├─ Ui/                     原版 UI 基建（子 mod 直接调用；论证见 UI_RESEARCH.md）
+│   ├─ UiGame.cs             官方 UI 引用链（MainManager → Scene → ui → dialog）
+│   ├─ UiFinder.cs           按组件找**未激活**的 UI 节点
+│   ├─ UiSkin.cs             10 种原版素材的克隆源 + 隐藏模板架 + 解析报告（含 MeasureFont / DumpScrollViewGraphics）
+│   ├─ UiHost.cs             层解析 / 己方节点标记 / 插入与新建容器
+│   ├─ UiClone.cs            克隆规范化 + 委托保活 + 字号读写（SetFontSize / DescribeFont）
+│   ├─ UiOptionRow.cs        **控件行的唯一入口**（复选框 / 滑条 / 按钮 / 下拉框占位）
+│   ├─ UiList.cs             **纯代码可滚动列表**（官方 ScrollRect + 官方按钮行）
+│   ├─ UiOptions.cs          **L2：原生设置项**（DeclareToggle/DeclareSlider + Attach + ApplyProperties）
+│   ├─ UiDropdown.cs         TMP 弹窗的**诊断**用（下拉框本体不可用）
+│   ├─ UiTooltip.cs          原版悬停提示全链
+│   └─ UiLog.cs              内部日志（同一条警告只打一次）
 │
 ├─ ClassInjectorFix.cs     ClassInjector 缺陷修复
 ├─ VTableRebind.cs         注入类 vtable 槽重绑

@@ -26,6 +26,9 @@ namespace DSHCore
     ///   - CoreRegistry               跨插件注册表（各补丁按命名空间生效）
     ///   - VTableRebind.Ensure        注入类 vtable 槽重绑
     ///   - LogViewer                  本地网页日志查看器（游戏内 /dshlog 开启）
+    ///   - DSHCore.Ui.*               原版 UI 基建：UiGame / UiFinder / UiSkin / UiHost /
+    ///                                UiClone / UiTooltip（论证见 UI_RESEARCH.md，
+    ///                                可运行范例见 UiGallery）
     /// </summary>
     [BepInPlugin(GUID, NAME, VERSION)]
     public class Plugin : BasePlugin

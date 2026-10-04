@@ -23,6 +23,13 @@
 
 > ⚠️ 本库为社区作品，与游戏原作者无关。
 
+**要写 UI 的，先读 [`UI_GUIDE.md`](UI_GUIDE.md)。**
+原版 UI 是 prefab 驱动、控件靠私有 `[SerializeField]`，对外**没有**任何控件级 API；
+`UI_GUIDE.md` 是动手时唯一需要读的东西（决策树 + 三套可拷示例 + 七条硬约定 + 验收方法），
+背后的论证与完整坑清单在 [`UI_RESEARCH.md`](UI_RESEARCH.md)。
+**大多数 UI 需求在它的 L1（`ShowDialog` / `ShowAdvice`）就结束了，不需要碰控件层**；
+L2（设置项定义）的元数据通道已通，但**定义注入尚未跑通 PoC**，暂时别依赖。
+
 ---
 
 ## 1. AI 协作工作流（建议节奏）
@@ -291,6 +298,111 @@ $u = 'http://127.0.0.1:18742/api/history?limit=20&token=<粘贴令牌>'
    `string[]`），游戏胶水（读 `Il2CppStringArray`、写 interop `List`）只留在 `DebugCommands.cs`。
    这样补全规则能离线测，而碰 interop 的那几行全部包在 try/catch 里 —— 补全只需吞异常，
    绝不把整个输入框的刷新弄断。
+
+---
+
+### `DSHCore.Ui` —— 用原版零件做界面
+
+**完整论证 + 坑清单在 [`UI_RESEARCH.md`](UI_RESEARCH.md)，可运行范例在 `UiGallery/`。**
+这里只给最少够用的一段。
+
+先记住结论：**原版 UI 是 prefab 驱动的**。控件依赖私有 `[SerializeField]` 引用（字体、
+Sprite、点击音效），所以 `AddComponent` 造出来的控件必崩或必无效；UI prefab 也不在
+Addressables 条目里，mod 加载不到。**唯一可行路径是「克隆场景里已有的原版节点」。**
+
+而且**先看是不是根本不需要碰控件**：
+
+| 需求 | 该用什么 |
+| --- | --- |
+| 给玩家看一条信息 / 问一个问题 | `level.ShowDialog(...)` 或 `Global.GUI.ShowDialog(...)` —— 零 UI 代码 |
+| 顶部提示条 | `level.ShowAdvice(...)`（`timeout` 单位是 tick，30 tps） |
+| 一个设置开关 / 滑条 / 下拉 | `options.xml` + `OptionWidgetDefinition` —— 零 UI 代码，外观 100% 原生 |
+| HUD 显隐 / 震屏 / 提示箭头 | `LogicLevelExt` 的扩展方法 |
+| **往原版面板里插东西 / 要一个自定义面板** | ✅ 才需要往下看 |
+
+```csharp
+using DSHCore.Ui;
+
+// ① 一个"标题 + 正文 + 若干按钮"的面板（整壳克隆自官方 CustomDialog）
+var shell = UiSkin.Clone(UiSkinPart.Dialog, UiHost.Resolve(UiLayer.DialogLayer), "MyPanel");
+var dlg   = shell.GetComponent<MVZ2.UI.CustomDialog>();   // 克隆体上带可用的 CustomDialog
+
+// ② 往内容区插一行（位置在官方按钮区之前；布局由官方 VerticalLayoutGroup 负责）
+var buttons = dlg.buttonRowList._listRoot;                 // Root/Buttons
+var root    = buttons.parent.TryCast<RectTransform>();     // Root
+
+// 控件行整行克隆自官方 OptionWidgets（四合一：复选框/滑条/下拉框/按钮）
+var row = UiOptionRow.Create(null, "Row", UiOptionKind.Toggle);
+row.Root.transform.SetParent(root, false);
+row.Root.transform.SetSiblingIndex(buttons.GetSiblingIndex());
+row.SetStretch()                                          // 铺满内容宽度
+   .SetToggle("我的开关", true, v => { /* v = 新值 */ })
+   .SetTooltip("标题", "悬停说明");                           // 原版同一套提示（锚点在行上方）
+
+// 同一个行还能换成其它类型（换类型会关掉其它三个控件）：
+// row.SetSlider("音量", 0f, 1f, false, 0.5f, v => { });   // 标签自动变「音量：0.5」并实时刷新
+// row.SetButton("重置", () => { });
+//
+// ⚠️ 四个控件里的**下拉框那一支不可用**（展开列表不画，射线却生效）：
+//    碍于技术问题，该组件无法正常工作，请自行寻找替代方案，如果你对修复该组件有任何建议，
+//    请联系 QoZnoS[https://github.com/QoZnoS]。本库**不提供替代实现**。
+
+// ③ 普通按钮的点击
+UiClone.OnClick(buttonNode, () => { /* … */ });            // 内部处理委托转换 + 防 GC
+```
+
+| 类型 | 干什么 |
+| --- | --- |
+| `UiGame` | 官方 UI 引用链：`Main` / `Scene` / `SceneUi` / `Dialog` / `InputDialog` / `MainCanvas` |
+| `UiFinder` | 按组件找**未激活**的 UI 节点（`FindObjectOfType` 找不到它们） |
+| `UiSkin` | 素材：`Dialog` / `InputDialog` / `Title` / `Text` / `Button` / `ButtonRow` / `OptionRow` / `InputField` / `ScrollView`；`Clone` / `Template` / `Prepare` / `MeasureFont`（量素材出厂字号）/ `DumpScrollViewGraphics`（查"多了个白块"）/ `Report` |
+| `UiHost` | `Resolve(layer)` / `DialogLayer()` / `InsertAfter` / `CreateStretched` / `MarkOwn` |
+| `UiClone` | `Normalize` / `Activate` / `SetLabel` / `SetFontSize` / `DescribeFont` / `OnClick` / `KeepAlive` / `ForceGraphicsVisible` |
+| `UiOptionRow` | **控件行的唯一入口**：`Create` / `SetKind` / `SetLabel` / `SetStretch` / `SetTooltip` / `SetToggle` / `SetSlider`（标签自动带值）/ `SetSliderValueFormat` / `SetButton` / `SetDropdown`（⚠️ 不可用）/ `Describe` / `LabelText` |
+| `UiList` | **纯代码可滚动列表**：`Create` / `Add` / `AddButton` / `AddOptionRow` / `Clear` / `SetFlexible` / `SetViewportHeight` / `SuggestHeight` / `ScrollToTop` / `ScrollToBottom` / `Describe` |
+| `UiOptions` | **L2：原生设置项**（零 UI 代码）：`DeclareToggle` / `DeclareSlider` → `Attach(mod)`（LoadStages 时机）→ `ApplyProperties()`（PostInit 时机） |
+| `InjectedDefinitions` | **注入定义的通用设施**：`Apply` / `Register(nsp)` / `Bind(nsp, mod)` / `Track(def)` / `ListFor(nsp)` / `Create<T>(nsp, name)`（补原生 ctor 初始化 + 钉 GC 根） |
+| `UiDropdown` | TMP 弹窗的**诊断**用（`Describe` / `DumpCanvases` / `Show` / `Hide`）—— 写新代码不需要它 |
+| `UiTooltip` | `Attach(target, title, text)` / `AttachExisting(node, …)` / `SetText` / `Describe` / `Hide()` |
+
+八条硬约定：
+
+> 下面这份清单与 [`UI_GUIDE.md`](UI_GUIDE.md) §6 同源；**写真实 UI 代码请直接读 `UI_GUIDE.md`**
+> （那里有决策树、可拷示例和验收方法）。
+1. **绝不算坐标、绝不定尺寸、绝不定义全局缩放。** 插进原版已有的 `LayoutGroup` 里，
+   排版交给原版。（`GraphicConsole` 就是从"自定设计尺寸 + 全局 scale"开始失控的。）
+2. **对话框的按钮别超过一行。** 框体高度是 `ContentSizeFitter` 撑的，按钮每多一行整体就长高一行；
+   长正文折行也会把它顶出屏幕。**内容多的场合用可滚动容器**：`UiList.Create(...)`
+   （底层是官方设置界面那个 `ScrollRect`，见 `UiSkinPart.ScrollView`）。
+   要加的是"设置项"而不是自己的面板？→ 用 `UiOptions`（进原版设置界面，零 UI 代码，见 `UI_GUIDE.md` §3）。
+3. **素材缺失是正常情况**（`Clone` 返回 null、只记一次警告）。标题界面早期拿不到
+   `OptionWidgets`，进主菜单后自动就绪；**不要**把"拿不到"当成致命错误。
+4. **控件行只能用 `UiOptionRow` 造**（它克隆的是官方 `OptionWidgets`）。不要单独克隆
+   `LabeledToggle` / `TextSlider` / `LabeledDropdown`：它们的尺寸契约与提示锚点都长在父容器上，
+   单拎出来就会出现“复选框过大 / 滑条看不见 / 下拉框不显示”。
+5. **不要把标题素材当通用文本用**。`Title` 是 36pt + 自动缩放、容器 `TitleArea` 固定 40px 高，
+   也就是它天生只能占一行（长标题靠自动缩小而不是换行）。正文用 `Text`（原版 **24pt** / 自动换行）。
+   **本库不改任何素材的字号**，字号由使用者自己选：`UiClone.SetFontSize(node, size)`；
+   先想知道某个素材出厂多大就 `UiSkin.MeasureFont(part)`。
+   也**不要**为了避免“字号太大”而关掉 `enableAutoSizing` —— 那正是标题溢出框体的原因。
+6. **只加 `TooltipAnchor` + `TooltipHandler` 不够** —— 还必须订阅 `OnPointerEnter` 并调
+   `ShowTooltip`，否则鼠标悬停毫无反应且不报错。用 `UiTooltip.Attach` 别自己拼；
+   锚点必须是**目标顶边中点**的独立子节点（`pivot = (0.5, 0)`、`LayoutElement.ignoreLayout = 1`），
+   挂在目标自己身上会让提示正中压在控件上（`UiOptionRow` 的行自带正确锚点）。
+7. **下拉框组件不可用，且本库不提供替代实现。**
+   碍于技术问题，该组件无法正常工作，请自行寻找替代方案，如果你对修复该组件有任何建议，
+   请联系 QoZnoS[https://github.com/QoZnoS]。
+   行本身能显示、能改值，但 TMP 展开出来的选项列表在本游戏的 `GlobalUICanvas`
+   （Screen Space - Camera）下**一个像素都不画**，而它的射线照常生效 ——
+   用户看到的是“点开没反应、乱点却能改值”。六种画布/层级修法（不干预 / 对齐宿主 /
+   强制 Overlay / 挪出面板 / 搬根画布 / 删画布）全部测不到像素，详见 `UI_RESEARCH.md` §6.4-17。
+   需要“多选一”交互请**自己设计**（比如一排复选框行）。
+8. **模态 vs 非模态**：沿用**原版**的语义层出口，不要自己拼模态。
+   `level.ShowDialog(...)` / `Global.GUI.ShowDialog(...)` = 模态；`level.ShowAdvice(...)` = 顶部提示条；
+   要让玩家先选一个再来 = 先弹对话框再去改。自己拼模态很容易忘了暂停游戏、
+   或者漏掉点击拦截，最后表现成“背景还能点”。
+
+想看效果：游戏内 `/dshui` 打开 **UiGallery** 组件画廊（可用 `/dshui page <名>` 跳页）。
 
 ---
 
@@ -703,6 +815,137 @@ meta 既然由 `MetaInjection` 直读磁盘，空 locator 返回空集是安全�
   是找不到的（找不到就静默失效）。用 Cecil 把签名打出来确认，别猜。
 - il2cpp 集合的索引器返回的就是 `System.String`，但**元素写入必须走 `List.Add`**；
   别试图拿 `IList<T>` 去强转（它是 il2cpp 代理，不是 BCL 集合）。
+
+### ⑱ 克隆原版 UI 是唯一的控件用法，`AddComponent` 造不出来
+
+原版控件依赖私有 `[SerializeField]` 引用（字体 / Sprite / 点击音效），
+`AddComponent` 后这些引用全是 `null`；而 UI prefab 不在 Addressables 条目里，也加载不到。
+**唯一的例外是两个"零序列化字段"的组件**：`TooltipAnchor` 与 `TooltipHandler`
+（后者字段全 public），这两个可以安全 `AddComponent`。
+
+→ 用 `DSHCore.Ui` 的 `UiSkin.Clone` / `UiHost`，别自己拼。完整论证见 `UI_RESEARCH.md`。
+
+### ⑲ `FindObjectOfType` 找不到你要复用的 UI 素材
+
+素材（控件模板、列表模板、对话框）平时**全是 `SetActive(false)` 的** ——
+`ElementList.Awake` 会主动把模板子节点关掉。用官方 API 找，结果永远是"找不到"，
+然后就会误以为"只能自绘"（`GraphicConsole` 的前半程就是这么走偏的）。
+
+→ 用 `UiFinder.FindAll<T>`（自己从 `scene.GetRootGameObjects()` 递归，含未激活对象）。
+
+### ⑳ 克隆体必须"规范化"，否则节点都在、尺寸也对，就是不显示
+
+`UiClone.Normalize` 负责三件事：`SetActive(true)`、改名、打己方标记
+（必要时再用 `ForceGraphicsVisible` 兜住 `Image.enabled == 0`）。
+
+| 现象 | 原因 |
+| --- | --- |
+| 挂上去整片空白、子节点全在 `100×100 @ 0,0` | 模板架/父节点被 `SetActive(false)`，`LayoutGroup` 一次都没跑 |
+| 面板“没有背景” | 克隆体的 `Image.enabled == 0`（原版那份也是 0，靠别的东西显形） |
+| 点你的按钮却触发了原版的逻辑 | `Instantiate` 会复制持久化 `onClick` 监听器，闭包指向**原对象** |
+
+⚠️ **规范化里不包括“关掉 TMP 自动缩放”** —— 早期版本关过，那是错的：`Title` 素材正是靠
+`enableAutoSizing` 把长标题缩进 40px 高的 `TitleArea`；关掉它，标题会换成两行往上溢出框体。
+字号“统一”的正确做法是**换素材**（标题用 `Title`、正文用 `Text`、控件行用 `UiOptionRow`），
+而不是关自动缩放。
+
+**素材字号是出厂值，不是规范值**：库不会替任何人改它（早期版本把 `Text` 规范成 12pt，
+已删除）。要钉死字号就用 `UiClone.SetFontSize(node, size)`（只改字号、不动文本，
+并关掉自动缩放）；想先问一句"原版这个素材多大"用 `UiSkin.MeasureFont(part)`，
+想读现有节点用 `UiClone.DescribeFont(node)`。
+
+⚠️ **还有一个只看节点看不出来的坑**：对话框高度是内容撑的、**而且不能滚**。
+内容总高超过屏幕时整个框会顶出屏幕（连标题都跑到屏幕外），而所有节点的
+`activeInHierarchy` 仍然全是 1。塞内容时量一下 `框体` 矩形：`y >= 0 && y + h <= Screen.height`。
+
+### ㉑ 只加 `TooltipAnchor` + `TooltipHandler` 不够
+
+鼠标悬停会**毫无反应，且不报错**。原版的链路是"宿主订阅 handler 的
+`OnPointerEnter/OnPointerExit` → 造 `SimpleTooltipSource` → 调
+`MainSceneController.ShowTooltip`"。少了宿主那一步，组件就只是个摆设。
+
+→ 用 `UiTooltip.Attach(target, title, text)`。
+
+**锚点在哪、`pivot` 是什么，同样是契约。** `Tooltip.SetPosition` 直接做
+`rectTransform.pivot = viewData.pivot; rectTransform.position = viewData.position;`，
+所以锚点决定了提示贴在哪里、贴在哪一侧：
+
+| 锚点做法 | 结果 |
+| --- | --- |
+| 官方 `OptionTooltipAnchor.prefab`：**行的顶边中点**的独立子节点，`pivot = (0.5, 0)`、`LayoutElement.ignoreLayout = 1` | 提示出现在行的**上方** |
+| 用 `AddComponent` 加在目标自己身上（`pivot` 默认 `(0.5, 0.5)`、位置 = 目标中心） | 提示**正中压住控件**（`GraphicConsole` 与画廊第一版都是这个毛病） |
+
+→ `UiTooltip.Attach` 会自动建一个“独立子节点”锚点；`OptionWidgets` 这种自带已接好锚点的
+行要用 `UiTooltip.AttachExisting`（`UiOptionRow.SetTooltip` 内部已经调了）。
+
+### ㉒ 对话框的框体高度由 `ContentSizeFitter` 决定，**没有滚动能力**
+
+按钮每多一行整体就长高一行；长正文折行也会把它顶出屏幕。
+实测：9 个导航按钮 = 305px，一份 11 行带完整节点路径的报告折到 2156px，
+而窗口只有 725px 高 —— 内容直接跑出屏幕。
+
+→ ① 对话框按钮**别超过一行**；② 长内容用**一个**正文节点 + 换行；
+③ 真要长内容就用可滚动容器 `UiList`（底层是官方设置界面那个 `ScrollRect`，
+见 `UiSkinPart.ScrollView` 与 `UI_GUIDE.md` §5 例 3）。
+
+### ㉓ 中文字符串里混进 ASCII 双引号会截断字符串
+
+`"...这正是"和原版一致"的做法。"` 会被解析成两个字符串拼接失败，
+报一堆 `CS1003 语法错误，应输入","`，**而且报错行号常常指在别处**，非常难查。
+
+→ 中文引号一律用 `「」`。提交前扫一遍：
+```powershell
+Get-ChildItem . -Recurse -Filter *.cs | Select-String -Pattern '[\u4e00-\u9fff]"|"[\u4e00-\u9fff]'
+```
+
+### ㉔ 视觉问题必须用"矩形 / 截图差分"判定，不能靠日志
+
+**「节点存在 + 尺寸正确」≠「看得见」。** 本仓库已经踩过好几次
+"日志里一切正常、屏幕上什么都没有"。
+
+→ 取节点的**屏幕矩形**（`GetWorldCorners` → `RectTransformUtility.WorldToScreenPoint`），
+看它是否落在 `[0, Screen.width] × [0, Screen.height]` 内、行与行 y 是否重叠。
+截图可作辅助，但 `ScreenCapture.CaptureScreenshot` 是**异步**的（帧末写盘），
+早期拍到的往往是加载画面。范例：`UiGallery/GalleryPanel.LayoutDump()`。
+
+**但矩形对了也不等于显示对**：字号（`fontSize` / `enableAutoSizing`）、激活态、以及
+"这一行里到底是哪个子控件开着"都会单独出问题。dump 里请把这几项一并打出来
+（`GalleryPanel.DescribeRow` 就是干这个的），否则只能靠猜。
+
+### ㉕ 控件行 = `OptionWidgets`，不要单独克隆里面的控件
+
+原版的"四合一"行容器 `OptionWidgets` 一个节点里同时挂着
+复选框 / 滑条 / 下拉框 / 按钮，运行时**只激活其中一个**。
+**这四个控件的尺寸契约与提示锚点都长在容器上，不在自己身上：**
+
+| 事实 | 后果 |
+| --- | --- |
+| 容器自身 `LayoutGroup`：`childControlWidth/Height = 1`、`forceExpand = 0`（子节点按各自 preferred 尺寸）；外层对话框 `Root` 的 `childControlHeight = 1`，会来问**本行**的 preferred 高度 | 把单个控件直接塞进对话框 `Root`，就没人提供这层契约了 |
+| `LabeledToggle` **完全没有自己的 `LayoutElement`** | 行高不可控、复选框过大 |
+| `TextSlider` / `LabeledDropdown` 的 preferred 高只对各自父容器有意义 | 滑条看不见 / 下拉框不显示 |
+| 行上自带接好的 `TooltipHandler` + `OptionTooltipAnchor`（见 ㉑） | 自己拼会得到"提示压住控件" |
+
+→ 一律用 `UiOptionRow.Create(...)`（素材是 `UiSkinPart.OptionRow`），由它 `SetKind` 关掉其余三个；
+行要铺满内容宽度用 `SetStretch()`（只设 `LayoutElement.flexibleWidth = 1`，不碰高度）。
+
+### ㉖ 每个 `OptionWidgets` 克隆里都藏着一个**关着的 `TMP_Dropdown`**
+
+`OptionWidgets` 是四合一容器，所以任何一行（哪怕是复选框行、按钮行）的子树里都有一个
+`TMP_Dropdown` 组件，只是它所在节点被 `SetKind` 关掉了。
+
+**后果：**工具/探针如果“取第一个 `TMP_Dropdown`”，拿到的就是那个空壳。
+对它调 `Show()` 会在 `!IsActive()` 上**直接返回且不报错** —— 很容易得出
+“下拉框弹窗画不出来”这种假结论（本仓库就花了半天）。
+
+→ 要挑 `activeInHierarchy` 为真的那个；找不到就别测。反过来，自己写 UI 时也别去
+“遍历子节点找下拉框”，直接用 `UiOptionRow.Dropdown`。
+
+### ㉗ `Canvas.isRootCanvas` 通过 interop 读**恒为 `true`**
+
+连 `.../Dialogs/MyPanel/Root/Row/LabeledDropdown/Dropdown/Template` 这种深层嵌套画布也是 `true`。
+
+→ 判断画布只能看 `renderMode` / `worldCamera` / `planeDistance` / `overrideSorting` / `sortingOrder`。
+写 dump 时别把 `isRootCanvas` 当成层级判据。
 
 ---
 

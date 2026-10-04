@@ -4,7 +4,7 @@ MVZ2 0.7.0 的自定义诅咒扩展 mod，接入**原版诅咒系统**。依赖�
 
 - 游戏内命名空间：`modular_curse`
 - 诅咒 ID / buff ID / `curses.xml` id / `buffs.xml` id 四者同名，形如 `modular_curse:qc_c1`
-- 共 25 条诅咒：QC 池 12 条（`qc_c1`–`qc_c12`）+ SC 池 13 条（`sc_c1`–`sc_c13`）
+- 共 28 条诅咒：QC 池 12 条（`qc_c1`–`qc_c12`）+ SC 池 16 条（`sc_c1`–`sc_c16`）
 - **名字**：每个池的前 7 条直接用原版那 7 条诅咒的名字（它们复用的正是那 7 个图标），
   第 8 条起用池内编号（`QC-C8` … / `SC-C8` …）
 - **图标**：前 7 条复用原版诅咒图标，其余留空；两个**池**各自有一张图标
@@ -31,27 +31,49 @@ MVZ2 0.7.0 的自定义诅咒扩展 mod，接入**原版诅咒系统**。依赖�
 | qc_c11 | 每一大波所有器械价格上涨 50 | Harmony：`SeedPack.GetCost` 后缀（档位 = `CurrentWave / wavesPerFlag`） |
 | qc_c12 | 关卡开始时在第三列随机一路生成一个不给予星碎的借贷告示牌 | 每帧延迟 3 帧后放置；`LoanSign.Init` 前缀只对诅咒生成的那块清借贷次数 |
 
-### SC 池
+### SC 池（奇硅箱的诅咒，16 条；C13~C16 为「额外」部分，游戏内名称带红）
 
-| ID | 效果 | 实现 |
-|---|---|---|
-| sc_c1 | 超出 10 个后，每个器械的存在使对应器械的花费 +5% | Harmony：`SeedPack.GetCost` 后缀（每帧刷新场上数量，加法叠加） |
-| sc_c2 | 无可激活或忠诚标签的器械放下时叛变 2s | 每帧检测新器械 → 过滤（`IsTriggerActive` / `IsLoyal` / 御柱·自动兽夹·冲击活塞·闪电之珠豁免）后 `CharmPermanent`，2s 后 `RemoveCharm` |
-| sc_c3 | 敌怪的本体（不含防具与 BOSS）每 1s 恢复 1% 生命（每秒最多 20 点） | 每帧计时 → `VanillaEntityExt.Heal`（只回本体） |
-| sc_c4 | 有尸体的敌怪在第 10 波后第一次死亡时有 20% 概率完全复活（含防具） | Harmony：`VanillaEnemyExt.FaintRemove` 前缀返回 false → `Revive()` + 满血 + 防具满耐久 |
-| sc_c5 | 敌怪的防具获得 25% 免伤（在 C8 之后计算） | Harmony：`VanillaEntityExt.PreTakeDamage` 前缀，仅在伤害确实打在防具上时 ×0.75 |
-| sc_c6 | 每使用 3 个碎片使下 1 个碎片无效 | Harmony：星之碎片 `UseOnEntity` 前缀（无效位置 4/7/10…，照样扣碎片） |
-| sc_c7 | 所有敌怪重量 +1 | **原生修饰符**：给敌怪挂子 buff（`VanillaEntityProps.MASS` +1） |
-| sc_c8 | 敌怪的本体获得 5 的护甲（本体伤害先减少 5 点，**防具伤害不减**） | Harmony：`PreTakeDamage` 前缀 `Add(-5)` + 归零钳制（仅在伤害确实打在本体上时） |
-| sc_c9 | 敌怪受到的 debuff 时间变为 1/3 | Harmony：`VanillaEntityExt.InflictSlow/Weakness/Petrified/Wither` 前缀缩放 `time`（**脆弱不缩放**：它没有 timeout 属性） |
-| sc_c10 | 自然出场的敌怪出场时无敌 8s（衍生物豁免） | 每帧检测新敌怪 → 只给 `SpawnerReference == null` 的实体挂原版铁幕 buff（`PROP_TIMEOUT = 240`，到点由 buff 自己移除） |
-| sc_c11 | 每行不在最前面那一格的敌怪受伤 ×33% | Harmony：`PreTakeDamage` 前缀（每帧缓存每行最前列） |
-| sc_c12 | 敌怪生成间隔 ×93%（不影响第一波出怪） | **原生修饰符**：`LogicStageProps.WAVE_MAX_TIME` ×0.93 |
-| sc_c13 | 敌怪受到单次**超出本体血量上限**的伤害时不会立刻死，改为无敌并额外行动 2s | Harmony：`PreTakeDamage` + 每帧计时（与减速无关）→ 挂原版铁幕 buff |
+| ID | 名称 | 效果 | 实现 |
+|---|---|---|---|
+| sc_c1 | 怪人的肋骨 | 第 10 个同种器械后，每多 3 个使该种器械花费 +20%（13 个 → 120%，16 个 → 140%） | Harmony：`SeedPack.GetCost` 后缀（每帧刷新场上数量，`extra = (N-10)/3` → ×(1 + 20%×extra)） |
+| sc_c2 | 梦魇碎片 | 无可激活或忠诚标签的器械放下时叛变 2s（**御柱 / 冲击活塞** 无视此诅咒） | 每帧检测新器械 → 过滤（`IsTriggerActive` / `IsLoyal` / 御柱·冲击活塞豁免）后 `CharmPermanent`，2s 后 `RemoveCharm` |
+| sc_c3 | 恶咒之星 | 第 10 波后，每个敌人死亡时使所有非免控器械（`CanDeactive()`）眩晕 0.1s（可叠加） | Harmony：`Entity.Die` 前缀（视为亡语）→ `entity.Stun(3)`，并用 `StunBuff.MaxStunTime` 前缀把「取最大值」改成「在剩余时长上累加」 |
+| sc_c4 | 血肉核心 | 敌人的本体（不含防具与 BOSS）每 4s 恢复 5% 生命（每次最多 100 点） | 每帧计时 → `VanillaEntityExt.Heal`（只回本体） |
+| sc_c5 | 龙头骨 | 敌人的防具耐久 ×1.3 | 每帧给新出现的防具**直接把上限与当前耐久都乘 1.3**（不做免伤计算，因此不与其它减伤叠加） |
+| sc_c6 | 折断的钥匙 | 每使用 3 个碎片使下 1 个碎片无效 | Harmony：星之碎片 `UseOnEntity` 前缀（无效位置 4/7/10…，照样扣碎片） |
+| sc_c7 | 钢铁吸盘 | 敌人受到的击退量减半；接触地面的敌人重量至少为 HEAVY | Harmony：`VanillaEntityProps.GetKnockbackMultiplier` 后缀按 `mass = max(GetMass(), HEAVY)`（落地时）重算原公式再 ×0.5。**不再动木风扇**（吹飞 / 击退完整保留） |
+| sc_c8 | 再生藤蔓 | 第 10 波后，非无来源的敌人首次死亡时复活至本体 15% 血量（不含防具、不触发亡语、不消除尸体） | Harmony：`Entity.Die` 前缀返回 false 取消死亡 + 把本体血写回 15% |
+| sc_c9 | 古代历石 | debuff 累积时长（持有种类 × 经过秒数）> 36s → 12s 内无视所有 debuff（清除已有并拒绝再获取） | 每帧按「当前持有的状态种类数 / 30」累加；到阈值后清掉 `StatusTable` 里的状态并写 12s 抗性；`PreApplyStatusEffect` 前缀负责拦截 |
+| sc_c10 | 灾厄链甲 | 非无来源的敌人出场后 10s 内不会死亡，血量至少保留 1 点 | 每帧检测新敌怪（`SpawnerReference == null`）→ 记 10s 窗口；`Entity.Die` 前缀在窗口内取消死亡并把血量顶回 1 |
+| sc_c11 | 权衡之杖 | 每行不在最前面那一格的敌人受伤 ×40% | Harmony：`PreTakeDamage` 前缀（每帧缓存每行最前列） |
+| sc_c12 | 黄铜齿轮 | 敌人生成间隔 ×90%（不影响第一波出怪） | **原生修饰符**：`LogicStageProps.WAVE_MAX_TIME` ×0.90 |
+| sc_c13 | 永恒之心 | 第 10 波后，非无来源的敌人受到单次超出（本体血量上限 + **当前**防具耐久）的伤害时不会立刻死，改为无敌并额外行动 3s | Harmony：`PreTakeDamage` + 每帧计时（与减速无关）→ 挂原版铁幕 buff；同一只敌怪只触发一次；排在 C15 之后（只算最终受伤结果） |
+| sc_c14 | 命运之瓶 | 每 10 波时禁用所有器械放置、镐子、星之碎片 15s（不影响驱动器） | Harmony：`LogicGridExt.CanPlaceBlueprint` 后缀拒绝放置；镐子/碎片走关卡禁用属性（与 QC-C2 同一套） |
+| sc_c15 | 强固补丁 | 敌人每秒受到的伤害被限制为当前血量/耐久的 40% 或 600（取最大值）；防具吃不完的溢出伤害结算到本体 | Harmony：`PreTakeDamage` 前缀按「本秒已受伤量」削减输入；溢出转移用反射给 `DamageInput.Effects` 补上 `DAMAGE_BODY_AFTER_ARMOR_BROKEN` |
+| sc_c16 | 超缓冲胶 | 敌人获得 5 的护甲（本体与防具的伤害都先减 5，然后再计算其它减伤），但最终至少保留 1 点伤害 | Harmony：`PreTakeDamage` 前缀 `Add(-5)` + 「原始伤害 > 0 时钳到 ≥1」（**最先**结算，僵尸互啃也至少 1 点） |
+### ZY 池（咒鵺兼程 / 3q4a 的诅咒，16 条）
 
+| ID | 名称 | 效果 | 实现 |
+|---|---|---|---|
+| zy_c1 | 趋光性（红） | 排除日光影响后，非夜行性器械在光照范围外 8s 后睡着（无法被美梦丝入眠的器械不受影响） | 每帧：`entity.IsLightSource() \|\| entity.IsIlluminated()` 为真则刷新；否则累计 8s 后挂原版 `NocturnalBuff`（必须先过 `DreamSilk.CanSleep`）。只摘我们自己挂的那份 |
+| zy_c2 | 夜长梦多（红） | 每小波开始时，器械蓝图冷却 +2.5%（上限 50%） | Harmony：`SeedPack.GetUsedMaxRecharge` 后缀 ×(1 + min(0.025×波数, 0.5))（**不动**初始冷却） |
+| zy_c3 | 地狱残响（红） | 矿场的生产间隔改为 30s | Harmony：`Miner.Update` 前缀**整段接管** —— 原版把 `PRODUCE_TIME = 300` 写死在方法里，没有属性可改 |
+| zy_c4 | 排异反应（红） | 拾取星之碎片会阻止使用星之碎片 12s，可叠加、无上限 | Harmony：`CollectBehaviour_Starshard.PostCollect` 后缀 → 累加禁用 tick（与 QC-C2 同一个禁用位） |
+| zy_c5 | 斋禁（绿） | 每大波开始时失去所有机械能，并失去 1 个星之碎片 | 每帧检测大波开始 → `SetEnergy(0)` + `AddStarshardCount(-1)`，播 `VanillaSoundID.fatigue` |
+| zy_c6 | 磨灭（绿） | 每大波开始时从右往左永久禁用 1 张器械蓝图 | 每帧检测大波开始 → 从最后一个槽位往左写 `EngineSeedProps.DISABLE_ID = decrepify` |
+| zy_c7 | 室上性心动过速（绿） | 第一大波开始前，波长最短为 16s | Harmony：`LogicStageProps.GetWaveMaxSeconds` 后缀 `Max(v, 16)` |
+| zy_c8 | 我们不去幻想乡（绿） | 倒数第二大波开始后，出怪量 +200%（单格关卡不生效） | Harmony：`LogicLevelExt.CalculateSpawnPoints` 后缀 ×3；`totalFlags <= 1` 直接跳过（无尽按轮重置） |
+| zy_c9 | 它回来了（蓝） | 被消除亡语 / 坠空 / 落水而死的敌人重生为携带成真的恶魂（被地雷击杀的敌人除外） | Harmony：`Entity.Die` 前缀 → 命中 `NO_DEATH_EFFECTS`/`FALL_OFF`/`DROWN` 时 `SpawnWithParams(ghast)` + `NightmareComeTrueBuff`；用 `IGNORE_ARMOR + REMOVE_ON_DEATH + NO_DEATH_EFFECTS` 这一组标记识别地雷 |
+| zy_c10 | 病毒式传播（蓝） | 第 x 大波开始后，出怪点数**低于** x 的敌人生成时额外在其他行生成 1 个不占点数的复制 | Harmony：`LogicLevelExt.SpawnEnemy(spawnDef, lane, x)` 后缀 + 重入保护 |
+| zy_c11 | 衰变（蓝） | 所有友方爆炸不分敌我 | Harmony：`VanillaLevelExt.Explode` 前缀，`faction == GetLeftFaction()` 时改成 `VanillaFactions.NEUTRAL(8)` |
+| zy_c12 | 久经沙场（蓝） | 敌人单次受到超过 80 的伤害而未死 → 其之后单次受到的伤害不超过 20（永久） | Harmony：`TakeDamage` 后缀记标记 + `PreTakeDamage` 前缀钳制 |
+| zy_c13 | 纯粹（白） | 不能携带任何制品（飞碟玩具 / 智能手机 / 槐树树枝 / 贪婪吸尘器除外） | Harmony：`CanChooseArtifact` 后缀拒绝选择 + `ApplyCurses` 后缀清掉已带进来的（含继承） |
+| zy_c14 | 恶意（白） | 第一大波开始前，器械的攻击间隔与生产间隔取最大值 | Harmony：`VanillaEntityProps.GetAttackSpeed` / `GetProduceSpeed` 后缀取二者 min（间隔与速度成反比），带重入保护 |
+| zy_c15 | 晚安（白） | 除荧石外的发光器械 ×50% 光照范围 | 每帧给非荧石光源挂 `zy_c15_dim` 子 buff（`LIGHT_RANGE ×0.5`） |
+| zy_c16 | 抗拒（白） | 使用鼠标点击器械时，其失去 10 点耐久 | Harmony：`VanillaContraptionExt.EmptyHandClick` 后缀 → `TakeDamage(10, MUTE)`（点击本身照常生效） |
 ### 诅咒池（诅咒弹窗内部的一行条目）
 
-诅咒弹窗（标题「选择诅咒」）的**列表滚动区内部**：最上面是三个池条目，
+诅咒弹窗（标题「选择诅咒」）的**列表滚动区内部**：最上面是四个池条目，
 再往下一条**横线**，横线下面才是真正的诅咒列表。条目就是用诅咒条目本身的样子做的
 （同尺寸方框 + 图标 + 选中高亮），当前池高亮，悬停显示池名与作者描述，点击有与原版
 诅咒条目相同的点击音效。
@@ -60,7 +82,8 @@ MVZ2 0.7.0 的自定义诅咒扩展 mod，接入**原版诅咒系统**。依赖�
 |---|---|---|---|
 | 原版池（默认） | 原版诅咒按钮那张图（`ui/level/curse.png`）+ 同样的紫色滤镜 | 只有 `mvz2:*` 的 7 条原生诅咒 | 原版诅咒 |
 | QC 池 | `curse_qc.png` + 同样的紫色滤镜 | 只有 `modular_curse:qc_c1..qc_c12` | QoZnoS的诅咒 |
-| SC 池 | `curse_sc.png` + 同样的紫色滤镜 | 只有 `modular_curse:sc_c1..sc_c13` | 奇硅箱的诅咒 |
+| SC 池 | `curse_sc.png` + 同样的紫色滤镜 | 只有 `modular_curse:sc_c1..sc_c16` | 奇硅箱的诅咒 |
+| 咒鵺兼程 | `curse_3q4a.png` + 同样的紫色滤镜 | 只有 `modular_curse:zy_c1..zy_c16` | 3q4a的诅咒 |
 
 语义：
 
@@ -133,19 +156,37 @@ MVZ2 0.7.0 的自定义诅咒扩展 mod，接入**原版诅咒系统**。依赖�
   `frankenstein_shocked` 会设置 `AI_FROZEN` —— 不豁免的话这两个器械的核心功能会被自己身上的诅咒禁掉。
 - **qc_c8**：只改关卡第一波时间（`FIRST_WAVE_TIME`），无尽续波用的
   `CONTINUED_FIRST_WAVE_TIME` 不受影响。修饰符没有下限截断，但原版首波时间普遍 ≥15s。
-- **sc_c4「第 10 波后」**：按「第 10 波打完之后」实现，即第 11 波起生效。
+- **sc_c1 公式**：`N > 10` 时价格 = 基础价 × (1 + 10% × (N - 10))，加法叠加（不是每次乘方）。
+- **sc_c2 豁免**：带「可激活」（`triggerActive`）或「忠诚」（`loyal`）标签的器械不叛变，
+  另加一份写死的名单：御柱 `onbashira` / 夹子 `autotrap` / 冲击活塞 `punchton`
+  （闪电之珠 `lightningOrb` 也在名单里 —— 它本来就因可激活标签而免疫，留着只是双保险）。
+- **sc_c3 / sc_c8 的「第 10 波后」**：按「第 10 波打完之后」实现，即第 11 波起生效。
+- **sc_c3 视为亡语**：只有会触发亡语的死因才会引发全场无敌
+  （地雷 / 蜡烛 / 核弹 / 石砖加农炮这类 `NO_DEATH_EFFECTS` 的死因不引发）。
 - **sc_c5**：只在本次伤害确实会打在防具上时生效（未被 `IGNORE_ARMOR` 忽略、
-  没有指定护盾目标、主防具存在且未被忽略）。
-- **sc_c13 触发阈值**：只看**本体血量上限**（`GetMaxHealth()`），伤害 ≥ 该值才触发；
-  **不看当前血量**，也不算防具。这样就不会出现「200 血上限的敌怪剩 15 血、
-  挨 20 点伤害被打死还无敌 2s」这种乱象（小伤害永远不触发）。
+  没有指定护盾目标、主防具存在且未被忽略），且在 **sc_c16 的固定减伤之后**计算。
+- **sc_c8 的复活**：在 `Entity.Die` 前缀里直接取消死亡，因此**尸体被销毁的死因也拦得住**
+  （需求：去除亡语的行为不影响本次复活）；`NO_REVIVAL`（溺水 / 坠楼）仍然会阻止它。
+  只复活一次，不恢复防具，属性沿用原值。
+- **sc_c10 / sc_c8 的「自然出场」**：`Entity.SpawnerReference == null` 为自然出场
+  （波次出怪走 `level.Spawn(entityDef, pos, null)`）；所有被实体 Spawn 出来的衍生物
+  （泡泡枪的泡泡、炮筒的炮弹僵尸、死灵法师的骨墙、恐怖之母的寄生虫……）一律不算。
 - **sc_c10「出场无敌」**：用原版铁幕 buff 实现，因此是「免疫伤害但不免疫状态效果」，
   并且带黑↔红闪烁提示；到点由 buff 自己超时移除（我们只负责挂上去）。
-  且**只有自然生成的敌怪**才有无敌，衍生物一律没有（判定见备注 14）。
-- **qc_c4 的复活时机**：与 sc_c4 一样在「尸体消失」时判定，因此**只有留下尸体的敌怪**能复活；
+- **sc_c13 触发阈值**：只看**上限**（本体血量上限 + 防具血量上限），伤害 ≥ 该值才触发；
+  **不看当前血量**，所以不会出现「200 血上限的敌怪剩 15 血、挨 20 点伤害
+  被打死还无敌 3s」这种乱象。比较用的数值是 **C16 / C5 减免之后**的伤害。
+- **sc_c14 的判定点**：`CurrentWave` 首次变成 10 / 20 / 30… 的那一帧开始计时 20s；
+  驱动器 `drivenser` 不受封禁影响（需求：「不影响驱动」）。
+- **sc_c15**：上限 = `max(当前血量或耐久 × 40%, 400)`；因为是在游戏把伤害拆给
+  防具/本体**之前**削减输入量，被砍掉的部分不会溢到本体。
+- **qc_c4 的复活时机**：在「尸体消失」时判定，因此**只有留下尸体的敌怪**能复活；
   不恢复防具（只把本体拉满血），BOSS 不复活，不触发亡语的死因（地雷、蜡烛等）也不复活。
 - **sc_c9 的「脆弱」**：0.7.0 的 `dragon_tooth`（龙牙）buff 没有超时属性，无法缩放时长，
   因此只覆盖了减速 / 中毒 / 虚弱 / 冰冻四种。
+- **sc_c13~c16 的红名**：`curses.xml` 的 `<texts name>` 里写了 TMP 富文本
+  `<color=#FF4040>…</color>`（XML 里需转义成 `&lt;color=…&gt;`）。
+  诅咒名最终落到 `Tooltip` 的 `TextMeshProUGUI nameText.text`，因此只要有富文本支持就会变红。
 
 ---
 
@@ -170,7 +211,7 @@ graph LR
    运行时由 `DSHCore.MetaInjection` 直读磁盘注入 `ModResource`。
 3. **诅咒定义**：官方 `ModLoader.LoadCurseMetas` 用 curses.xml 创建
    `DefaultCurseDefinition`（不需要我们自己建类型）。
-4. **诅咒 buff**：25 个注入的 `CurseBuffDefinition` 子类
+4. **诅咒 buff**：29 个注入的 `CurseBuffDefinition` 子类
    （24 条诅咒 + sc_c7 的敌怪子 buff），
    由 `CurseDefinitionPatch` 在官方 `LoadStages` 时机创建并 `AddDefinition`。
    继承原版 `CurseBuffDefinition` 因此自动带上 `CURSE_COUNT += 1`。
@@ -448,10 +489,10 @@ main.Scene.ShowTooltip(new ITooltipSource(source.Pointer));   // 接口参数同
 命令名解析复用官方的 `CommandUtility.SplitCommand`（它会剔掉开头的 `/`），
 只拦 `/curse`，其他指令 `return true` 原样放行（实测 `/kill` 能正常透传）。
 
-### 14. SC-C10「出场无敌」只算自然生成的敌怪（衍生物豁免）
+### 14. SC-C10「出场保护」只算自然生成的敌怪（衍生物豁免）
 
 现象：泡泡枪生成的泡泡、炮筒生成的炮弹僵尸、死灵法师生成的骨墙、
-恐怖之母的寄生虫这类**衍生物**也会吃到 8s 出场无敌，等于给对手白送护盾。
+恐怖之母的寄生虫这类**衍生物**也会吃到出场保护，等于给对手白送护盾。
 
 判定依据用实体自带的生成来源，而不是维护类型名单：
 
@@ -473,12 +514,127 @@ entity.SpawnerReference == null   // 自然生成
 于是**只勾 SC-C10** 时 `entities == null`，整条诅咒静默失效（必须再勾一条别的诅咒才会生效）。
 代价：它不会出现在 `/help` 的命令列表里（那份列表读的是官方命令定义）。
 
+### 15. SC 池（16 条）的机制要点
+
+- **sc_c8「首次死亡改成复活」在 `Entity.Die` 前缀里做**，不是像 QC-C4 那样等
+  `FaintRemove`。原因：需求要求「地雷 / 蜡烛 / 核弹 / 石砖加农炮」这类销毁尸体的行为
+  **不能**阻止本次复活 —— 而这些死因会把尸体直接移除，根本走不到 `FaintRemove`。
+  在 `Die(DeathInfo)` 前缀里 `return false` 就是游戏自己 `PRE_ENTITY_DEATH` 回调
+  那条路（`Die` 里 `if (!PreDeath(info)) return;`），把血量写回 15% 即可。
+  代价：`NO_REVIVAL`（溺水 / 坠楼）我们仍然尊重；亡语则天然不触发（`PostDeath` 不会跑）。
+- **sc_c3（恶咒之星）的「可叠加」改成了在剩余时长上累加**：原版
+  `StunBuff.MaxStunTime` 只在「新的比旧的长」时才写时间（`timer.Frame > value` 就返回），
+  所以连按不会累加。做法是在 `MaxStunTime` 上加一个前缀，
+  **只在 `CurseState.ScStunStacking` 打开时**（也就是只在诅咒自己调 `entity.Stun` 的那一瞬间）
+  把 `value` 改成 `timer.Frame + value` —— 不会影响荧石 / 其它来源的眩量。
+- **sc_c7 换成了动「击退系数」**：原版吹飞 / 击退只有木风扇一条路，而需求要求
+  「不再禁止木风扇的吹飞效果与击退，也不是简单的加重量」。因此：
+  ① 删掉旧的 `BlownByWoodenFanBuff.GetBlowMass` 后缀（它把质量顶到 999 = 完全吹不动）；
+  ② 删掉 `MASS +1` 的原生修饰符；
+  ③ 改成在 `VanillaEntityProps.GetKnockbackMultiplier(entity, massMultiplier)` 后缀里，
+  以 `mass = (落地 ? max(GetMass(), HEAVY) : GetMass())` 重算原公式
+  （`max(0, 2 - 2^(mass×massMultiplier))`）再 ×0.5。
+  这样「落地至少重质量」「击退减半」都落到了最终击退量上，而风扇的
+  `GetBlowMass` 完全不受影响（吹飞 / 击退都还在）。
+- **sc_c5 直接改防具血量**：给防具写 `EngineArmorProps.MAX_HEALTH ×1.3` 并把
+  `armor.Health ×1.3`（`Armor.Update` 每帧会 `Health = min(Health, GetMaxHealth())`，
+  所以两者必须一起改）。按防具指针去重，只加一次 —— 比"受伤 ×0.77"可靠，
+  不会与 C15 的每秒上限 / C16 的护甲叠加。
+- **sc_c9 是「累积量」而不是「时长缩放」**：每帧把「当前持有的状态种类数 ÷ 30」累加，
+  到 36 就进入 12s 抗性：先清掉 `StatusTable` 里的状态（寒冰/发光/虚弱/凋零/石化/燃烧/
+  冰冻/沙砾），再由 `VanillaEntityExt.PreApplyStatusEffect` 前缀在抗性期间拒绝新的。
+  同时不再需要旧的 `InflictSlow/Weakness/Petrified/Wither` 时长缩放补丁。
+- **sc_c10 用「取消死亡」而不是无敌**：需求是"不会死亡、血量至少保留 1 点"，
+  所以改成记一个 10s 窗口（`CurseState.ScGrace`），窗口内 `Entity.Die` 前缀返回 false
+  并把血量顶回 1。这样伤害照常结算（血条会动），只是杀不死。
+  另外考虑到「无敌不能免疫小推车」，`VanillaEntityExt.TakeDamage` 前缀会在
+  伤害带 `INSTA_KILL`（小推车 / 核弹）时先把 SC-C13 挂的铁幕 buff 摘掉，
+  让碾压能正常生效。
+- **sc_c14 拦的是 `LogicGridExt.CanPlaceBlueprint(LawnGrid, SeedDefinition, out error)`**：
+  两个手持物品行为都走它（`NamespaceID` 重载内部也是转发给它），
+  后缀把 `__result` 置 false 并把 `error` 写成 `VanillaBlueprintErrors.decrepify`
+  （复用原版"衰老"的提示，不用自造蓝图错误 meta）。
+  需注意 Harmony 对 `out` 参数要声明成 `ref`。
+  驱动器 `drivenser` 按种子对应的**实体 ID** 放行。
+- **sc_c15 的每秒上限在游戏拆分伤害之前削减输入量**（`PreTakeDamage` 前缀），
+  本体与防具各一张"本秒已受伤量表"，每 30 帧清空。
+  需求另外要求「防具吃不完的溢出伤害结算到本体」：原版
+  `ArmoredTakeDamage` 只在伤害带 `DAMAGE_BODY_AFTER_ARMOR_BROKEN` 时转移溢出，
+  而 `DamageInput.Effects` 是只读自动属性 —— 只能用反射拿到它的 setter，
+  换成一个「原效果 + 该标记」的新 `DamageEffectList`（拿不到 setter 时静默放弃）。
+- **sc_c16 / sc_c13 / sc_c11 / sc_c15 的顺序**是
+  `−5（C16）→ ×40%（C11 后排）→ 每秒上限（C15）→ 不屈阈值判定（C13）`。
+  需求「C13 与 C15 同时开启时只计算最终受伤结果」，所以 C13 挪到了最后。
+  C16 还负责「最终至少保留 1 点伤害」：原始伤害 > 0 时结果被钳到 ≥ 1（僵尸互啃也生效）。
+- **C13~C16 的红名走 XML 富文本**：`<texts name="&lt;color=#FF4040&gt;永恒之心&lt;/color&gt;">`。
+  诅咒名最终直接赋给 `Tooltip` 的 `TextMeshProUGUI nameText.text`（不经翻译表），
+  所以 TMP 富文本如果有开就会生效；若实机看不到红色，改用 Harmony 包一层
+  `ResourceManager.GetCurseName` 即可（不必改 XML）。
+### 16. ZY 池（咒鵺兼程）的实现要点
+
+- **编号重排过（2026-09）**：`zy_c1..zy_c16` 的语义按需求重新排了序
+  （红 4 条 / 绿 4 条 / 蓝 4 条 / 白 4 条），历史注释里的 zy_cN 不一定是现在的意思；
+  **一切以 `ZyRuntime` 的类注释与 `curses.xml` 为准**。名字颜色同样是 XML 富文本
+  （红 `#FF4040` / 绿 `#00FF00` / 蓝 `#00B0FF` / 白 = 不加标签）。
+- **加一个池只需要改四处**：`CursePool` 枚举 + `CursePoolRules.Pools`/`Label`/`Name`/
+  `Description`/`Matches` + `CurseIds` 的 ID 表 + `CursePoolIcons` 的图。
+  条目行是**按可用宽度自动排版**的，第 4 个池（4×64 + 3×1 = 259）正好占满一整行，
+  不会换行、也不会把滚动区压窄。
+- **睡着就是原版 `<c>NocturnalBuff</c>`**（Zzz 提示 + `AI_FROZEN` + 不爆炸）。
+  注意两件事：① 原版自己也会在「白天 + 夜行性器械」时挂同一个 buff，
+  所以**只摘我们自己挂的那份**（`CurseState.ZySleeping` 按指针记账），
+  否则会把原版的蘑菇睡眠一起解掉；② 需求 c1 的「器械自身的光照也算」必须显式写
+  `entity.IsLightSource() || entity.IsIlluminated()` —— 光源（如荧石）没有 `lit_mask`，
+  不会照到自己，只查 `IsIlluminated` 会让荧石自己在黑暗中睡着。
+  2026-09 调整：窗口由 4s 改成 8s，并加上「无法被美梦丝入眠的器械不受影响」——
+  直接用原版 `DreamSilk.CanSleep(entity)` 做前置判定。
+- **出怪量（zy_c8 我们不去幻想乡）按「倒数第二大波」算**：
+  `totalFlags <= 1` 直接不生效（否则 1 格关会在唯一的大波上生效，这就是修掉的 bug），
+  否则 `本轮大波序号 >= totalFlags - 1` 时 ×3（无尽模式每轮重置）。
+- **「大波开始」用 `CurrentWave % wavesPerFlag == 0` 判定**，并用
+  `CurrentFlag*1000 + 波数` 做去重标记（`CurrentFlag` 是大波**打完后**才自增，
+  所以「第几大波」= `CurrentFlag + 1`）。
+- **衰变拦的是 `VanillaLevelExt.Explode`**（`faction == GetLeftFaction()` → `NEUTRAL(8)`）。
+  中立对左右两方都算敌对，因此一发打所有人；信标/猫大招、核弹大招都走这条路。
+  一个坑：interop 里这个方法的最后一个参数是 **`Il2CppSystem.Predicate<T>`**，
+  不是 `System.Predicate<T>` —— 按后者的签名去 `AccessTools.Method` 会「找不到目标」。
+- **状态效果的唯一入口**：`VanillaEntityExt.PreApplyStatusEffect`
+  （`InflictBurning/Wither/Weakness/Glowing/Gravel/Petrified/Frozen/Slow` 全部经过它），
+  前缀返回 false 就等于「免疫该状态效果」，不需要逐个去 hook Inflict。
+  SC-C9 的 12s 状态抗性就是靠它拦截的。
+  另一个坑：前缀里 `ref bool __result` 与 `bool` 返回值并存时，
+  参数**必须按原名匹配**（`buff` 而不是 `definition`），否则 Harmony 会抛
+  `IL Compile Error (unknown location)`。
+- **病毒式传播拦的是 `LogicLevelExt.SpawnEnemy(spawnDef, lane, x)`**：它同时是
+  「波次出怪」与「随机行出怪」的汇聚点，因此在这里再生成就是「不占出怪点数」。
+  递归（复制自己也会经过这个方法）用 `CurseState.ZyViralBusy` 挡住。
+- **它回来了**：吹飞致死（木风扇、吹空中的敌人）内部走的是
+  `RemoveDie` = `REMOVE_ON_DEATH | NO_DEATH_EFFECTS`，所以「被消除亡语」这一类
+  已经覆盖了所有吹飞情形，不必单独判 `IsEnemyOutside*`。
+  排除恶魂自己，否则会无限套娃。
+- **纯粹**：`CanChooseArtifact` 后缀拒绝新选择，`ApplyCurses` 后缀把**已经带进来的**
+  非例外制品清掉（大波之间会继承上一波的制品，所以两个都要有）。固有制品不动。
+- **晚安（zy_c15）**：`LIGHT_RANGE` 是 `Vector3`，用常量 `Vector3Modifier` 乘 0.5 即可
+  （与「破灯笼」的 ×50% 同一种写法）；荧石不在子 buff 覆盖范围内。
+- **地狱残响（zy_c3）是整段接管 `Miner.Update`**：矿场（原版效果类 `Miner`，
+  女皇事件生成的那个）把生产间隔 `PRODUCE_TIME = 300` **写死在方法体里**，
+  既没有属性也没有修饰符可用，所以只能前缀返回 false 后照原样重写一遍
+  （`timer.Run(1f)` → `Expired` → `Produce(redstone)` + `ResetTime(900)`）。
+  动画 `SetAnimationBool` 在 interop 里要包一层 `new IHasModel(entity.Pointer)` 才调得到。
+- **恶意（zy_c14）改的是取值函数而不是移速**：需求变成「攻击间隔与生产间隔取最大值」，
+  而间隔与速度成反比，所以就是在 `VanillaEntityProps.GetAttackSpeed` /
+  `GetProduceSpeed` 两个后缀里取二者的 min。两个补丁会互相调用对方的取值函数，
+  用一个 `inSpeedClamp` 静态标志做重入保护。
+- **抗拒（zy_c16）不再阻止点击**：`VanillaContraptionExt.CanEmptyHandClick` 的后缀删掉，
+  改成在 `VanillaContraptionExt.EmptyHandClick` 后缀里扣 10 点耐久
+  （`TakeDamage(10, MUTE)`）—— 点击本身照常生效。
+
 ---
 
 ## 四、构建与部署
 
 ```powershell
-.\build.ps1                    # 构建 + 自动部署到测试游戏目录（默认 E:\Game\PVZ\MVZ2\MVZ2 0.7.0 test-4）
+.\build.ps1                    # 构建 + 自动部署到测试游戏目录（默认 E:\Game\PVZ\MVZ2\MVZ2 0.7.0 test-6）
 .\build.ps1 -Pack              # 构建 + 部署 + 打包 dist\ModularCurse_v0.2.1_0.7.0.zip
 .\build.ps1 -Pack -Launch
 .\build.ps1 -KeepGame          # 不结束正在运行的游戏（DLL 会被锁，仅建议调试脚本时用）
@@ -491,7 +647,7 @@ entity.SpawnerReference == null   // 自然生成
 
 | 参数 | 作用 |
 | ---- | ---- |
-| `-GameDir <dir>` | 部署目标（默认 `E:\Game\PVZ\MVZ2\MVZ2 0.7.0 test-4`） |
+| `-GameDir <dir>` | 部署目标（默认 `E:\Game\PVZ\MVZ2\MVZ2 0.7.0 test-6`） |
 | `-SkipBuild` | 跳过编译，只做部署校验 / 打包 / 启动 |
 | `-Clean` | 编译前先删掉 `bin/`、`obj/` |
 | `-KeepGame` | 不结束运行中的游戏进程（**会因 DLL 被占用而部署失败**） |
@@ -508,8 +664,8 @@ entity.SpawnerReference == null   // 自然生成
 dotnet build ModularCurse/ModularCurse.csproj -c Debug
 ```
 
-- 引用来自仓库 `runtime/`（BepInEx core + 0.7.0 test-4 的 interop）。
-- `GameDir` 默认 `E:\Game\PVZ\MVZ2\MVZ2 0.7.0 test-4\`，
+- 引用来自仓库 `runtime/`（BepInEx core + 0.7.0 test-6 的 interop）。
+- `GameDir` 默认 `E:\Game\PVZ\MVZ2\MVZ2 0.7.0 test-6\`，
   构建后自动拷贝 `ModularCurse.dll` 到 `BepInEx\plugins\`，
   并把 `ModularCurse\assets\**` 部署到 `StreamingAssets\Mods\modular_curse\`。
 - ⚠️ 游戏重建后必须重新生成 interop（`BepInEx/config/BepInEx.cfg` 的
@@ -518,10 +674,10 @@ dotnet build ModularCurse/ModularCurse.csproj -c Debug
 启动自检（`BepInEx/LogOutput.log`）：
 
 ```
-[CurseBuffs] 26 个注入类型已注册
-[CurseBuffs] 26/26 个定义的修饰符已展开（属性键已注册）
-[CurseMetaApplier] 已套用 25 条诅咒词条属性
-[Diag] 诅咒定义 25/32，已解锁 25/32，buff 解析失败 0 条，修饰符缺失 0/26 条，CURSE_COUNT 键失效 0 条
+[CurseBuffs] 29 个注入类型已注册
+[CurseBuffs] 29/29 个定义的修饰符已展开（属性键已注册）
+[CurseMetaApplier] 已套用 28 条诅咒词条属性
+[Diag] 诅咒定义 28/35，已解锁 28/35，buff 解析失败 0 条，修饰符缺失 0/29 条，CURSE_COUNT 键失效 0 条
 [Diag] 解锁列表前 5 项: mvz2:the_creatures_brain mvz2:nightmares_tentacle ...
 ```
 
@@ -559,7 +715,8 @@ dotnet build ModularCurse/ModularCurse.csproj -c Debug
 走 `.\build.ps1 -Pack` 即可（构建 → 部署校验 → 打包一条龙）；
 只想重新打包就 `.\build.ps1 -SkipBuild -Pack`，包名里的版本号自动取 `Plugin.cs` 的 `VERSION`。
 
-产物：`dist\ModularCurse_v0.2.1_0.7.0.zip`（约 0.05 MB），
+产物：`dist\ModularCurse_v0.2.1_0.7.0.zip`（`-Pack` 默认**含** BepInEx 运行环境，约 44 MB；
+加 `-NoRuntime` 只留插件+资源，约 0.05 MB），
 内容 = **插件 + Mod 资源**（运行时环境不重复携带）：
 
 ```
@@ -578,7 +735,7 @@ MinecraftVSZombies2_Data/StreamingAssets/Mods/modular_curse/Content/sprites/{cur
   `winhttp.dll` / `dotnet/` / `BepInEx\{core,interop,unity-libs,patchers,config}`）、
   `DSHCore.dll` 与本 mod 的插件+资源 —— 解压到游戏根目录即可，不需要先装前置包。
   只要插件本体（不给新环境）时用 `-NoRuntime` 打包，体积降到几十 KB。
-- 运行时里的 interop 只对应 **0.7.0 test-4**。其他版本需删掉 `BepInEx/interop` 并把
+- 运行时里的 interop 只对应 **0.7.0 test-6**。其他版本需删掉 `BepInEx/interop` 并把
   `BepInEx/config/BepInEx.cfg` 的 `UpdateInteropAssemblies` 置 true 后启动一次重新生成。
 - `LaboratoryMod.dll` 不打包（与诅咒无关的测试内容）。
 - 打包必须用「拷内容」而不是「拷目录」（`Copy-Item <assets>\* <dst>`），否则会出现

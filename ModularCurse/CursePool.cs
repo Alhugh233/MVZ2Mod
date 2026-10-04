@@ -4,7 +4,8 @@ using PVZEngine;
 namespace ModularCurse
 {
     /// <summary>
-    /// 诅咒池。玩家在选卡界面右侧点开「诅咒池」按钮选择，选中后诅咒面板只列出该池的诅咒。
+    /// 诅咒池。玩家在选卡界面里点开诅咒弹窗、在滚动区顶部点池条目选择，
+    /// 选中后诅咒面板只列出该池的诅咒。
     ///
     /// 池是**单选且必选**的：没有「全部」这一档，面板里永远只会有某一个池的诅咒。
     /// </summary>
@@ -14,8 +15,10 @@ namespace ModularCurse
         Vanilla = 0,
         /// <summary>QC 池：modular_curse 的 qc_c1..qc_c12（QoZnoS 的诅咒）。</summary>
         Qc = 1,
-        /// <summary>SC 池：modular_curse 的 sc_c1..sc_c13（奇硅箱的诅咒）。</summary>
+        /// <summary>SC 池：modular_curse 的 sc_c1..sc_c16（奇硅箱的诅咒）。</summary>
         Sc = 2,
+        /// <summary>ZY 池：modular_curse 的 zy_c1..zy_c16（3q4a 的诅咒）。</summary>
+        Zy = 3,
     }
 
     /// <summary>诅咒池的规则：顺序、名称、作者描述、成员判定。</summary>
@@ -24,7 +27,7 @@ namespace ModularCurse
         /// <summary>选择框里的展示顺序（同时也是索引顺序）。</summary>
         public static readonly CursePool[] Pools =
         {
-            CursePool.Vanilla, CursePool.Qc, CursePool.Sc,
+            CursePool.Vanilla, CursePool.Qc, CursePool.Sc, CursePool.Zy,
         };
 
         /// <summary>没有记录时的默认池：原版池（等价于未装本 mod 时面板里的内容）。</summary>
@@ -32,7 +35,7 @@ namespace ModularCurse
 
         public static bool IsValid(CursePool pool)
         {
-            return pool >= CursePool.Vanilla && pool <= CursePool.Sc;
+            return pool >= CursePool.Vanilla && pool <= CursePool.Zy;
         }
 
         public static CursePool FromIndex(int index)
@@ -59,6 +62,7 @@ namespace ModularCurse
             {
                 case CursePool.Qc: return "QC";
                 case CursePool.Sc: return "SC";
+                case CursePool.Zy: return "ZY";
                 default: return "原";
             }
         }
@@ -70,6 +74,7 @@ namespace ModularCurse
             {
                 case CursePool.Qc: return "QC 池";
                 case CursePool.Sc: return "SC 池";
+                case CursePool.Zy: return "咒鵺兼程";
                 default: return "原版池";
             }
         }
@@ -81,6 +86,7 @@ namespace ModularCurse
             {
                 case CursePool.Qc: return "QoZnoS的诅咒";
                 case CursePool.Sc: return "奇硅箱的诅咒";
+                case CursePool.Zy: return "3q4a的诅咒";
                 default: return "原版诅咒";
             }
         }
@@ -96,7 +102,9 @@ namespace ModularCurse
                 return false;
             if (pool == CursePool.Qc)
                 return HasPoolPrefix(id.Path, "qc_c");
-            return HasPoolPrefix(id.Path, "sc_c");
+            if (pool == CursePool.Sc)
+                return HasPoolPrefix(id.Path, "sc_c");
+            return HasPoolPrefix(id.Path, "zy_c");
         }
 
         /// <summary>路径形如 qc_c1 / sc_c12（前缀之后必须还有内容）。</summary>

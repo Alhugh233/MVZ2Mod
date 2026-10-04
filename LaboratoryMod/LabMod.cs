@@ -3,6 +3,7 @@ using DSHCore;
 using Il2CppInterop.Runtime.Injection;
 using Il2CppSystem.Collections.Generic;
 using MVZ2Logic.Games;
+using MVZ2Logic.Commands;
 using MVZ2Logic.Modding;
 using MVZ2Logic.Saves;
 using PVZEngine;
@@ -38,6 +39,8 @@ namespace LaboratoryMod
         {
             var instance = InjectedMod.Create<LabMod>(spaceName);
             self = instance;
+            // 把实例绑到定义设施（双保险：注入实例的 Namespace 字符串曾经间歇性读到空）。
+            InjectedDefinitions.Bind(spaceName, instance);
             return instance;
         }
 
@@ -339,6 +342,7 @@ namespace LaboratoryMod
             {
                 L?.LogError("[Diag] arcade items error: " + e.GetType().Name + ": " + e.Message);
             }
+
             L?.LogInfo("[Diag] ===== end =====");
         }
 
