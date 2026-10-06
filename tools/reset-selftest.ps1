@@ -1,7 +1,7 @@
 # Turn the UiGallery self-test off again (a running game would keep loading it).
 # ASCII only (see run-selftest.ps1).
 param(
-    [string]$GameDir = 'E:\Game\PVZ\MVZ2\MVZ2 0.7.0 test-9'
+    [string]$GameDir = 'E:\Game\PVZ\MVZ2\MVZ2 0.7.0 test-10'
 )
 
 $ErrorActionPreference = 'Stop'

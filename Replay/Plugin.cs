@@ -31,7 +31,24 @@ namespace Replay
             {
                 ReplayConfig.Init(Config);
                 ReplayHooks.Apply();
-                ReplayCommand.Apply();
+
+                // 把「回放」子页面登记进 DSHCore 的插件页设施（纯托管的登记，不碰游戏）。
+                // 心跳由 DSHCore 驱动（它挂在 MainSceneController.Update 上），这里只是初始化一次。
+                ReplayPage.EnsureRegistered();
+
+                // 在「插件 → 模组设置（DSHCore）」的左栏里也露个面。
+                // 本 mod 既没有游戏内容（没注册 ModInfo）、也没有设置项，
+                // 不主动介绍自己的话玩家在列表里根本看不到它。
+                DSHCore.Ui.UiOptions.DeclareMod("replay", NAME,
+                    "关卡回放录制 / 播放（.mrep）", "QoZnoS", "回放");
+
+                // 控制台指令默认**不注册**（[General] Commands）：它是排障入口，
+                // 普通玩家走「主菜单 → 更多选项 → 插件 → 回放」就够了。
+                if (ReplayConfig.GetCommands())
+                    ReplayCommand.Apply();
+                else
+                    Log.LogInfo("[Replay] /replay 控制台指令未注册（[General] Commands = false）");
+
                 Log.LogInfo(NAME + " v" + VERSION + " 已加载。 " + ReplayConfig.Describe());
             }
             catch (Exception e)

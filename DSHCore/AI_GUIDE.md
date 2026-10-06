@@ -4,7 +4,7 @@
 > **目标**：让一次对话就能写出**能跑起来**的注入类 mod，而不是靠反复崩溃试出来。
 >
 > 本文档记录的是「必须踩过一遍才知道」的东西。凡是写在这里的结论，都是在
-> **MVZ2 0.7.0 test-4 / Windows x86 / IL2CPP metadata v31.1** 上实测过的，
+> **MVZ2 0.7.0 test-10 / Windows x86 / IL2CPP metadata v31.1** 上实测过的，
 > 不是推测。遇到与本文冲突的直觉，信本文。
 
 ---
@@ -14,7 +14,7 @@
 
 | 项        | 值                                                                       |
 | --------- | ------------------------------------------------------------------------ |
-| 游戏      | Minecraft vs Zombies 2（MVZ2）**0.7.0 test-4**，Windows **x86**                  |
+| 游戏      | Minecraft vs Zombies 2（MVZ2）**0.7.0 test-10**，Windows **x86**                  |
 | 运行时    | Unity 2022.3.62f3 / IL2CPP**metadata v31.1**                             |
 | BepInEx   | **be.788**（x86 IL2CPP），内含 Il2CppInterop **1.5.3**                   |
 | 编译      | .NET 6 SDK（`net6.0`），`LangVersion 9.0`                                |
@@ -205,7 +205,10 @@ private static Il2CppSystem.Threading.Tasks.Task OnRegisterModInfos(
 /dshlog console 显示/隐藏控制台     /dshlog clear  清空内存历史
 ```
 
-指令名与子指令**支持 Tab 补全**：`/ds` + Tab → `/dshlog`；`/dshlog o` + Tab → `off`/`open`。
+指令名与子指令**支持 Tab 补全**：`/ds` + Tab → `/dshlog`、`/dshtrans`；`/dshlog o` + Tab → `off`/`open`。
+
+> 另一条指令 `/dshtrans`（模组译文的外部文件：`keys` / `write <语言码>` / `reload`）
+> 与 `/dshlog` 共用同一条分派链：`DebugCommands` 依次问两个 `Execute`，都返回 `null` 才放行。
 实现见下面的「想加自己的游戏内指令」第 3 条。
 
 > 为什么要拆成「一直捕获 + 按需开网页」：**调试时你要的是游戏启动到出问题那一段**。
@@ -359,11 +362,17 @@ UiClone.OnClick(buttonNode, () => { /* … */ });            // 内部处理委�
 | `UiHost` | `Resolve(layer)` / `DialogLayer()` / `InsertAfter` / `CreateStretched` / `MarkOwn` |
 | `UiClone` | `Normalize` / `Activate` / `SetLabel` / `SetFontSize` / `DescribeFont` / `OnClick` / `KeepAlive` / `ForceGraphicsVisible` |
 | `UiOptionRow` | **控件行的唯一入口**：`Create` / `SetKind` / `SetLabel` / `SetStretch` / `SetTooltip` / `SetToggle` / `SetSlider`（标签自动带值）/ `SetSliderValueFormat` / `SetButton` / `SetDropdown`（⚠️ 不可用）/ `Describe` / `LabelText` |
-| `UiList` | **纯代码可滚动列表**：`Create` / `Add` / `AddButton` / `AddOptionRow` / `Clear` / `SetFlexible` / `SetViewportHeight` / `SuggestHeight` / `ScrollToTop` / `ScrollToBottom` / `Describe` |
-| `UiOptions` | **L2：原生设置项**（零 UI 代码）：`DeclareToggle` / `DeclareSlider` → `Attach(mod)`（LoadStages 时机）→ `ApplyProperties()`（PostInit 时机） |
-| `InjectedDefinitions` | **注入定义的通用设施**：`Apply` / `Register(nsp)` / `Bind(nsp, mod)` / `Track(def)` / `ListFor(nsp)` / `Create<T>(nsp, name)`（补原生 ctor 初始化 + 钉 GC 根） |
+| `UiList` | **纯代码可滚动列表**：`Create` / `Add` / `AddButton` / `AddOptionRow` / `Clear` / `SetFlexible` / `SetViewportHeight` / `SuggestHeight` / **`SetRowFit`** / `ScrollToTop` / `ScrollToBottom` / `Describe` / **`DescribeStructure`** |
+| `UiOptions` | **设置项注册**：默认进「模组设置」页（零注入）：`DeclareToggle` / `DeclareSlider` / `DeclareChoice` / **`DeclareMod(space, 名, 说明, 作者, 中文?)`** / `GetModEntry` / `SetModDisplayName(space, 源串, 中文?)`；`scope: VanillaMenu` 时才需要 `Attach(mod)`（LoadStages）→ `ApplyProperties()`（PostInit） |
+| `UiLocale` | **模组文本本地化**：`Add(源串, 译文, 语言?)` / `Get` / `In` / `Report` —— 把自己的小表挂进游戏的文本查找链；**玩家可编辑的外部译文文件**（`ExternalDirectory` / `ReloadExternal` / `WriteTemplate` / `KnownKeys`，指令 `/dshtrans`；`UI_GUIDE.md` §11） |
+| `UiTagRow` | **档案样式条目行**（Toggle + 文字，勾选 = 选中）：`Template` / `Create` / `Set` / `IsOn` / `Describe` —— 要「像对话档案那样的一行」就用它 |
+| `AddonPage` | **插件页子页面**（入口按钮 + 页面壳 + 生命周期全自动）：override `Id` / `EntryLabel` / `Title` / `BuildContent(shell)`，构造里 `Register()`；两栏版式另有 `TwoColumnWidthRatio` / **`TopHeight`** |
+| `AddonPages` | 子页面登记表 + 心跳 + 状态：`Get` / `All` / `IsAddonsPage` / `Report` |
+| `ModSettingsPage` | 内建的「模组设置（DSHCore）」页（左栏 mod / 右栏详细信息 + 设置项） |
+| `InjectedDefinitions` | **注入定义的通用设施**：`Apply` / `Register(nsp)` / `Bind(nsp, mod)` / `Track(def)` / `ListFor(nsp)` / `Create<T>(nsp, name)`（补原生 ctor 初始化 + 钉 GC 根） / `NamespaceOf(mod)` |
 | `UiDropdown` | TMP 弹窗的**诊断**用（`Describe` / `DumpCanvases` / `Show` / `Hide`）—— 写新代码不需要它 |
 | `UiTooltip` | `Attach(target, title, text)` / `AttachExisting(node, …)` / `SetText` / `Describe` / `Hide()` |
+| `UiKit` | 克隆小工具：`HContainer` / `VContainer` / `Label` / `Paragraph` / `AutoHeight` / `TextButton` / `SetBold` / `Separator` / `Fit` / `ReplaceMask` / `ClearEmptySpriteAlpha` / `StripTextTranslators` / `MakeVertical` / `Path` / `SetTwoColumnWidth` / `Describe` |
 
 八条硬约定：
 
@@ -747,11 +756,16 @@ virtual 槽被重置则 override **静默失效**（不报错，就是没生效�
 
 ---
 
-### ⑪ 存档版本号必须是 4
+### ⑪ 存档版本号（`ModInfo.LevelDataVersion`）要**稳定**，而不是「等于某个数」
 
-`ModInfo.LevelDataVersion` 必须 = `LevelManager.CURRENT_DATA_VERSION`
-（0.7.0 test-4 为 **4**），否则你的 mod 存档数据会被判定为旧版本而丢弃。
-`ModInfos.Create` 已经填好，一般不用管。
+游戏存关卡时会把「所有 mod 的 (命名空间, 版本号)」写进存档头，读档时
+**按命名空间逐个比对**（`LevelDataIdentifierList.Compare`）。所以真正的要求只有一条：
+**本 mod 的关卡存档格式没变，就不要动这个值**；动了它（或改了命名空间）会让玩家已有的
+本 mod 关卡存档被判「版本不匹配」而读不进去。
+
+它**不需要**等于 `LevelManager.CURRENT_DATA_VERSION`（vanilla 自己用的那个值；
+0.7.0 test-9 / test-10 均为 **5**）。`ModInfos.Create` 已经给了一个稳定常量（4），
+两者并存没有问题，一般不用管。
 
 ---
 
@@ -886,7 +900,7 @@ meta 既然由 `MetaInjection` 直读磁盘，空 locator 返回空集是安全�
 
 → ① 对话框按钮**别超过一行**；② 长内容用**一个**正文节点 + 换行；
 ③ 真要长内容就用可滚动容器 `UiList`（底层是官方设置界面那个 `ScrollRect`，
-见 `UiSkinPart.ScrollView` 与 `UI_GUIDE.md` §5 例 3）。
+见 `UiSkinPart.ScrollView` 与 `UI_GUIDE.md` §6 例 3）。
 
 ### ㉓ 中文字符串里混进 ASCII 双引号会截断字符串
 
@@ -968,16 +982,16 @@ Get-ChildItem . -Recurse -Filter *.cs | Select-String -Pattern '[\u4e00-\u9fff]"
 
 ```
 [Info   :   BepInEx] 3 plugins to load
-[Info   :   BepInEx] Loading [DSHCore 0.3.0]
+[Info   :   BepInEx] Loading [DSHCore 0.4.0]
 [Info   :DSHCore ...] 日志查看器待命（捕获已开启，共 5000 条环形缓冲）。游戏内输入 /dshlog 开启网页。
-[Info   :DSHCore ...] 游戏内指令已就绪：/dshlog（含 Tab 补全）
+[Info   :DSHCore ...] 游戏内指令已就绪：/dshlog、/dshtrans（含 Tab 补全）
 [Info   :DSHCore ...] ClassInjector generic vtable patch applied
 [Info   :DSHCore ...] MetaInjection patches applied
 [Info   :DSHCore ...] SaveManager.LoadModData patch applied
 [Info   :DSHCore ...] SaveManager.WriteSaveData patch applied
 [Info   :DSHCore ...] ModManager.LoadMods patch applied
 [Info   :DSHCore ...] ArcadeIndexFix patch applied
-[Info   :DSHCore ...] DSHCore v0.3.0 loaded (infrastructure ready)
+[Info   :DSHCore ...] DSHCore v0.4.0 loaded (infrastructure ready)
 [Info   :DSHCore ...] [CoreRegistry] registered nsp=mvz2_lab logic=LaboratoryMod.LabMod xmlDefault=mvz2
 [Info   :DSHCore ...] [ModBootstrap] mvz2_lab ready  logic=LabMod  injected=[LabMod, RealPrologueStage, ...]
 [Info   :DSHCore ...] [ModInfos] OnRegisterModInfos 订阅完成

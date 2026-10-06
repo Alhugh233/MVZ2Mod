@@ -80,7 +80,7 @@ namespace DSHCore.Diagnostics
                         " 不会出现在 Tab 补全里（指令本身仍可用）。");
                 }
 
-                Plugin.Log?.LogInfo("游戏内指令已就绪：/" + LogViewerCommand.Name + "（含 Tab 补全）");
+                Plugin.Log?.LogInfo("游戏内指令已就绪：/" + LogViewerCommand.Name + "、/" + TransCommand.Name + "（含 Tab 补全）");
             }
             catch (Exception ex)
             {
@@ -119,6 +119,13 @@ namespace DSHCore.Diagnostics
                     if (!Contains(currentSuggestions, extra[i]))
                         currentSuggestions.Add(extra[i]);
                 }
+
+                var extra2 = TransCommand.Suggest(args);
+                for (int i = 0; i < extra2.Length; i++)
+                {
+                    if (!Contains(currentSuggestions, extra2[i]))
+                        currentSuggestions.Add(extra2[i]);
+                }
             }
             catch (Exception ex)
             {
@@ -147,11 +154,13 @@ namespace DSHCore.Diagnostics
             {
                 var args = Split(input);
                 var text = LogViewerCommand.Execute(args);
+                if (text == null)
+                    text = TransCommand.Execute(args);
 
                 if (text == null)
                     return true;    // 不是我们的指令
 
-                Plugin.Log?.LogInfo("[" + LogViewerCommand.Name + "] 收到：" + input.Trim());
+                Plugin.Log?.LogInfo("[dsh] 收到：" + input.Trim());
 
                 // 回显一行，和官方的输出风格对齐（官方也会先 Print "> {input}"）
                 PrintLine("> " + input.Trim());
@@ -162,7 +171,7 @@ namespace DSHCore.Diagnostics
             {
                 // 绝不能把异常抛回游戏的输入处理链路 —— 那会连带后续所有指令都失效
                 try { PrintLine("[DSHCore] 指令执行出错：" + ex.Message); } catch { }
-                Plugin.Log?.LogError("[" + LogViewerCommand.Name + "] " + ex);
+                Plugin.Log?.LogError("[dsh] " + ex);
                 return false;
             }
         }

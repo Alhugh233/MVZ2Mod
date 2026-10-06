@@ -10,7 +10,7 @@
 #
 # ASCII only.
 param(
-    [string]$Dir = 'E:\Game\PVZ\MVZ2\MVZ2 0.7.0 test-9\BepInEx'
+    [string]$Dir = 'E:\Game\PVZ\MVZ2\MVZ2 0.7.0 test-10\BepInEx'
 )
 
 $ErrorActionPreference = 'Stop'

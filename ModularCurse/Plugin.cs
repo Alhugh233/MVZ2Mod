@@ -3,6 +3,7 @@ using BepInEx;
 using BepInEx.Logging;
 using BepInEx.Unity.IL2CPP;
 using DSHCore;
+using DSHCore.Ui;
 using Il2CppInterop.Runtime.Injection;
 using Il2CppInterop.Runtime.InteropTypes.Arrays;
 using MVZ2.Modding;
@@ -87,6 +88,12 @@ namespace ModularCurse
             // 订阅 0.7 官方的外部 Mod 注册点（System.Func → Il2CppSystem.Func
             // 的委托转换由 DSHCore.ModInfos 完成）。
             ModInfos.OnRegister(OnRegisterModInfos);
+
+            // 「模组设置」页里显示的**中文名**：源串是 NAME，译文挂在
+            // DSHCore.Ui.UiLocale（= 游戏的语言系统，切到英文就显示英文原名）。
+            UiLocale.Add(NAME, "模块化诅咒");
+            UiOptions.DeclareMod(ModularCurseMod.spaceName, NAME,
+                "模块化诅咒（QC 池 + SC 池）", "QoZnoS");
 
             Log.LogInfo(NAME + " v" + VERSION + " loaded, waiting for ModManager.RegisterModInfos...");
         }

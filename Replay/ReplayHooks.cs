@@ -132,6 +132,53 @@ namespace Replay
                 new[] { typeof(int), typeof(int), typeof(Vector2).MakeByRefType() },
                 typeof(ReplayInputPatches), nameof(ReplayInputPatches.TryGetPointerPositionPrefix), null, ref ok, ref fail);
 
+            // ---- 假鼠标（纯视觉，见 FakePointer）----
+            // 手持物的世界坐标：每帧由指针位置算出来。只在这一层换指针，
+            // 换完立刻还原，所以 Global.Input / 矿车 / 喷瓜 / 打砖块看到的都是原值。
+            Patch(typeof(LevelController), "UpdateHeldItemPosition",
+                Type.EmptyTypes,
+                nameof(ReplayPatches.HeldItemPosPrefix), nameof(ReplayPatches.HeldItemPosPostfix), ref ok, ref fail);
+
+            // ---- 回放模式的菜单（重新播放 / 结束播放）----
+            // 文案：挂在两个 Update*Button 之后 —— 原版每次刷新文案都会走那里，
+            // 我们跟在后面覆盖，就不会出现「先对后错」。
+            Patch(typeof(MVZ2.Options.OptionsDialogController), "UpdateRestartButton",
+                Type.EmptyTypes,
+                null, nameof(ReplayPatches.OptionsRestartLabelPostfix), ref ok, ref fail);
+
+            Patch(typeof(MVZ2.Options.OptionsDialogController), "UpdateLeaveLevelButton",
+                Type.EmptyTypes,
+                null, nameof(ReplayPatches.OptionsLeaveLabelPostfix), ref ok, ref fail);
+
+            // 行为：这两个按钮在回放期间由我们接管（重播 / 回放页）。
+            Patch(typeof(MVZ2.Options.OptionsDialogController), "OnMainPageButtonClickCallback",
+                new[] { typeof(MVZ2.UI.OptionsDialogMainPage.ButtonType) },
+                nameof(ReplayPatches.OptionsMainButtonPrefix), null, ref ok, ref fail);
+
+            // 结束面板开着时别让 Esc / 空格把别的对话框叠上来。
+            Patch(typeof(LevelController), "OnOptionsKey",
+                Type.EmptyTypes,
+                nameof(ReplayPatches.OptionsKeyBlockPrefix), null, ref ok, ref fail);
+            Patch(typeof(LevelController), "OnPauseKey",
+                Type.EmptyTypes,
+                nameof(ReplayPatches.OptionsKeyBlockPrefix), null, ref ok, ref fail);
+
+            // ---- 回放里的「关卡结束」不再走原版流程 ----
+            // 通关：原版会 RemoveLevelState（删关卡存档）+ 解锁关卡 + 退场动画，回放不能干这些。
+            Patch(typeof(LevelController), "OnEngineClearCallback",
+                Type.EmptyTypes,
+                nameof(ReplayPatches.EngineClearPrefix), null, ref ok, ref fail);
+
+            // 失败：原版会弹自己的「重试 / 返回」对话框，和我们的结束面板重复。
+            Patch(typeof(LevelController), "ShowGameOverDialog",
+                Type.EmptyTypes,
+                nameof(ReplayPatches.GameOverDialogPrefix), null, ref ok, ref fail);
+
+            // 落点：「结束播放」要回回放页（插件页），而不是地图。
+            Patch(typeof(MainSceneController), "GotoMapOrMainmenu",
+                Type.EmptyTypes,
+                nameof(ReplayPatches.GotoMapOrMainmenuPrefix), null, ref ok, ref fail);
+
             Plugin.Log?.LogInfo("[Replay] 补丁安装完成：成功 " + ok + " 个，失败 " + fail + " 个");
             if (fail > 0)
                 Plugin.Log?.LogWarning("[Replay] 有 " + fail + " 个补丁没挂上，录制内容会不完整");

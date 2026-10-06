@@ -7,8 +7,8 @@
 
 - 插件 GUID：`qoznos.mvz2.core`
 - 显示名：`DSHCore`
-- 当前版本：**0.3.0**
-- 适配：MVZ2 **0.7.0 test-4**（Windows **x86** / IL2CPP metadata v31.1 / Unity 2022.3.62f3）
+- 当前版本：**0.4.0**
+- 适配：MVZ2 **0.7.0 test-10**（Windows **x86** / IL2CPP metadata v31.1 / Unity 2022.3.62f3）
 - 运行时要求：BepInEx **be.788**（x86 IL2CPP）
 
 > ⚠️ 社区制作的**非官方**作品，与游戏原作者无关。
@@ -57,8 +57,14 @@ UiClone.OnClick(button, () => { /* … */ });
 | `UiHost` | 挂哪里（层解析）+ 己方节点标记 + 插入/新建容器 |
 | `UiClone` | 克隆规范化（`SetActive` 次序、按钮监听器、委托保活）；字号：`SetFontSize` / `DescribeFont` |
 | `UiOptionRow` | **控件行的唯一入口**（复选/滑条/按钮）—— 直接克隆子控件会丢尺寸契约与提示锚点；下拉框那一支**已知不可用** |
-| `UiList` | **纯代码可滚动列表**（底层克隆官方设置界面的 `ScrollRect`） |
-| `UiOptions` | **原生设置项，零 UI 代码**：`DeclareToggle`/`DeclareSlider` + `Attach(mod)` + `ApplyProperties()` + `For`/`Lookup`/`LookupOf` |
+| `UiList` | **纯代码可滚动列表**（底层克隆官方设置界面的 `ScrollRect`）：`Add` / `AddButton` / `AddOptionRow` / `Clear` / `SetFlexible` / **`SetRowFit`**（紧凑 + 铺满框体）/ `DescribeStructure` |
+| `UiOptions` | **设置项注册**：默认进本库的「模组设置（DSHCore）」页（零注入、不需要 ModInfo/XML）：`DeclareToggle` / `DeclareSlider` / `DeclareChoice`；`DeclareMod(space, 名, 说明, 作者, 中文?)`（声明过的 mod **无条件出现在左栏**，没设置项也会出现）；`scope: VanillaMenu` 时才走 `Attach(mod)` + `ApplyProperties()` 进原版设置界面 |
+| `UiLocale` | **模组文本本地化**：`Add` / `Get` + 把 mod 的译文表挂进游戏的文本查找链（不用打包语言包 .mo 也有译文）；**玩家可在 `BepInEx/config/DSHCore/lang/` 里放外部译文文件**，不用改 mod 就能加语言（详见 `UI_GUIDE.md` §11、指令 `/dshtrans`） |
+| `UiTagRow` | **档案样式条目行**（`Toggle` + 文字，勾选 = 选中）：从「对话档案」的条目模板克隆 |
+| `AddonPage` | **插件页子页面**：入口按钮 + 页面壳 + 生命周期全自动（`Replay` / `ModSettingsPage` 已用它） |
+| `AddonPages` | 子页面登记表 + 心跳（挂在 `MainSceneController.Update`）+ `Report` |
+| `ModSettingsPage` | 内建的「模组设置（DSHCore）」页面（左栏已加载的 mod / 右栏说明·作者·来源·逻辑体·命名空间 + 设置项；两栏合计宽 = 0.94 画布宽） |
+| `UiKit` | 克隆小工具：行容器 / 文本（`Label` / `Paragraph` / `AutoHeight`）/ 按钮 / **`SetBold`** / **`Separator`**（原版分割线）/ 尺寸契约 / 克隆体修补（遮罩·空图·翻译器）/ 两栏宽度 / 布局描述 |
 | `ModNamespacePin` | 钉住注入 `Mod` 实例的 `Namespace` 字段（不钉会被 GC 回收 → `mod.Namespace` 间歇性读到空，官方按命名空间找不到本 mod 内容） |
 | `UiTooltip` | 原版悬停提示全链（只加组件是不够的，还要做宿主订阅 + 增一个正确的锚点子节点） |
 
@@ -96,6 +102,7 @@ UiClone.OnClick(button, () => { /* … */ });
 | `CoreRegistry`                             | 跨插件登记表，上述补丁按命名空间生效                                                                                                            |
 | `VTableRebind.Ensure(Type)`                | 手动触发 vtable 槽重绑                                                                                                                          |
 | `LogViewer`                                | 本地网页日志查看器：`Url` / `OpenInBrowser()` / `CapturedCount` / `DroppedCount` / `Report(src,level,msg)` / `HideConsole()` / `ShowConsole()` |
+| `UiLocale`（外部文件）                     | 玩家可编辑的译文：`ExternalDirectory` / `ReloadExternal()` / `WriteTemplate(lang)` / `DescribeExternal(lang)` / `KnownKeys` / `DumpKeys()` |
 
 ---
 
@@ -114,6 +121,21 @@ UiClone.OnClick(button, () => { /* … */ });
 /dshlog clear      清空内存里的历史
 /dshlog help       帮助
 ```
+
+### 游戏内指令 `/dshtrans`
+
+模组译文的外部文件（给玩家用的，不需要源码）：
+
+```
+/dshtrans                    状态：外部目录、当前语言读到了几条、见过多少源串
+/dshtrans keys               列出全部已知源串与它们当前的取值
+/dshtrans write en-US        把键表写成 lang/en-US.txt 模板（已存在则不覆盖；加 overwrite 强制）
+/dshtrans reload             重新读盘（改完文件不用重启游戏）
+/dshtrans help               帮助
+```
+
+> 两条指令共用同一条分派链（`DebugCommands`）：依次问 `LogViewerCommand.Execute`
+> 与 `TransCommand.Execute`，都返回 `null` 才放行给原版。补全同理，两边都追加。
 
 > 为什么要分成「一直捕获 + 按需开网页」而不是整体按需：**调试时你要的是游戏启动
 > 到出问题那一段的日志**。捕获只有一个环形缓冲 + 一个后台线程的成本，很便宜；
@@ -186,8 +208,8 @@ UiClone.OnClick(button, () => { /* … */ });
 cd DSHCore
 .\build.ps1                 # 构建（游戏目录存在时自动部署到 BepInEx\plugins\）
 .\build.ps1 -Clean          # 先清 bin/obj 再构建
-.\build.ps1 -Pack           # 额外打包 dist\DSHCore_v0.3.0_0.7.0.zip（含 BepInEx 运行环境）
-.\build.ps1 -PackDevKit     # 额外打 dist\DSHCore-DevKit_v0.3.0_0.7.0.zip（便携开发环境）
+.\build.ps1 -Pack           # 额外打包 dist\DSHCore_v0.4.0_0.7.0.zip（含 BepInEx 运行环境）
+.\build.ps1 -PackDevKit     # 额外打 dist\DSHCore-DevKit_v0.4.0_0.7.0.zip（便携开发环境）
 .\build.ps1 -Pack -Launch   # 打包后启动游戏冒烟
 ```
 
@@ -280,7 +302,8 @@ DSHCore/
 │   ├─ LogViewerConfig.cs    [LogViewer] 段配置绑定
 │   ├─ ConsoleWindow.cs      安全地藏 / 显示控制台窗口
 │   ├─ LogViewerCommand.cs   /dshlog 的解析与处理（**纯托管，可离线测试**）
-│   ├─ DebugCommands.cs      Harmony 拦 DebugManager.ExecuteCommand（游戏胶水）
+│   ├─ TransCommand.cs       /dshtrans 的解析与处理（外部译文文件：keys / write / reload）
+│   ├─ DebugCommands.cs      Harmony 拦 DebugManager.ExecuteCommand + FillSuggestions（游戏胶水，两条指令共用）
 │   └─ logviewer.html        查看器前端（单文件，内嵌进 DLL）
 │
 ├─ Ui/                     原版 UI 基建（子 mod 直接调用；论证见 UI_RESEARCH.md）
@@ -291,7 +314,12 @@ DSHCore/
 │   ├─ UiClone.cs            克隆规范化 + 委托保活 + 字号读写（SetFontSize / DescribeFont）
 │   ├─ UiOptionRow.cs        **控件行的唯一入口**（复选框 / 滑条 / 按钮 / 下拉框占位）
 │   ├─ UiList.cs             **纯代码可滚动列表**（官方 ScrollRect + 官方按钮行）
-│   ├─ UiOptions.cs          **L2：原生设置项**（DeclareToggle/DeclareSlider + Attach + ApplyProperties）
+│   ├─ UiKit.cs              克隆小工具（行容器 / 文本 / 按钮 / 尺寸契约 / 克隆体修补 / 布局描述）
+│   ├─ UiTagRow.cs           **档案样式条目行**（Toggle + 文字；勾选 = 选中）
+│   ├─ UiLocale.cs           **模组文本本地化**（代码译文表 + **玩家可编辑的外部文件** + 挂进游戏查找链）
+│   ├─ UiOptions.cs          **设置项注册**（默认进模组设置页；scope=VanillaMenu 时才进原版设置界面）
+│   ├─ AddonPage.cs          **插件页子页面**设施（AddonPage / AddonPages / AddonShell + 心跳）
+│   ├─ ModSettingsPage.cs    内建的「模组设置（DSHCore）」页（左栏 mod / 右栏设置项）
 │   ├─ UiDropdown.cs         TMP 弹窗的**诊断**用（下拉框本体不可用）
 │   ├─ UiTooltip.cs          原版悬停提示全链
 │   └─ UiLog.cs              内部日志（同一条警告只打一次）

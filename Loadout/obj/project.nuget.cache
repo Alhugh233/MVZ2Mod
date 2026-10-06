@@ -8,15 +8,5 @@
     "C:\\Users\\QoZnoS\\.nuget\\packages\\microsoft.windowsdesktop.app.ref\\6.0.36\\microsoft.windowsdesktop.app.ref.6.0.36.nupkg.sha512",
     "C:\\Users\\QoZnoS\\.nuget\\packages\\microsoft.aspnetcore.app.ref\\6.0.36\\microsoft.aspnetcore.app.ref.6.0.36.nupkg.sha512"
   ],
-  "logs": [
-    {
-      "code": "NU1900",
-      "level": "Warning",
-      "message": "获取包漏洞数据时出错: 无法加载源 https://api.nuget.org/v3/index.json 的服务索引。",
-      "projectPath": "E:\\CodeProject\\MVZ2Mod\\Loadout\\Loadout.csproj",
-      "warningLevel": 1,
-      "filePath": "E:\\CodeProject\\MVZ2Mod\\Loadout\\Loadout.csproj",
-      "targetGraphs": []
-    }
-  ]
+  "logs": []
 }

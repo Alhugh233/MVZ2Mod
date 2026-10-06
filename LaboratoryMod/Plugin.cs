@@ -3,6 +3,7 @@ using BepInEx;
 using BepInEx.Logging;
 using BepInEx.Unity.IL2CPP;
 using DSHCore;
+using DSHCore.Ui;
 using Il2CppInterop.Runtime.Injection;
 using Il2CppInterop.Runtime.InteropTypes.Arrays;
 using MVZ2.Modding;
@@ -31,6 +32,13 @@ namespace LaboratoryMod
         public const string GUID = "qoznos.mvz2.labmod";
         public const string NAME = "MVZ2 Laboratory Content";
         public const string VERSION = "0.2.1";
+
+        /// <summary>
+        /// 在「模组设置（DSHCore）」页里显示的**源串**（= 语言中立的那一份）。
+        /// 中文名不是写死的：<c>UiLocale.Add(DisplayName, "实验室")</c> 是一句译文，
+        /// 游戏切到英文时列表里显示的就是这个英文原名。
+        /// </summary>
+        public const string DisplayName = "MVZ2 Laboratory";
 
         internal static new ManualLogSource Log;
 
@@ -92,6 +100,13 @@ namespace LaboratoryMod
             // 的委托转换由 DSHCore.ModInfos 完成）。
             ModInfos.OnRegister(OnRegisterModInfos);
 
+            // 「模组设置」页里显示的**中文名**：源串是下面的英文原名，
+            // 译文挂在 DSHCore.Ui.UiLocale（= 游戏的语言系统，切到英文就显示英文名）。
+            // DeclareMod 另外把「一句说明 + 作者」也带上（本 mod 有 ModInfo，不带也行）。
+            UiLocale.Add(DisplayName, "实验室");
+            UiOptions.DeclareMod(LabMod.spaceName, DisplayName,
+                "实验室小游戏（real_prologue / zero_k_space / unknow_palace）", "QoZnoS");
+
             Log.LogInfo(NAME + " v" + VERSION + " loaded, waiting for ModManager.RegisterModInfos...");
         }
 
@@ -111,7 +126,7 @@ namespace LaboratoryMod
                 // ModInfo 构造样板（空 locator / 存档版本 / 空 Assemblies）见
                 // DSHCore.ModInfos。定义经官方 LoadStages meta 链创建，
                 // 不走程序集扫描 attribute。
-                results.Add(ModInfos.Create(LabMod.spaceName, logic, "MVZ2 Laboratory"));
+                results.Add(ModInfos.Create(LabMod.spaceName, logic, DisplayName));
                 Log.LogInfo("OnRegisterModInfos: ModInfo added (mvz2_lab), Logic="
                     + (logic == null ? "null" : logic.GetType().FullName));
             }

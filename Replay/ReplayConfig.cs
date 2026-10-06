@@ -12,6 +12,7 @@ namespace Replay
     internal static class ReplayConfig
     {
         public static ConfigEntry<bool> AutoRecord;
+        public static ConfigEntry<bool> AutoSave;
         public static ConfigEntry<string> OutputDir;
         public static ConfigEntry<int> FingerprintInterval;
         public static ConfigEntry<bool> FullFingerprint;
@@ -21,7 +22,15 @@ namespace Replay
         public static ConfigEntry<int> ProbeMaxLines;
         public static ConfigEntry<bool> PointerAction;
         public static ConfigEntry<int> MaxReplays;
-        public static ConfigEntry<bool> GuiEnabled;
+
+        // ---- 回放页 / 结束面板（见 Ui/ReplayPage.cs、Ui/ReplayEndPanel.cs）----
+
+        // ---- 视觉（见 FakePointer.cs）----
+        public static ConfigEntry<bool> FakeMouse;
+        public static ConfigEntry<int> FakeMouseTicks;
+        public static ConfigEntry<string> FakeMouseEase;
+        public static ConfigEntry<float> FakeMouseScale;
+        public static ConfigEntry<bool> FakeMouseGameCursor;
 
         // ---- 自测（见 ReplaySelfTest.cs）----
         public static ConfigEntry<bool> SelfTest;
@@ -42,11 +51,16 @@ namespace Replay
         public static ConfigEntry<int> SelfTestPlaybackTimeoutSec;
         public static ConfigEntry<string> SelfTestPlayFile;
         public static ConfigEntry<int> SelfTestPlayTickLimit;
+        public static ConfigEntry<int> SelfTestPlayShotTick;
+        public static ConfigEntry<int> SelfTestPlayMenuTick;
 
         // ---- GUI 自测（见 Ui/ReplayGuiTest.cs）----
         public static ConfigEntry<bool> GuiTest;
         public static ConfigEntry<int> GuiTestHoldFrames;
         public static ConfigEntry<bool> GuiTestAutoQuit;
+        // ---- 指令 ----
+        /// <summary>是否注册 <c>/replay</c> 控制台指令。默认关（见 <see cref="GetCommands"/>）。</summary>
+        public static ConfigEntry<bool> Commands;
 
         private static string resolvedOutputDir;
         private static bool keywordFallbackLogged;
@@ -63,8 +77,16 @@ namespace Replay
 
             AutoRecord = cfg.Bind(
                 "General", "AutoRecord", true,
-                "进入关卡时自动开始录制，关卡结束/退出关卡时写出 .mrep。\n"
-                + "关掉它就只能用 /replay rec 手动开始。");
+                "进入关卡时自动开始录制，离开关卡 / 退出游戏时写出 .mrep。\n"
+                + "**默认关着** —— 平时玩关卡不会产生任何回放文件。\n"
+                + "要录回放就把它打开（或者把 Commands 打开后用 /replay rec 手动开始）。");
+
+            AutoSave = cfg.Bind(
+                "General", "AutoSave", false,
+                "录制过程中**每 20 秒就把回放写一次盘**（防止崩溃/强退丢掉整段录制）。\n"
+                + "**默认关着** —— 只在录制**结束**时写一次（离开关卡 / 退出游戏 / 手动停止），\n"
+                + "也就是「关卡里不会自己冒出回放文件」。\n"
+                + "开着它的话每 20 秒就会在回放目录里落一次盘。");
 
             OutputDir = cfg.Bind(
                 "General", "OutputDir", DefaultOutputDir,
@@ -78,7 +100,7 @@ namespace Replay
                 + "存档根 = %USERPROFILE%/AppData/LocalLow/Cuerzor/<游戏名>/userdata。");
 
             FingerprintInterval = cfg.Bind(
-                "General", "FingerprintInterval", 30,
+                "General", "FingerprintInterval", 150,
                 "每多少逻辑 tick（30 tick = 1 秒）采样一条状态指纹，用于校验回放一致性。\n"
                 + "设为 0 关闭采样。");
 
@@ -91,7 +113,7 @@ namespace Replay
                 + "FlatJson 那种单行解析器读不了，留着只会制造解析错误。");
 
             WritePlainText = cfg.Bind(
-                "General", "WritePlainText", true,
+                "General", "WritePlainText", false,
                 "除了 gzip 的 .mrep，是否再写一份未压缩的 .mrep.json（方便直接看内容）。");
 
             DiscardEmpty = cfg.Bind(
@@ -120,15 +142,55 @@ namespace Replay
                 + "少这一次取消，会让后续一次点卡从「选卡」变成「取消手持物」，于是那个器械放不下去。");
 
             MaxReplays = cfg.Bind(
-                "General", "MaxReplays", 20,
+                "General", "MaxReplays", 50,
                 "最多保留多少个回放（超出后自动删掉**最旧的**）。\n"
                 + "每写出一份回放就会清一次；回放页面里也会显示当前数量。\n"
                 + "设为 0 = 不限制。统计范围是 OutputDir（默认 save）指定的位置。");
 
-            GuiEnabled = cfg.Bind(
-                "General", "GuiEnabled", true,
-                "是否在「主菜单 → 更多选项 → 插件」页里加一个「回放」入口。\n"
-                + "关掉它就只剩 /replay 控制台指令（不影响录制与播放）。");
+            Commands = cfg.Bind(
+                "General", "Commands", false,
+                "是否注册 /replay 控制台指令（rec / stop / play / playlast / list / status / dir）。\n"
+                + "默认**关着**：那是个排障入口，普通玩家用「主菜单 → 更多选项 → 插件 → 回放」就够了，\n"
+                + "开着只会让控制台多出一条与游戏本身无关的指令。\n"
+                + "关着的时候敲 /replay 会按原版流程报「找不到指令」。");
+
+            // ---------------- 视觉 ----------------
+            FakeMouse = cfg.Bind(
+                "Visual", "FakeMouse", true,
+                "回放时画一个「假鼠标」，让指针全程沿轨迹平滑移动，而不是原地不动然后瞬移。\n"
+                + "为什么需要：回放里只有离散的动作路点（点格子/点实体/点卡），\n"
+                + "**数字键选卡与工具按钮根本没有坐标** —— 不插值的话，选卡之后\n"
+                + "手持物会一直停在「上一次点击的位置」，直到下一次点击才瞬移过去。\n"
+                + "另外**没有手持任何物品时游戏本来就不画指针**（那是系统光标在顶），\n"
+                + "所以这里额外画一个「游戏光标样式」的贴图当假鼠标。\n"
+                + "关掉 = 回到旧行为（手感差但绝对不碰任何东西）。");
+
+            FakeMouseTicks = cfg.Bind(
+                "Visual", "FakeMouseTicks", 0,
+                "鼠标走完「上一个路点 → 下一个路点」这段距离用多少 tick（30 tick = 1 秒）。\n"
+                + "**0（默认）= 占满整个区间**：上一个动作刚做完就开始往下一个位置走，全程不停。\n"
+                + "填正数（例如 12）就变成「先停着、最后 N 个 tick 一口气冲过去」的旧行为 ——\n"
+                + "两下之间间隔很长时会有一大段时间鼠标完全不动，一般不需要。");
+
+            FakeMouseEase = cfg.Bind(
+                "Visual", "FakeMouseEase", "quadinout",
+                "缓动曲线。\n"
+                + "linear = 匀速（**最符合「全程不静止」**，默认）；\n"
+                + "quadout = 二次缓出（起步快、到站减速，最像人手，但区间末尾会几乎停下来）；\n"
+                + "quadinout = 二次缓入缓出；cubicout = 三次缓出（更夸张）。");
+
+            FakeMouseScale = cfg.Bind(
+                "Visual", "FakeMouseScale", 1.0f,
+                "假鼠标那张贴图的显示大小倍率。\n"
+                + "1.0 = 和游戏原生的硬件光标一样大（贴图原尺寸）。\n"
+                + "机器 DPI / 分辨率不同时，游戏光标本来就会显得偏小或偏大，\n"
+                + "这里可以单独把「回放里画出来的那个鼠标」调到你看着舒服的尺寸。");
+
+            FakeMouseGameCursor = cfg.Bind(
+                "Visual", "FakeMouseGameCursor", true,
+                "假鼠标用**游戏自己的光标贴图**（从 CursorManager 里取，外观与游戏原生光标一致），\n"
+                + "还是用 mod 自绘的那个箭头。\n"
+                + "游戏贴图取不到时会自动退回自绘箭头；这个开关只是给「贴图在你那里看着不对」时的退路。");
 
             // ---------------- 自测 ----------------
             SelfTest = cfg.Bind(
@@ -217,6 +279,20 @@ namespace Replay
                 "SelfTest", "PlayTickLimit", 0,
                 "只播放到第多少 tick 就收尾（0 = 限制）。\n"
                 + "排查分歧时用它把一次验证缩短到几秒，不用每次等完整局。");
+
+            SelfTestPlayShotTick = cfg.Bind(
+                "SelfTest", "PlayShotTick", 0,
+                "播放验收时跑到第几 tick 抓一张截图（0 = 不抓）。\n"
+                + "会在该 tick 与之后 15 个 tick 各抓一张（_rp_play0.png / _rp_play1.png），\n"
+                + "用来目视确认「假鼠标在动、位置/尺寸/层级都对」——\n"
+                + "指纹能证明状态一致，但证明不了画得对不对。");
+
+            SelfTestPlayMenuTick = cfg.Bind(
+                "SelfTest", "PlayMenuTick", 0,
+                "播放验收时跑到第几 tick 打开一次**关卡内选项菜单**，\n"
+                + "把「重新播放 / 结束播放」两个按钮的**实际文案**写进报告并截图 _rp_menu.png（0 = 不做）。\n"
+                + "为什么需要：那两个文案是我们用 Harmony 后缀**覆盖**原版写进去的，\n"
+                + "而原版每次刷新页面都会重写一遍 —— 「代码看起来对」不能说明最终显示的是哪个。");
 
             // ---------------- GUI 自测 ----------------
             GuiTest = cfg.Bind(
@@ -511,7 +587,21 @@ namespace Replay
                 + " dir=" + ResolveOutputDir()
                 + " fp=" + (interval > 0 ? interval.ToString() + "tick" : "off")
                 + " max=" + GetMaxReplays()
+                + " cmd=" + GetCommands()
+                + " autosave=" + GetAutoSave()
                 + " selftest=" + (SelfTest != null && SelfTest.Value);
+        }
+
+        /// <summary>
+        /// 是否注册 <c>/replay</c> 控制台指令。**默认关**。
+        ///
+        /// <para>那是个排障入口：普通玩家有「主菜单 → 更多选项 → 插件 → 回放」这条正路，
+        /// 多一条与游戏本身无关的指令只会让控制台变乱。</para>
+        /// </summary>
+        public static bool GetCommands()
+        {
+            try { return Commands != null && Commands.Value; }
+            catch (Exception) { return false; }
         }
 
         /// <summary>最多保留多少个回放（0 = 不限制）。配置读不到时按 20 处理。</summary>
@@ -528,11 +618,75 @@ namespace Replay
             }
         }
 
-        /// <summary>是否安装「插件 → 回放」的 GUI 入口。默认开。</summary>
-        public static bool GetGuiEnabled()
+        public static bool GetFakeMouse()
         {
-            try { return GuiEnabled == null || GuiEnabled.Value; }
+            try { return FakeMouse == null || FakeMouse.Value; }
             catch (Exception) { return true; }
+        }
+
+        /// <summary>
+        /// 鼠标走完两个路点之间那段距离用多少 tick。
+        /// <para><b>0（默认）= 占满整个区间</b>，即上一个动作一结束就开始往下一个位置走，
+        /// 全程不停 —— 这是「鼠标不静止」的关键。正数则恢复旧行为（先停着、最后 N tick 冲过去）。</para>
+        /// </summary>
+        public static int GetFakeMouseTicks()
+        {
+            try
+            {
+                var v = FakeMouseTicks != null ? FakeMouseTicks.Value : 0;
+                if (v < 0) v = 0;
+                if (v > 120) v = 120;
+                return v;
+            }
+            catch (Exception) { return 0; }
+        }
+
+        /// <summary>假鼠标的缓动曲线名（linear / quadinout / quadout / cubicout）。</summary>
+        public static string GetFakeMouseEase()
+        {
+            try
+            {
+                var s = FakeMouseEase != null ? FakeMouseEase.Value : null;
+                return string.IsNullOrWhiteSpace(s) ? "linear" : s.Trim().ToLowerInvariant();
+            }
+            catch (Exception) { return "linear"; }
+        }
+
+        /// <summary>假鼠标是否用游戏自己的光标贴图（关掉就用 mod 自绘的箭头）。默认开。</summary>
+        public static bool GetFakeMouseGameCursor()
+        {
+            try { return FakeMouseGameCursor == null || FakeMouseGameCursor.Value; }
+            catch (Exception) { return true; }
+        }
+
+        /// <summary>
+        /// 假鼠标贴图的显示大小倍率。1.0 = 贴图原尺寸（与游戏原生硬件光标等大）。
+        /// 越界值一律夹到 0.1..8，避免配置写错时画出一个盖满屏幕的方块。
+        /// </summary>
+        public static float GetFakeMouseScale()
+        {
+            try
+            {
+                var v = FakeMouseScale != null ? FakeMouseScale.Value : 1f;
+                if (float.IsNaN(v) || v <= 0.001f)
+                    return 1f;
+                if (v < 0.1f) v = 0.1f;
+                if (v > 8f) v = 8f;
+                return v;
+            }
+            catch (Exception) { return 1f; }
+        }
+
+        /// <summary>
+        /// 录制过程中是否允许「每 20 秒自动落盘一次」。**默认关**。
+        ///
+        /// <para>关着的时候回放只在**录制结束**时写一次（离开关卡 / 退出游戏 / 手动停止），
+        /// 也就是「在关卡里玩的时候不会自己冒出回放文件」。</para>
+        /// </summary>
+        public static bool GetAutoSave()
+        {
+            try { return AutoSave != null && AutoSave.Value; }
+            catch (Exception) { return false; }
         }
     }
 }

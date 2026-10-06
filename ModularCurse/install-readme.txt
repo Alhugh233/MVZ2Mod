@@ -1,7 +1,7 @@
 MVZ2 Modular Curse（模块化诅咒） v{VERSION}
 ============================================
 
-适用版本：Minecraft vs Zombies 2（MVZ2） 0.7.0 test-9（x86 / IL2CPP）
+适用版本：Minecraft vs Zombies 2（MVZ2） 0.7.0 test-10（x86 / IL2CPP）
 
 【前置要求】
 无需单独安装前置 —— 本包含以下全部：

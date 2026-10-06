@@ -400,6 +400,210 @@ namespace Replay
         }
 
         /// <summary>
+        /// 把一条回放的 <c>.mrep</c>（以及同名的 <c>.mrep.json</c>，如果有）写到
+        /// <paramref name="destPath"/>。
+        ///
+        /// <para><b>为什么带一个明确的目标路径：</b>导出走的是游戏原生的「另存为」对话框
+        /// （<c>FileHelper.SaveExternalFile</c>，与「切换存档 → 导出」同一条路），
+        /// 目标由玩家自己挑，不再由配置项指定目录。</para>
+        ///
+        /// <para><b>为什么不搬走只拷贝：</b>原文件是回放库的正式成员，还要继续被列表页管理
+        /// （播放 / 删除 / 按数量上限清理）。导出是「拿一份出去」，不是「移走」。</para>
+        ///
+        /// <para><paramref name="path"/> 允许是 <c>.mrep</c> 或 <c>.mrep.json</c>
+        /// —— 载入器优先用 json，所以 <see cref="ReplayFile.Path"/> 多半是后者。</para>
+        /// </summary>
+        public static bool Export(string path, string destPath, out string error)
+        {
+            error = null;
+            if (string.IsNullOrEmpty(path))
+            {
+                error = "没有可导出的文件。";
+                return false;
+            }
+            if (string.IsNullOrEmpty(destPath))
+            {
+                error = "没有指定保存位置。";
+                return false;
+            }
+
+            var mrep = ToMrepPath(path);
+            if (mrep == null)
+            {
+                error = "不是回放文件：" + System.IO.Path.GetFileName(path);
+                return false;
+            }
+            if (!File.Exists(mrep))
+            {
+                error = "回放文件已经不在了：" + System.IO.Path.GetFileName(mrep);
+                return false;
+            }
+
+            // 玩家在对话框里可能只敲了个名字（没有扩展名），补上。
+            var dest = destPath;
+            if (!dest.EndsWith(".mrep", StringComparison.OrdinalIgnoreCase))
+                dest += ".mrep";
+
+            var failures = new List<string>();
+            try
+            {
+                var dir = System.IO.Path.GetDirectoryName(dest);
+                if (!string.IsNullOrEmpty(dir))
+                    Directory.CreateDirectory(dir);
+            }
+            catch (Exception e)
+            {
+                error = "建不了目标目录：" + e.GetType().Name;
+                return false;
+            }
+
+            if (!CopyOne(mrep, dest, failures))
+                { error = string.Join("；", failures.ToArray()); return false; }
+
+            // 纯文本副本跟着一起走（有才拷），名字与源文件同构：xxx.mrep / xxx.mrep.json
+            var json = mrep + ".json";
+            if (File.Exists(json))
+                CopyOne(json, dest + ".json", failures);
+
+            Plugin.Log?.LogInfo("[Replay] 已导出 " + System.IO.Path.GetFileName(mrep) + " → " + dest
+                + (failures.Count > 0 ? "，部分失败：" + string.Join("；", failures.ToArray()) : ""));
+            if (failures.Count > 0)
+            {
+                error = "部分文件没能写过去：" + string.Join("；", failures.ToArray());
+                return false;
+            }
+            return true;
+        }
+
+        /// <summary>
+        /// 把一个外部的 <c>.mrep</c>（以及同名的 <c>.mrep.json</c>）导入回放库。
+        ///
+        /// <para>与导出对称，走游戏原生的「打开文件」对话框
+        /// （<c>FileHelper.OpenExternalFile</c>，与「切换存档 → 导入」同一条路）。</para>
+        ///
+        /// <para><b>不覆盖同名回放</b>：目标名已存在时自动退到 <c>名字 (2).mrep</c>，
+        /// 免得玩家一个手滑把本地那条顶掉。</para>
+        /// </summary>
+        public static bool Import(string path, out string error)
+        {
+            error = null;
+            if (string.IsNullOrEmpty(path))
+            {
+                error = "没有选择文件。";
+                return false;
+            }
+
+            var mrep = ToMrepPath(path);
+            if (mrep == null)
+            {
+                error = "只能导入 .mrep 文件：" + System.IO.Path.GetFileName(path);
+                return false;
+            }
+            if (!File.Exists(mrep))
+            {
+                error = "文件已经不在了：" + System.IO.Path.GetFileName(mrep);
+                return false;
+            }
+
+            // 先验一遍 header：选错文件时要当场说清楚，而不是往列表里塞一条「读不出来」。
+            var head = new ReplayInfo { Name = System.IO.Path.GetFileName(mrep), Path = mrep };
+            LoadHeader(head);
+            if (head.IsBroken)
+            {
+                error = "这个文件不是一条能用的回放（" + head.Error + "）。";
+                return false;
+            }
+
+            string dir;
+            try
+            {
+                dir = ReplayConfig.ResolveOutputDir();
+                if (string.IsNullOrEmpty(dir))
+                {
+                    error = "解析不出回放目录。";
+                    return false;
+                }
+                Directory.CreateDirectory(dir);
+            }
+            catch (Exception e)
+            {
+                error = "建不了回放目录：" + e.GetType().Name;
+                return false;
+            }
+
+            var dest = UniquePath(dir, System.IO.Path.GetFileName(mrep));
+            try
+            {
+                File.Copy(mrep, dest, false);
+            }
+            catch (Exception e)
+            {
+                error = "复制失败：" + e.GetType().Name + "：" + e.Message;
+                return false;
+            }
+
+            var json = mrep + ".json";
+            if (File.Exists(json))
+            {
+                try { File.Copy(json, dest + ".json", false); }
+                catch (Exception) { /* 纯文本副本可有可无，失败不算导入失败 */ }
+            }
+
+            Plugin.Log?.LogInfo("[Replay] 已导入 " + mrep + " → " + dest);
+            return true;
+        }
+
+        /// <summary>导入进来的那条回放叫什么（导入成功后用来拼提示文案）。</summary>
+        public static string ImportedName(string path)
+        {
+            return System.IO.Path.GetFileName(path ?? string.Empty);
+        }
+
+        /// <summary>
+        /// 把「可能是 <c>.mrep.json</c> 的路径」归一成 <c>.mrep</c> 路径；不是回放文件时返回 null。
+        /// </summary>
+        private static string ToMrepPath(string path)
+        {
+            if (string.IsNullOrEmpty(path))
+                return null;
+            var p = path;
+            if (p.EndsWith(".json", StringComparison.OrdinalIgnoreCase))
+                p = p.Substring(0, p.Length - 5);
+            return p.EndsWith(".mrep", StringComparison.OrdinalIgnoreCase) ? p : null;
+        }
+
+        /// <summary>在 <paramref name="dir"/> 下找一个不撞名的路径：<c>a.mrep</c> → <c>a (2).mrep</c>。</summary>
+        private static string UniquePath(string dir, string fileName)
+        {
+            var first = System.IO.Path.Combine(dir, fileName);
+            if (!File.Exists(first) && !File.Exists(first + ".json"))
+                return first;
+
+            var stem = System.IO.Path.GetFileNameWithoutExtension(fileName);
+            for (int i = 2; i < 1000; i++)
+            {
+                var candidate = System.IO.Path.Combine(dir, stem + " (" + i + ").mrep");
+                if (!File.Exists(candidate) && !File.Exists(candidate + ".json"))
+                    return candidate;
+            }
+            return first;
+        }
+
+        private static bool CopyOne(string from, string to, List<string> failures)
+        {
+            try
+            {
+                File.Copy(from, to, true);
+                return true;
+            }
+            catch (Exception e)
+            {
+                failures.Add(System.IO.Path.GetFileName(to) + "：" + e.GetType().Name);
+                return false;
+            }
+        }
+
+        /// <summary>
         /// 按上限裁掉最旧的回放。每次写出新回放后调用一次。
         /// 上限 &lt;= 0 时什么都不做。返回删掉了几条。
         /// </summary>

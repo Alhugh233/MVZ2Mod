@@ -2,7 +2,7 @@
 
 用可视化面板替代原版调试控制台的输入窗口。测试工具，**最大兼容性优先**。
 
-- 适配：MVZ2 0.7.0 test-4 / Windows x86 / IL2CPP metadata v31.1 / BepInEx be.788
+- 适配：MVZ2 0.7.0 test-10 / Windows x86 / IL2CPP metadata v31.1 / BepInEx be.788
 - 前置：**硬依赖 [DSHCore](../DSHCore/README.md)**（全部 UI 都建立在 `DSHCore.Ui` 之上）
 - 需求来源：仓库根的 `Loadout.txt`（符号约定：`[]`复选框 `__`输入框 `<>`带补齐的输入框 `{}`按钮 `|...|`内容列表）
 - 设计论证：[`DSHCore/UI_GUIDE.md`](../DSHCore/UI_GUIDE.md)（怎么做）、[`DSHCore/UI_RESEARCH.md`](../DSHCore/UI_RESEARCH.md)（为什么）
@@ -396,21 +396,26 @@ finalizer 清掉），生成漏斗只在这个作用域里认账：
 ② 「标签」是**一次性**的，而血量与逆阵营是**两个**独立的 postfix —— 都要来问一次，
 所以解析结果按实体 ID 缓存（`PlacementScope.Resolve`），否则第二个补丁问不到。
 
-##### 兼容性等级：既在配置文件里，也是「更多选项 → 游戏」里的一行设置
+##### 兼容性等级：既在配置文件里，也是「插件 → 模组设置（DSHCore）」里的一行
 
-`Compat.CompatLevel`（Safe / Standard / Full）现在同时是**原版设置界面**里的一行下拉框：
+`Compat.CompatLevel`（Safe / Standard / Full）现在同时是 **DSHCore 的「模组设置」页**里的一行：
 
-- 用 `DSHCore.Ui.UiOptions` 的标准三步（声明 → `Attach` → `ApplyProperties`），
-  文案/分类在 `assets/Content/metas/options.xml`（分类 `gameplay` = 「游戏」一栏，`order=900` 排在后面）；
+- 用 `DSHCore.Ui.UiOptions` 的**默认路径**：`UiOptions.DeclareChoice(...)` 一句声明
+  （`Options/CompatOptions.cs`），设置项就出现在「插件页 → 模组设置（DSHCore）」的 `loadout` 名下；
+- 显示名/说明/作者用 `UiOptions.DeclareMod("loadout", "MVZ2 Loadout", "图形化控制台面板（调试工具，…）", "QoZnoS", "图形化控制台")` ——
+  名字/说明/作者都是**可翻译的源串**（中文译文走 `DSHCore.Ui.UiLocale`，
+  游戏语言切到英文时列表里显示的还是那个英文原名）；
+  走这条路本 mod **不注册 `ModInfo`**，所以必须自己介绍自己，否则列表里是裸命名空间 `loadout`；
 - 设置界面与配置文件是**同一份数据**（getter/setter 就写那个配置项），所以谁改都立刻生效；
-- ⚠️ 这一行要求 **Loadout 真的注册一个 `Mod`**（`LoadoutMod`）—— 没有 `Mod` 实例就没有
-  `mod.AddDefinition`。这是本 mod 里**唯一**一处注册进游戏的地方（代价：mod 列表里多一项）。
-  ⚠️ 只注册 ModInfo、**不覆写 `CreateSaveData` / `LoadSaveData`** 会在读档时抛
-  `EntryPointNotFoundException: Attempting to call abstract method 'Mod::CreateSaveData'`
-  （而且是在 `SaveUserData` 链中间抛，会打断读档）—— 必须覆写并返回一份空 `LogicSaveData`。
+- **本 mod 因此是真·零注入**（不注册 il2cpp 类型、不注册 Definition、不注册 ModInfo）——
+  早先那个只为设置项而存在的 `LoadoutMod`（以及它连带的一串注入坑：必须覆写
+  `CreateSaveData`/`LoadSaveData`，否则读档时抛 `EntryPointNotFoundException`）已删除。
+- ⚠️ 多值项在模组设置页里是**按钮行**（「兼容性等级：Standard」，点一下切到下一个值），
+  不是下拉框 —— 原版 `TMP_Dropdown` 的展开列表在本环境画不出来，DSHCore 不提供替代实现
+  （见 `DSHCore/UI_GUIDE.md` §10）。
 - **等级不够的功能在面板里置灰**（悬停提示会说去哪儿调）：
   逆阵营 / 无条件放置 / 传送带模式 = Full；血量 / 白天不睡觉 = Standard。
-- 页面的慢速轮询（`Tick`，30 帧一次）会**整页重铺**一次 —— 所以等级在设置界面被改之后，
+- 页面的慢速轮询（`Tick`，30 帧一次）会**整页重铺**一次 —— 所以等级改之后，
   置灰状态会自己跟上（实测：改等级当帧还是灰的，重铺一次后变可点）。
 
 ##### 「全部蓝图」默认关闭，而且只在原版 debug 存档里出现
@@ -523,9 +528,7 @@ finalizer 清掉），生成漏斗只在这个作用域里认账：
 
 ```
 Plugin.cs                     入口：配置 + 挂补丁（DSHCore 硬依赖）
-LoadoutMod.cs                 Mod 逻辑体：**只为「兼容性等级」那一行原生设置项而存在**
-Options/CompatOptions.cs      兼容性等级 → 原版设置项（UiOptions 声明/登记/写属性 + 渲染判据自测）
-assets/Content/metas/options.xml   那一行的文案 / 分类（gameplay）/ 顺序
+Options/CompatOptions.cs      兼容性等级 → 「插件 → 模组设置（DSHCore）」里的一行（UiOptions.DeclareChoice）
 Compat/CompatConfig.cs        兼容性等级 + 单项开关（BepInEx config，与设置界面同一份数据）
 Ui/
   LoadoutPanel.cs             面板壳：Dialog 克隆 + 宽度 + 页签 + 拖动 + 自动关面板 + 每帧心跳

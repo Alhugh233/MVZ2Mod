@@ -1,5 +1,5 @@
 MVZ2 Mod 开发环境（不含 DSHCore 源码）
-DSHCore v{VERSION}  /  适配 MVZ2 0.7.0 test-4（Windows x86）
+DSHCore v{VERSION}  /  适配 MVZ2 0.7.0 test-10（Windows x86）
 
 ================================================================
 这是什么
@@ -29,7 +29,7 @@ Directory.Build.props），因此你不需要 DSHCore 的源码也能编译、
    （结尾的反斜杠不能少；这个文件不会被提交到版本库。）
 
    不想用文件也行，设一个环境变量即可：
-       setx MVZ2_GAME_DIR "E:\Game\PVZ\MVZ2\MVZ2 0.7.0 test-4\"
+       setx MVZ2_GAME_DIR "E:\Game\PVZ\MVZ2\MVZ2 0.7.0 test-10\"
 
 3) 用 VS Code 打开**本目录（工作区根）**，不要单独打开某个 mod 子目录。
    单独打开子目录会让语言服务器看不到 DSHCore，于是满屏

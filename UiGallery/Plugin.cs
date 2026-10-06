@@ -50,16 +50,22 @@ namespace UiGallery
             if (GalleryConfig.SelfTest)
                 ElementListWatchdog.Apply();
 
-            // ④ 示例设置项（General.SampleOptions，默认关闭）。
-            //    这是本 mod **唯一**会动到游戏内容的地方：注册一个 ModInfo + 两条设置定义，
-            //    用来示范 / 验证 DSHCore.Ui.UiOptions 那条路。其余部分保持零注入。
+            // ④ 示例设置项：注册到 DSHCore 自己的「模组设置」页（General.SampleOptions）。
+            //    这条路零注入 —— 不注册 ModInfo、不注册 Definition、不需要 XML。
             if (GalleryConfig.SampleOptions)
                 SampleOptions.Enable();
+
+            // ⑤ 另一条路的样例：把同样两条设置项放进**原版设置界面**
+            //    （General.SampleVanillaOptions，默认关闭）。开了它本 mod 会注册一个 ModInfo
+            //    （会出现在 mod 列表里）——这是它唯一会动到游戏内容的地方。
+            if (GalleryConfig.SampleVanillaOptions)
+                SampleVanillaOptions.Enable();
 
             Log.LogInfo("[Plugin] " + NAME + " v" + VERSION + " 已就绪。"
                 + "游戏内输入 /dshui 打开组件画廊"
                 + (GalleryConfig.SelfTest ? "（自测模式已开启，进主菜单后会自动打开并 dump）" : "")
-                + (GalleryConfig.SampleOptions ? "（示例设置项已启用）" : "")
+                + (GalleryConfig.SampleOptions ? "（模组设置页样例已启用）" : "")
+                + (GalleryConfig.SampleVanillaOptions ? "（原版设置界面样例已启用）" : "")
                 + "。");
         }
     }

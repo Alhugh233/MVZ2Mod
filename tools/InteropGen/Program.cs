@@ -11,7 +11,17 @@ using Mono.Cecil.Rocks;
 // 与 BepInEx 6.0.0-pre.2 内置 Il2CppInteropManager.RunIl2CppInteropGenerator 的行为对齐：
 //   - Generator 1.4.5（与 BepInEx/core/Il2CppInterop.Runtime.dll 1.4.5 匹配）
 //   - GameAssemblyPath = null（x86 下 ScanMethodRefs 默认关闭，与 BepInEx 一致）
-var gameDir = args.Length > 0 ? args[0] : @"E:\Game\PVZ\MVZ2\MVZ2 0.7.0 test-1";
+//
+// ⚠️ 已知**不等价**（2026-10-06 实测）：本工具没做 Il2CppInterop 的 unstrip 步骤。
+//    BepInEx 在游戏里生成 interop 时会打印
+//      [Il2CppInteropGen] Unstripping methods... Restored 14078 methods
+//    把被 IL2CPP 裁剪掉的 Unity 重载补回来；本工具不会，产物缺这些方法
+//    （典型：UnityEngine.Component.GetComponentInChildren<T>(bool)）。
+//    拿本工具的产物当编译引用，会让依赖这些重载的 mod 编译失败 —— 用 0.7.0 test-9 跑也一样，
+//    所以那是本工具的差异，不是游戏版本差异。
+//    ⇒ 正式 interop 一律用 BepInEx 在目标游戏目录里生成（UpdateInteropAssemblies=true 启动一次）；
+//      本工具只当「快速签名查询 / 应急」用。
+var gameDir = args.Length > 0 ? args[0] : @"E:\Game\PVZ\MVZ2\MVZ2 0.7.0 test-10";
 
 // 调试模式：打印指定 dll 中某类型的所有构造器
 if (args.Length >= 3 && args[0] == "check")

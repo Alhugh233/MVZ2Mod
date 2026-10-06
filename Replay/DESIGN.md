@@ -213,6 +213,16 @@ public static void DoHeldItemPointerEvent(this LevelEngine level, IHeldItemTarge
 
 - `LevelManager.InitLevel(areaID, stageID)`（`MVZ2/Level/LevelManager.cs`）：
   有存档则 `LoadLevel`，否则 `controller.InitLevel(Main.Game, areaID, stageID)`（**seed 参数缺省 0 → 随机**）。
+
+> ⚠️ **有存档时，`LoadLevel` 可能「什么都不做而且不报错」。**
+> 它先 `controller.ValidateGameStateHeader(header)`，比对的是存档首行的
+> `identifiers`（= 每个 mod 的 `Namespace` + `LevelDataVersion`，见
+> `LevelManager.GetLevelStateIdentifierList()`）与当前实际加载的 mod 集合；
+> 不等就 `ShowLevelMismatchLoadingDialog` 然后直接 `return` —— **引擎永远不会被建出来**，
+> 日志里一行错都没有。外面看到的症状就是 `ctrl != null && engine == null` 一直挂着。
+> 重建过 mod、换过 mod 组合之后，旧关卡存档就会变成这样（只能删掉那个 `.lvl`）。
+> 自测里的 `[SelfTest] DeleteLevelState` 就是为这种情况准备的。
+
 - `LevelController_Gameflow.cs`：`InitLevel(game, area, stage, seed)` → `level.Init(area, stage, seed)` →
   `StartLevelIntro(delay)`（**用 `CoroutineManager.DelaySeconds` 的实时延迟 + 开场对话**）→ `level.BeginLevel()` → `StartGame()`。
 - `StartGame()`（同文件）：
@@ -478,6 +488,187 @@ return entity;                                        // 否则返回锚点自�
 
 ⇒ 作者已在修；**在那之前，要验证回放一致性必须先关掉「显示赞助者名字」。**
 
+### 4.4.4 播放时的「假鼠标」：为什么只能走视觉通道
+
+**问题**：录下来的只有动作本身，**没有任何鼠标轨迹**；而 `bpkey`（数字键选卡）与
+`tool`（镐子/星之碎片/触发器）这两类事件**根本没有坐标**（`ReplayRecorder` 那两条
+不调 `AppendPos`），悬浮类事件又被当噪音整个丢掉。于是 `pointerScreen` 只在
+「带坐标的事件」派发的那一瞬间才变 —— 手持物停在原地、下一次点击时瞬移过去。
+
+**解法**：把离散路点在 **tick 空间**上插值成一条连续轨迹
+（暂停时自动冻住、加速时自动变快，都不用额外处理），行程压缩在
+「上一个路点 → 下一个路点」这段区间的最后 N 个 tick 里，缓动到站。
+
+**硬约束 —— 只换视觉，不换逻辑**。指针位置有 7 个消费者，其中 3 个**会改仿真**：
+
+| 消费者 | 性质 |
+| --- | --- |
+| `LevelController.UpdateHeldItemPosition` | 纯表现（手持物世界坐标） |
+| `EntityController.IsHPBarHovered` | 纯表现（血条悬停） |
+| `MinecartRideable.Update` | **矿车整车位置每 tick 由指针决定** |
+| `Snipenser.UpdateAI` | **朝向 → `ShootProjectile` 的速度向量** |
+| `BreakoutBoard` | **走 `POST_POINTER_ACTION` 的 `screenPos`** |
+| `CombatHeldItemBehaviour` / `SwordHeldItemBehaviour` | 在事件体内读，用于挥砍/拖拽方向 |
+
+⇒ 所以**绝不能**把平滑值写进 `ReplayPlayer.pointerScreen`。做法是给
+`LevelController.UpdateHeldItemPosition` 挂上「前缀换值 + 后缀立刻还原」，
+让这个方法内部看到假鼠标的位置（游戏自己会 `ScreenToWorldPoint` +
+`SetHeldItemPosition`），方法之外的一切代码看到的仍是事件原值。
+
+**另外还要画一个光标**：手持物品时物品模型**就是**指针（`HeldItemCursorSource` 把系统光标
+设成 `CursorType.Empty`），但什么都没拿的时候游戏不画任何指针 —— 那时光标是系统光标，
+停在玩家自己的鼠标位置上。所以额外克隆一张**游戏原生的光标贴图**
+（`CursorManager.cursorDatas` 里 `CursorType.Arrow` 那张，就是游戏给硬件光标用的贴图）
+画在假鼠标的位置上；同时把系统光标强制保持成系统默认样式，两者才好区分。
+
+### 4.4.5 回放收尾：为什么必须拦掉原版的通关 / 失败流程
+
+回放重演的是**一局已经打完的关卡**，所以它会再次「通关」或「失败」。这两条路原版都会
+去动**玩家存档**，直接放过去是真事故：
+
+| 原版行为 | 为什么不能放 |
+| --- | --- |
+| `LevelController.OnEngineClearCallback` → `RemoveLevelState()` | **删掉该关卡的存档文件**（`level/*.lvl`）。看个回放就把自己没打完的进度删了 |
+| 同上 → 解锁关卡 + 写难度记录 | 玩家可能根本没通过这一关 / 没打过这个难度 |
+| 同上 → 通关对话 + `StartExitLevelTransition` 退场动画 | 和我们的结束面板并排出现，而且落点还会跑去地图 |
+| `ShowGameOverDialog()` | 同样会和结束面板重复 |
+
+所以回放期间这两个方法**前缀拦掉**，改由 `ReplayPlayer.NotifyLevelCleared()` /
+`NotifyGameOver()` 走 `FinishPlayback(reason)`（弹结束面板）。
+
+> ⚠️ **没拦住的部分（已知）：** 通关时 `LevelEngine.Clear()` 还会自己跑
+> `Triggers.RunCallback(POST_LEVEL_CLEAR, …)`，全局统计 / 金钱那一批回调**照旧会执行**。
+> 那是在引擎层，不在我们能干净拦下的位置。
+
+**落点**：`ExitLevel()` 按 `LevelExitTarget` 决定去哪，默认 0 = `Scene.GotoMapOrMainmenu()`。
+「结束播放」「退出」要回的是**回放页**，所以拦 `MainSceneController.GotoMapOrMainmenu`，
+在 `ReplayPlayer.WantsReplayPage` 为真时改成 `DisplayAddons(null)`（插件页），
+再由回放页自己的 `RequestOpen()` / `TryOpenPending()` 把面板打开。
+
+### 4.4.6 回放里的关卡菜单：文案挂钩点的选择
+
+「重新开始 → 重新播放」「返回地图 → 结束播放」只改**文案 + 点击行为**两处：
+
+- **文案**：挂 `OptionsDialogController.UpdateRestartButton` / `UpdateLeaveLevelButton`
+  **后缀**。原版每次刷新菜单（切页 / 改语言 / 重新打开）都会先跑这两个方法，
+  跟在后面覆盖就不会出现「先对后错」。比在 `ShowOptionsDialog` 里写一次稳。
+- **行为**：前缀拦 `OnMainPageButtonClickCallback(ButtonType)`，把那两个枚举值换成
+  我们自己的确认框 + `RestartCurrent()` / `FinishFromMenu()`。
+
+#### 4.4.6.1 两个踩过的坑（都有自测）
+
+**① 菜单的「重新播放」点了没反应。** 原来回调里直接调 `ReplayPlayer.Start(name)`，
+而 `Start()` 开头第一句是
+
+```csharp
+if (IsActive) return "[replay] 已经在播放了…";
+```
+
+回放**播到一半**时 `phase == Playing` ⇒ `IsActive` 为真 ⇒ 这条 `return` 直接命中，
+函数返回一句提示字符串（没人读），菜单按钮就此静默失效。
+修法：`RestartCurrent()` 里**先 `Stop("restart")` 再 `Start(name)`** ——
+先收尾（停 HUD、收假鼠标、卸钩子、清 `bound`），把 `IsActive` 落到 false，再重开。
+
+**② 菜单的「结束播放」应该弹结束面板，而不是直接退关卡。** 原来它走
+`EndToReplayPage()`（结束 + 回放页），于是「播到一半想结束」和「播完了」是两套完全不同的收尾。
+现在统一成 `FinishFromMenu()` → `FinishPlayback("manual-end")`：
+和「自然播完 / 通关 / 失败」走**同一条收尾路径**，弹出同一个结束面板，
+由面板上的「退出」再去 `EndToReplayPage()`。面板里能导出、重播，比直接退出去合理。
+
+> ⛔ 两个回调都必须**先 `CloseLevelOptionsMenu()` 再动手**。真正把菜单框体收起来的是
+> `LevelController.ResumeGame` 里的 `ui.SetOptionsDialogActive(false)` ——
+> 光调 `optionsDialogController.Close()` 只清 context、**不收框体**，
+> 结果是「结束面板叠在还开着的菜单上面」（玩家能看见底下那半透明的菜单）。
+> 也不能指望 `Close()` 触发的那条 `ResumeGameDelayed` 协程：它要下一帧才跑，
+> 那时结束面板已经弹出来了，会被 `ResumeGame` 第一段的
+> `if (Main.Scene.HasDialog()) return false;` 挡掉，菜单就永远留在屏幕上了。
+
+> ⛔ **必须用「关卡自己的那个」控制器。** 场景里主菜单（`Mainmenu/Canvas/OptionsDialog`）
+> 和地图（`Map/Canvas/OptionsDialog`）各有一套同类型的 `OptionsDialogController`，
+> `UiFinder.FindOne<OptionsDialogController>()` 会挑到它们；它们的 `ui.Main` 挂在
+> 未激活节点下，写进去的文案**永远看不见，而且不报任何错**。
+> 唯一正确来源是 `LevelController.optionsDialogController`（放在 Harmony 参数里当
+> `__instance` 传进来最省事）。
+
+### 4.4.7 收尾落点与「回放页」的边界（以及那个黑屏 bug）
+
+「结束播放 / 退出」的落点挂在 `MainSceneController.GotoMapOrMainmenu` 上（游戏里唯一
+「打完一局去哪」的决策点，改它就不用往 `ExitLevel` 的清理流程里插脚）。
+
+**曾经的写法**：`DisplayAddons(null)` + 挂一个「待会儿开面板」的单，等 `Tick()` 下一轮
+（≥20 帧）满足条件再开。两个问题：
+
+1. **会闪一帧插件页** —— `DisplayAddons` 是同步切页（`DisplayPage` 立刻
+   `SetActive`），而面板要等关卡场景卸完 + 20 帧节流。玩家看到的是
+   「先跳出插件页的资源包/语言按钮，再变成回放页」。
+   修法：在**同一帧**里 `DisplayAddons(...)` → `ReplayPage.PumpNow()`（内部把
+   `Tick()` 的节流绕过去，也跳过「关卡已卸完」那条检查 —— 面板挂在主场景的
+   `GlobalUICanvas/Dialogs`，关卡是**另加载的场景**，卸它动不到我们）。
+2. **点插件的「返回」必黑屏** —— 传的 `onReturn` 是 `null`，而
+   `MainScenePage.Return()` 是 `OnReturnClick?.Invoke(); Hide();`：回调查空、
+   页面照样 `SetActive(false)`，于是**全灭且没有东西顶上来**。
+   修法：把 `onReturn` 接到 `DisplayMainmenuToBasement`，并给 `ReplayPage` 一个
+   「关掉面板之后去哪」（`SetReturnTo`）—— 从关卡直接落过来的那次，关面板就直接回主菜单，
+   而不是把插件页的索引亮出来（玩家压根没经过那一页）。
+   正常从插件页点「回放」进入时 `SetReturnTo(null)`，行为不变。
+
+### 4.4.8 导入 / 导出走原生文件对话框（以及一个 interop 陷阱）
+
+「切换存档 → 导入 / 导出」用的就是 `StandaloneFileBrowser`（游戏层的薄封装是
+`MVZ2.IO.FileHelper`）。所以这里也用它：
+
+| 动作 | 调用 |
+| --- | --- |
+| 导出（另存为）| `SFB.StandaloneFileBrowser.SaveFilePanel(title, dir, defaultName, "mrep")` → 返回路径 |
+| 导入（打开）| `SFB.StandaloneFileBrowser.OpenFilePanel(title, dir, "mrep", false)` → 返回 `Il2CppStringArray` |
+
+> ⚠️ **不要直接用 `FileHelper.SaveExternalFile` / `OpenExternalFile`**：它们是
+> `async Task<string>`，在 interop 里变成 `Il2CppSystem.Threading.Tasks.Task<string>`
+> —— 这个类型**不派生自** `System.Threading.Tasks.Task`（base 是 `Il2CppSystem.Object`），
+> 既没有 `GetAwaiter()` 也没有 `ContinueWith()`，**await 不了、`.Result` 也没有**。
+> 而 Windows 下这些包装本来就只是「同步调 SFB + 回调」，直接调 SFB 既等价又同步。
+> （签名用 `tools/dump-interop-signature.ps1` 核过。）
+
+**导出结果不另弹提示框**：游戏的 `CustomDialog` 是**单实例复用 + 排队显示**的
+（`MainSceneUI.dialog` 就一个），链式弹窗（面板 → 提示 → 再弹回面板）会踩到时序 ——
+实测出现「面板的逻辑已经换到第三个了、屏幕上挂着的还是第一个」。
+现在整条链上始终**只有一个**对话框：导出结果直接拼进面板正文的最后一行再重弹同一个面板。
+
+### 4.4.9 假鼠标的尺寸，以及为什么去掉了「接管系统光标」
+
+- **尺寸**：`[Visual] FakeMouseScale`。画布是「屏幕空间-相机」，`sizeDelta` 最终要写
+  `贴图尺寸 × (canvasRect.width / Screen.width) × scale`（前一段是 UI 单位↔像素换算，
+  后一段是给玩家的手感微调）。
+- **去掉了 `FakeMouseSystemCursor`**：那套代码是在 `CursorManager.UpdateCursor` 后面
+  强制 `Cursor.visible = true` + `SetCursor(null, ...)`，把游戏的光标决定当场撤销。
+  实际用起来没有价值（假鼠标是**画在画布上**的，和硬件光标互不影响），
+  却引入了「每 tick 兜底检查 + 退出时还原」这一堆状态。现在整段删掉，
+  回放期间系统光标完全交给游戏自己管。
+
+### 4.4.10 「关卡里自动写出回放」为什么必须是可关的（默认关）
+
+录制过程中 `ReplayRecorder.NotifyTick` 每 tick 都会被调。它原来会在 `tick` 走过
+`AutoSaveTicks = 600`（= 20 秒）的整数倍时无条件 `Write("autosave")` ——
+**每 20 秒往回放目录落一次盘**。两个后果：
+
+1. 玩家只是正常玩关卡，回放目录里就不断冒出新文件（如果 `AutoRecord` 也开着），
+   外加触发 `ReplayLibrary.Prune()` 去删「最旧的」（可能删掉玩家想留的那条）。
+2. `Write()` 会**整体重写** `name + ".mrep"` 与（若开了 `WritePlainText`）`.mrep.json`，
+   20 秒一次、每次都是整段 GZip，白烧磁盘。
+
+现在两处都默认关：
+
+- `[General] AutoRecord = false` —— 进关卡**不**自动开录（要录就回放页按「录制」/ `/replay rec`
+  / 手动把配置打开）。`ReplayRecorder.Finish()` 在 `!armed` 时直接返回，
+  所以没开录就必然不会有文件。
+- `[General] AutoSave = false` —— `NotifyTick` 里那次落盘改成
+  `if (ReplayConfig.GetAutoSave() && tick >= nextAutoSaveTick)`。
+  关着时文件**只在录制结束**时落盘一次（离开关卡 / 退出游戏 / 手动停止）。
+  开着才回到「每 20 秒兜底」的旧行为。
+
+> 结论：默认配置下「关卡里不会自己冒出回放文件」。这条有硬性验收 ——
+> 自测跑完只允许出现 **1 条** `[Replay] 已写出回放` 日志（就是手动停止那一次）。
+
 ### 4.5 一致性保障：指纹校验（这是「必须确保一致」的抓手）
 
 在每个检查点（如每 30 tick / 每秒）记录一条**状态指纹**：
@@ -570,7 +761,7 @@ tick | levelTime | currentEntityID | entityCount | energy | currentWave | 7×RNG
 
 ```
 第 1 行   JSON header（可读，便于排障）
-          {"magic":"mrep","ver":1,"game":"0.7.0 test-9","created":"...",
+          {"magic":"mrep","ver":1,"game":"0.7.0 test-10","created":"...",
            "area":"mvz2:...","stage":"mvz2:...","seed":123456,"tickCount":18000}
 第 2 段   起始状态（取法1: SerializableLevel 的 BSON；取法2: 配置描述块 JSON）
 第 3 段   动作流（二进制，varint 编码）
@@ -647,8 +838,8 @@ string type, varint priority（或存 NamespaceID）
 ## 8. 实施计划（分阶段）
 
 **阶段 0：环境**
-- [ ] 把 BepInEx（be.788 x86 IL2CPP）装进 `test-9`，`UpdateInteropAssemblies=true` 启动一次生成 interop。
-- [ ] `.\tools\sync-runtime.ps1 -GameDir "E:\Game\PVZ\MVZ2\MVZ2 0.7.0 test-9"` 刷新仓库 `runtime/`。
+- [ ] 把 BepInEx（be.788 x86 IL2CPP）装进 `test-10`，`UpdateInteropAssemblies=true` 启动一次生成 interop。
+- [ ] `.\tools\sync-runtime.ps1 -GameDir "E:\Game\PVZ\MVZ2\MVZ2 0.7.0 test-10"` 刷新仓库 `runtime/`。
 - [ ] 用 `tools/dump-interop-signature.ps1` 核对关键类型/方法是否齐全（见第 10 节）。
 
 **阶段 1：脚手架**
@@ -683,7 +874,7 @@ string type, varint priority（或存 NamespaceID）
 | 起始确定性 | 预敌人/开场对话可能消耗关卡 RNG | **优先用完整起始关键帧**（取法 1） |
 | Dictionary 顺序 | 迭代顺序理论可变 | 指纹校验点兜底；偏差时记录重同步关键帧 |
 | 版本漂移 | 游戏更新后 tick 语义/序列化变化 | `.mrep` header 写 `game` 版本 + mod 版本；不匹配拒绝播放 |
-| interop 过期 | test-9 尚未生成 interop | 阶段 0 必做（否则 native AV） |
+| interop 过期 | test-10 尚未生成 interop | 阶段 0 必做（否则 native AV） |
 
 ---
 
@@ -698,7 +889,7 @@ string type, varint priority（或存 NamespaceID）
 4. 起始关键帧在不同关卡下的体积（是否可接受）。
 5. `level.FindEntityByID` 能否在回放时稳定还原所有 `HeldItemTargetEntity`（实体 ID 一致性）。
 6. 播放时 `LoadGame` 的副作用（`PauseGame` / 「载入完成」弹窗 / `levelLoaded=true`）如何优雅跳过。
-7. 用 `tools/dump-interop-signature.ps1` 确认以下类型/方法在 test-9 interop 中可用：
+7. 用 `tools/dump-interop-signature.ps1` 确认以下类型/方法在 test-10 interop 中可用：
    `MVZ2Logic.Level.LogicLevelExt`（扩展方法）、`MVZ2.Level.HeldItems.HeldItemComponent`、
    `MVZ2.Level.LevelController`（`StartGame`/`UpdateInput`/`SaveGame`/`LoadGame`）、
    `PVZEngine.Level.LevelEngine`（`Update`/`GetLevelTime`/`FindEntityByID`）、

@@ -90,6 +90,7 @@ namespace Replay
                 }
 
                 PlaceBelow(src);
+                NoWrapRight();
                 label.text = "REC 0/0";
                 try { label.raycastTarget = false; } catch (Exception) { }
                 lastText = label.text;
@@ -105,10 +106,30 @@ namespace Replay
         }
 
         /// <summary>
-        /// 把标签锚到难度文字的下边缘正中。
+        /// <c>REC 17278/17425</c> 必须**排成一行**，并且贴着右边对齐。
         ///
-        /// <para>锚点用「底部中心」+ 枢轴「顶部中心」，所以 <c>anchoredPosition=(0,-2)</c>
-        /// 就是「紧贴父节点下边缘、水平居中」——无论父节点是被布局组拉宽的还是本身固定宽。</para>
+        /// <para>克隆来的标签继承了难度文字那一套 TMP 设置，其中「自动换行」开着、宽度又是照着
+        /// 「困难」两个字算的 —— 数字一长就折成 <c>REC</c> / <c>17278/17</c> / <c>425</c> 三行
+        /// （实测就是这么翻车的，见提交里那张截图）。</para>
+        ///
+        /// <para>对齐方式也要显式设：原点距虽在，但文本在框内的排布是 TMP 自己决定的，
+        /// 不设就是继承来的居中，右对齐后数字往左长，不会把「REC」挤到难度文字外面去。</para>
+        /// </summary>
+        private static void NoWrapRight()
+        {
+            if (label == null)
+                return;
+            try { label.enableWordWrapping = false; } catch (Exception) { }
+            try { label.overflowMode = TextOverflowModes.Overflow; } catch (Exception) { }
+            try { label.alignment = TextAlignmentOptions.Right; } catch (Exception) { }
+        }
+
+        /// <summary>
+        /// 把标签锚到难度文字的下边缘**右侧**。
+        ///
+        /// <para>锚点用「右下角」+ 枢轴「右上角」，所以 <c>anchoredPosition=(0,-2)</c>
+        /// 就是「紧贴父节点右下角、水平向右对齐」——文字变长时往左长，
+        /// 永远不会越过父节点右边缘（要的就是「右对齐」）。</para>
         /// </summary>
         private static void PlaceBelow(RectTransform src)
         {
@@ -116,9 +137,9 @@ namespace Replay
                 return;
             try
             {
-                self.anchorMin = new Vector2(0.5f, 0f);
-                self.anchorMax = new Vector2(0.5f, 0f);
-                self.pivot = new Vector2(0.5f, 1f);
+                self.anchorMin = new Vector2(1f, 0f);
+                self.anchorMax = new Vector2(1f, 0f);
+                self.pivot = new Vector2(1f, 1f);
                 self.anchoredPosition = new Vector2(0f, -2f);
 
                 // 换锚点会让 sizeDelta 的含义从「相对锚点的偏移」变成「自身尺寸」，

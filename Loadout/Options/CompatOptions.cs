@@ -1,67 +1,48 @@
 using System;
 using System.Text;
-using DSHCore;
 using DSHCore.Ui;
-using HarmonyLib;
-using MVZ2;
-using MVZ2.Managers;
-using MVZ2.Modding;
-using MVZ2Logic;
-using MVZ2Logic.Commands;
-using MVZ2Logic.Games;
-using MVZ2Logic.Modding;
-using MVZ2Logic.Options;
-using PVZEngine;
 
 namespace Loadout
 {
     /// <summary>
-    /// 把**兼容性等级**做成原版设置界面里的一行（菜单 → 更多选项 → **游戏**一栏下方）。
+    /// 把**兼容性等级**做成一行设置项，出现在 **「插件 → 模组设置（DSHCore）」** 里
+    /// （本 mod 名下）。
     ///
-    /// <para>做法完全照 <c>DSHCore.Ui.UiOptions</c> 的标准三步（那是本仓库为「给原版设置界面加一项」
-    /// 备好的封装，活样本见 <c>UiGallery/SampleOptions.cs</c>）：</para>
-    /// <list type="number">
-    /// <item><b>声明</b>（<see cref="Enable"/> ← 插件 <c>Load()</c>，纯托管）：</item>
-    /// <item><b>登记</b>（<see cref="LoadStagesPrefix"/> ← 官方 <c>ModLoader.LoadStages</c> 时机）：
-    /// <c>Mod.AddDefinition</c> 必须落在 <c>LoadDefinitions</c> 内、<c>game.AddMod</c> 之前；</item>
-    /// <item><b>写属性</b>（<c>LoadoutMod.PostInit</c> ← <c>UiOptions.ApplyProperties</c>）：
-    /// 写早了会被**静默丢弃**（属性键那时还没就绪）。</item>
-    /// </list>
+    /// <para><b>为什么不再是原版设置界面里的那一行：</b>那需要注入一个真的 <c>ModInfo</c> +
+    /// 注入定义类 + 一份 <c>options.xml</c> + 严格的三时机，而这一项本来就是本 mod 自己的东西。
+    /// 现在 <see cref="UiOptions"/> 默认把它注册到本库自己的模组设置页 ——
+    /// **零注入、不需要 Mod 实例、不需要 XML**：本 mod 从此是真·零注入
+    /// （不注册 il2cpp 类型、不注册 Definition、不注册 ModInfo）。</para>
     ///
     /// <para><b>值存哪</b>：就是原来那个 BepInEx 配置项 <c>Compat.CompatLevel</c> ——
-    /// 设置界面与配置文件是**同一份数据**，谁改都立刻生效，也不用迁移老用户的值。
+    /// 界面与配置文件是**同一份数据**，谁改都立刻生效，也不用迁移老用户的值。
     /// 所以这里只提供 <c>getter</c>/<c>setter</c> 两个回调。</para>
     ///
-    /// <para><b>为什么用下拉框而不是滑条</b>：三个值是有名字的枚举（Safe / Standard / Full），
-    /// 官方对同类东西用的就是下拉框（血条数值模式、分辨率）。</para>
+    /// <para><b>为什么用「选择」而不是滑条</b>：三个值是有名字的枚举
+    /// （Safe / Standard / Full），滑条表达不了名字。</para>
+    ///
+    /// <para><b>⚠ 渲染形态</b>：在模组设置页里多值项是**按钮行**（「标签：当前值」，点一下切到下一个值），
+    /// 不是下拉框 —— 原版 <c>TMP_Dropdown</c> 的展开列表在本环境一个像素都画不出来，
+    /// DSHCore 不提供它的替代实现（见 <c>DSHCore/UI_GUIDE.md</c> §9）。</para>
     /// </summary>
     internal static class CompatOptions
     {
-        /// <summary>设置项 id（完整 id = <c>loadout:compat_level</c>）。</summary>
-        public const string DropdownId = "compat_level";
+        /// <summary>本 mod 的命名空间（设置项 id 就是 <c>loadout:compat_level</c>）。</summary>
+        public const string SpaceName = "loadout";
 
-        /// <summary>排在「游戏」那一栏已有条目的**下方**。</summary>
+        /// <summary>设置项 id。</summary>
+        public const string ChoiceId = "compat_level";
+
+        /// <summary>排序权重（同一 mod 内的顺序）。</summary>
         private const int Order = 900;
 
-        /// <summary>由插件 <c>Load()</c> 调用：登记命名空间 + 声明设置项 + 挂登记补丁。</summary>
+        /// <summary>由插件 <c>Load()</c> 调用：声明这一行（纯托管，不碰游戏）。</summary>
         public static void Enable()
         {
             try
             {
-                // 登记命名空间 + 注册注入类（必须在任何实例化之前）。
-                ModBootstrap.Register(
-                    spaceName: LoadoutMod.spaceName,
-                    logicType: typeof(LoadoutMod),
-                    xmlDefaultNamespace: "mvz2");
-
-                InjectedDefinitions.Apply();
-                InjectedDefinitions.Register(LoadoutMod.spaceName);
-
                 Declare();
-                ApplyPatch();
-
-                ModInfos.OnRegister(OnRegisterModInfos);
-                Plugin.Log?.LogInfo("[CompatOptions] 已启用（兼容性等级会出现在「设置 → 更多选项 → 游戏」里）");
+                Plugin.Log?.LogInfo("[CompatOptions] 已启用（兼容性等级会出现在「插件 → 模组设置（DSHCore）」里）");
             }
             catch (Exception e)
             {
@@ -69,170 +50,88 @@ namespace Loadout
             }
         }
 
-        /// <summary>纯托管：把这一行声明出来（不碰游戏）。</summary>
+        /// <summary>纯托管：把这一行声明出来。</summary>
         private static void Declare()
         {
-            try
-            {
-                UiOptions.DeclareDropdown(
-                    LoadoutMod.spaceName, DropdownId,
-                    category: "gameplay",
-                    label: "兼容性等级",
-                    tooltip: "本 mod 会接管多少原版行为。等级不够的功能在面板里是**置灰**的，调上去立刻生效，不用重启。\n"
-                        + "Safe     = 只用原版已有的属性与接口，不挂任何会改行为的补丁。\n"
-                        + "Standard = 默认。额外接管「面板打开时游戏速度=0」「选卡显示所有蓝图」「蜘蛛图标作为入口」"
-                        + "，以及蓝图页的「血量 / 白天不睡觉」。\n"
-                        + "Full     = 全部功能，含需要替换官方行为的危险项（传送带卡池接管 / 逆阵营放置 / 无条件放置）。",
-                    order: Order,
-                    getter: () => CompatConfig.LevelIndex,
-                    setter: CompatConfig.SetLevelIndex,
-                    fillItems: FillItems);
-            }
-            catch (Exception e)
-            {
-                Plugin.Log?.LogError("[CompatOptions] Declare error: " + e);
-            }
+            // 本 mod 不再注册 ModInfo（零注入），所以自己要给“模组设置”页一个介绍 ——
+            // 否则列表里只会显示裸命名空间 loadout。
+            // 名字/说明/作者都是**可翻译的源串**（第三个之后的参数里给的是译文）。
+            UiOptions.DeclareMod(SpaceName, "MVZ2 Loadout",
+                "图形化控制台面板（调试工具，替代原版控制台输入窗）", "QoZnoS", "图形化控制台");
+
+            UiOptions.DeclareChoice(
+                SpaceName, ChoiceId,
+                category: "gameplay",      // 只有「同时进原版设置界面」时才用得到
+                label: "兼容性等级",
+                items: LevelNames(),
+                tooltip: "本 mod 会接管多少原版行为。等级不够的功能在面板里是**置灰**的，调上去立刻生效，不用重启。\n"
+                    + "Safe     = 只用原版已有的属性与接口，不挂任何会改行为的补丁。\n"
+                    + "Standard = 默认。额外接管「面板打开时游戏速度=0」「选卡显示所有蓝图」「蜘蛛图标作为入口」"
+                    + "，以及蓝图页的「血量 / 白天不睡觉」。\n"
+                    + "Full     = 全部功能，含需要替换官方行为的危险项（传送带卡池接管 / 逆阵营放置 / 无条件放置）。\n"
+                    + "点一下这一行就切到下一个等级。",
+                order: Order,
+                getter: () => CompatConfig.LevelIndex,
+                setter: CompatConfig.SetLevelIndex);
         }
 
-        /// <summary>
-        /// 下拉框的选项文案。
-        ///
-        /// <para>⚠ 形参必须是 <c>Il2CppSystem.Collections.Generic.List&lt;string&gt;</c> ——
-        /// interop 里官方的 <c>OptionDropdownDefinition.FillItems</c> 就是这个类型
-        /// （托管 <c>List&lt;string&gt;</c> 对不上，编译期就报）。</para>
-        /// </summary>
-        private static void FillItems(Il2CppSystem.Collections.Generic.List<string> items)
+        /// <summary>三个等级的名字（托管数组 —— 不需要构造 il2cpp 的 List）。</summary>
+        private static string[] LevelNames()
         {
-            if (items == null)
-                return;
-            for (var i = 0; i < CompatConfig.Levels.Length; i++)
-                items.Add(CompatConfig.LevelName(CompatConfig.Levels[i]));
-        }
-
-        /// <summary>
-        /// 注册本 mod 的 <c>ModInfo</c>。
-        ///
-        /// <para>这一步让 Loadout **出现在 mod 列表里** —— 没有 Mod 实例就没有
-        /// <c>mod.AddDefinition</c>，这是那一行设置项的必要代价。</para>
-        /// </summary>
-        private static Il2CppSystem.Threading.Tasks.Task OnRegisterModInfos(
-            IGlobalGame game,
-            Il2CppSystem.Collections.Generic.List<ModInfo> results)
-        {
-            try
-            {
-                var logic = LoadoutMod.CreateInstance();
-                VTableRebind.Ensure(typeof(LoadoutMod));
-                results.Add(ModInfos.Create(LoadoutMod.spaceName, logic, "MVZ2 Loadout（图形化控制台）"));
-                Plugin.Log?.LogInfo("[CompatOptions] ModInfo 已注册（" + LoadoutMod.spaceName + "）");
-            }
-            catch (Exception e)
-            {
-                Plugin.Log?.LogError("[CompatOptions] OnRegisterModInfos error: " + e);
-            }
-            return Il2CppSystem.Threading.Tasks.Task.CompletedTask;
-        }
-
-        /// <summary>在官方 <c>ModLoader.LoadStages</c> 时机登记（<c>Mod.AddDefinition</c> 的硬要求）。</summary>
-        private static void ApplyPatch()
-        {
-            try
-            {
-                var target = AccessTools.Method(typeof(ModLoader), "LoadStages");
-                if (target == null)
-                {
-                    Plugin.Log?.LogError("[CompatOptions] 找不到 ModLoader.LoadStages");
-                    return;
-                }
-                new Harmony(Plugin.GUID + ".compatoptions").Patch(target,
-                    prefix: new HarmonyMethod(typeof(CompatOptions), nameof(LoadStagesPrefix)));
-            }
-            catch (Exception e)
-            {
-                Plugin.Log?.LogError("[CompatOptions] 挂钩失败：" + e.GetType().Name + ": " + e.Message);
-            }
-        }
-
-        private static void LoadStagesPrefix(Mod mod)
-        {
-            try
-            {
-                // 判定归属必须用 NamespaceOf（先比 native 指针）：注入实例的 mod.Namespace
-                // 字符串存在被 GC 回收的窗口，直接比字符串会让登记静默失败。
-                if (InjectedDefinitions.NamespaceOf(mod) != LoadoutMod.spaceName)
-                    return;
-                ModNamespacePin.Ensure(mod, LoadoutMod.spaceName);
-                var n = UiOptions.Attach(mod);
-                Plugin.Log?.LogInfo("[CompatOptions] LoadStages：已登记 " + n + " 条设置项");
-            }
-            catch (Exception e)
-            {
-                Plugin.Log?.LogError("[CompatOptions] Attach error: " + e);
-            }
+            var levels = CompatConfig.Levels;
+            var names = new string[levels.Length];
+            for (var i = 0; i < levels.Length; i++)
+                names[i] = CompatConfig.LevelName(levels[i]);
+            return names;
         }
 
         // ------------------------------------------------------------------
-        // 验收：复刻官方渲染判据（自测用）
+        // 验收
         // ------------------------------------------------------------------
 
         /// <summary>
-        /// 「这一行到底会不会出现在设置界面里」的可读结论。
+        /// 「这一行会不会出现在模组设置页里」的可读结论（自测用）。
         ///
-        /// <para>判据就是**官方渲染代码自己的判据**
-        /// （<c>OptionsDialogController.UpdateMoreOptionsPageWidgets</c>）：
-        /// 定义在官方表里 → <c>ShouldEnable</c> → <c>GetCategoryID()</c> 有效 →
-        /// 该分类的 meta 存在（否则整组**静默消失**）→ 类型是下拉框 → <c>FillItems</c>/<c>GetValue</c> 可读。
-        /// 全部满足就一定会被画出来，不必人肉去点设置界面。</para>
+        /// <para>判据是模组设置页自己的取数逻辑：<see cref="UiOptions.ForPage"/>
+        /// 能拿到这条声明、且它带 getter/setter（否则页面会渲染成只读行）。</para>
         /// </summary>
         public static string Report()
         {
-            var sb = new StringBuilder(400);
+            var sb = new StringBuilder(300);
             try
             {
-                var main = MainManager.Instance;
-                if (main == null)
-                    return "（MainManager 未就绪）";
-                var game = Global.Game;
-                if (game == null)
-                    return "（Global.Game 未就绪）";
-                // ⚠ IGlobalGame 上看不到 IGameContent 的扩展方法 → 按指针包壳 + 静态调用
-                //   （与 AllBlueprintsPatch 里 GetDefinitions 的写法同源）。
-                var content = new IGameContent(game.Pointer);
-                var id = new NamespaceID(LoadoutMod.spaceName, DropdownId);
-                var def = LogicGameDefinitionsExt.GetOptionWidgetDefinition(content, id);
-                sb.Append("兼容性等级设置项 ").Append(id.SpaceName).Append(':').Append(id.Path);
-                if (def == null)
+                sb.Append("兼容性等级（").Append(SpaceName).Append(':').Append(ChoiceId).Append("）：\n");
+
+                var mine = UiOptions.ForPage(SpaceName);
+                sb.Append("  模组设置页里的行数 = ").Append(mine.Length).Append('\n');
+
+                UiOptions.Declaration found = null;
+                for (var i = 0; i < mine.Length; i++)
                 {
-                    sb.Append("：**不在官方表里**（登记失败）");
+                    if (mine[i].Name == ChoiceId)
+                        found = mine[i];
+                }
+                if (found == null)
+                {
+                    sb.Append("  ❌ **这一条不在模组设置页的取数结果里**（声明没生效？）");
                     return sb.ToString();
                 }
-                sb.Append(" 类型=").Append(def.GetItemType());
 
-                var category = def.GetCategoryID();
-                var valid = NamespaceID.IsValid(category);
-                sb.Append(" 分类=").Append(valid ? category.SpaceName + ":" + category.Path : "<null>");
-                var meta = valid ? main.ResourceManager.GetOptionCategoryMeta(category) : null;
-                sb.Append(" 分类meta=").Append(meta == null ? "**没有（整组会被丢掉）**" : "有");
-                sb.Append(" 标签=「").Append(def.GetLabel() ?? "").Append('」');
-
-                var dropdown = def.TryCast<OptionDropdownDefinition>();
-                if (dropdown == null)
-                {
-                    sb.Append("  ⚠ 不是 OptionDropdownDefinition（类型模式对不上，画不出来）");
-                    return sb.ToString();
-                }
-                var items = new Il2CppSystem.Collections.Generic.List<string>();
-                dropdown.FillItems(null, items);
-                sb.Append(" 选项=").Append(items.Count).Append('[');
-                for (var i = 0; i < items.Count; i++)
+                sb.Append("  行类型 = ").Append(found.PageKind)
+                  .Append("  可编辑 = ").Append(found.CanEdit ? "是" : "**否（会渲染成只读行）**").Append('\n');
+                var items = found.Items;
+                sb.Append("  选项 = ").Append(items.Length).Append('[');
+                for (var i = 0; i < items.Length; i++)
                 {
                     if (i > 0)
                         sb.Append(" / ");
                     sb.Append(items[i]);
                 }
-                sb.Append("] 当前值=").Append(dropdown.GetValue(null));
-                sb.Append("  判据 可渲染=").Append(valid && meta != null && items.Count > 0 ? "OK" : "NG");
-                sb.Append("  当前等级=").Append(CompatConfig.Level);
+                sb.Append("]\n");
+                sb.Append("  当前值 = ").Append(found.CurrentItemText)
+                  .Append("（下标 ").Append(found.CurrentIndex).Append("）\n");
+                sb.Append("  判据 会出现在模组设置页 = ")
+                  .Append(found.CanEdit && items.Length > 0 ? "OK" : "NG");
             }
             catch (Exception e)
             {

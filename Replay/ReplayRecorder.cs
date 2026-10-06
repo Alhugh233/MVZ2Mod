@@ -47,7 +47,10 @@ namespace Replay
         /// <summary>关键帧抓取失败后，还重试多少个 tick 就放弃。</summary>
         private const int KeyframeRetryTicks = 5;
 
-        /// <summary>自动落盘间隔（tick）。600 tick = 20 秒。</summary>
+        /// <summary>
+        /// 自动落盘间隔（tick）。600 tick = 20 秒。
+        /// <para>要不要用它由 <see cref="ReplayConfig.GetAutoSave"/> 决定（**默认关**）。</para>
+        /// </summary>
         private const int AutoSaveTicks = 600;
 
         /// <summary>
@@ -212,7 +215,9 @@ namespace Replay
                     nextFingerprintTick = tick + interval;
                 }
 
-                if (tick >= nextAutoSaveTick)
+                // 「关卡里自动写出回放」只在配置打开时才做（默认关，见 GetAutoSave）。
+                // 关着的时候文件只在**录制结束**时落盘一次。
+                if (ReplayConfig.GetAutoSave() && tick >= nextAutoSaveTick)
                 {
                     nextAutoSaveTick = tick + AutoSaveTicks;
                     Write("autosave");
@@ -1003,7 +1008,7 @@ namespace Replay
             sb.Append("{\"magic\":\"mrep\"");
             sb.Append(",\"ver\":").Append(Json.Num(FormatVersion));
             sb.Append(",\"mod\":").Append(Json.Str(Plugin.VERSION));
-            sb.Append(",\"game\":\"0.7.0 test-9\"");
+            sb.Append(",\"game\":\"0.7.0 test-10\"");
             sb.Append(",\"tps\":30");
             sb.Append(",\"created\":").Append(Json.Str(DateTime.Now.ToString("s", CultureInfo.InvariantCulture)));
             sb.Append(",\"end\":").Append(Json.Str(endReason ?? reason));

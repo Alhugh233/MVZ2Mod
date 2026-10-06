@@ -371,6 +371,38 @@
 				"-Launch"
 			],
 			"group": "build"
+		},
+		{
+			"label": "自测: Replay GUI（插件页 → 回放）",
+			"detail": "无人值守：游戏自己切到插件页、等入口装好、点开回放页、dump 布局 + 截图，报告写 _replay_gui.txt",
+			"type": "shell",
+			"command": "powershell",
+			"args": [
+				"-NoProfile",
+				"-ExecutionPolicy",
+				"Bypass",
+				"-File",
+				"${workspaceFolder}\\tools\\run-replay-gui-test.ps1",
+				"-TimeoutSec",
+				"300"
+			],
+			"problemMatcher": [],
+			"group": "build"
+		},
+		{
+			"label": "关掉 Replay GUI 自测开关",
+			"type": "shell",
+			"command": "powershell",
+			"args": [
+				"-NoProfile",
+				"-ExecutionPolicy",
+				"Bypass",
+				"-File",
+				"${workspaceFolder}\\tools\\run-replay-gui-test.ps1",
+				"-Off"
+			],
+			"problemMatcher": [],
+			"group": "build"
 		}
 	]
 }

@@ -288,7 +288,7 @@ namespace Replay
                 panelTreeDumped = true;
                 var shell = ReplayPage.PanelNode;
                 if (UiFinder.IsAlive(shell))
-                    Note(ReplayTreeDump.Dump("回放页顶部（标题）", ReplayUiKit.Child(shell, "Top")));
+                    Note(ReplayTreeDump.Dump("回放页顶部（标题）", UiKit.Child(shell, "Top")));
                 Note(ReplayTreeDump.Dump("回放面板子树", ReplayPage.PanelBodyNode));
 
                 // 入口按钮与它旁边的原版按钮的**结构对照**：两者字号/自动缩放不一样时一眼能看出。

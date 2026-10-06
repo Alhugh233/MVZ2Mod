@@ -3,7 +3,7 @@
 **开发者工具。** 把 `DSHCore.Ui` 提供的每个 UI 素材以真实观感展示出来，同时充当
 「用原版零件做 UI」的最小可编译范例。
 
-- 适配：MVZ2 0.7.0 test-4 / Windows x86 / IL2CPP metadata v31.1 / BepInEx be.788
+- 适配：MVZ2 0.7.0 test-10 / Windows x86 / IL2CPP metadata v31.1 / BepInEx be.788
 - 前置：**硬依赖 DSHCore**（`UiSkin` / `UiHost` / `UiClone` / `UiTooltip` 都在它里面）
 - 设计论证：`DSHCore/UI_RESEARCH.md`
 
@@ -53,6 +53,15 @@
 | 提示 | 原版悬停提示（`UiTooltip`）：锚点应在**行的上方**，不遮控件 |
 | 报告 | 素材解析状态一览 |
 
+> 自测跑完这 9 页之后，还会**接着验一遍「插件页子页面」那条路**：
+> 关掉画廊 → 切到「插件」页（`DisplayAddons` **带返回回调**，否则「返回」是一屏黑）→
+> 等 `AddonPage` 把入口按钮装上 → 点开
+> **「模组设置（DSHCore）」** → dump 布局 + 截图（`_uig_modsettings.png`）。
+> 那是 `DSHCore.Ui.AddonPage` / `UiOptions` 默认路径 / `UiTagRow`（档案样式条目行）/
+> `UiLocale`（mod 名的中文译文）的端到端验收：
+> 断言包括「两栏合计宽 = 画布 0.94」、「行样式 = 档案条目行」、「名字是中文且能给出原文」、
+> 「游戏文本查找链已挂上本库的翻译表」。
+
 ---
 
 ## 2. 配置
@@ -62,7 +71,8 @@
 | 键 | 默认 | 说明 |
 | ---- | ---- | ---- |
 | `General.SelfTest` | `false` | **排障用**：进主菜单后自动打开画廊、逐页装配、每页 dump 一次布局矩形并截图到 `<游戏目录>\BepInEx\_uig_p<N>.png`，全部写进日志（`[SelfTest]` 开头）。在下拉框那一页还会额外做一组探针：`dd0` 全关 → `dd1` TMP 弹窗开着 → `dd2` 弹窗关掉（对照）。另外会挂上 `ElementListWatchdog`：它盯着 `ElementList.Awake` 的模板，一发现不可用就把**节点路径**打进日志（否则那种空指针在日志里只是一行没有调用者的 `ElementList.Awake ← Instantiate`）。 |
-| `General.SampleOptions` | `false` | **示例设置项**：往原版设置界面里注入 2 条设置项（`general` 分类下一个开关、`graphics` 分类下一个滑条），用来演示 `DSHCore.Ui.UiOptions`（「零 UI 代码加设置项」）。开启后本 mod **会注册 ModInfo、因而会出现在 mod 列表里** —— 这是本文唯一一处被授权的例外（见 §3）。`SelfTest = true` 时会被强制开启 |
+| `General.SampleOptions` | `false` | **模组设置页样例**：声明 3 条设置项（复选框 / 滑条 / 多值），它们会出现在 **「插件页 → 模组设置（DSHCore）」** 的 `uig` 名下 —— 演示 `DSHCore.Ui.UiOptions` 的**默认路径（零注入）**。不会碰原版设置界面，也不需要 ModInfo / XML。`SelfTest = true` 时会被强制开启。附带的 `SampleValues.*` 三项是这三个样例值本身的存储（顺便示范「值怎么存由声明方决定」）。列表里的显示名/说明/作者是 `DeclareMod("uig", "MVZ2 UI Gallery", "UI 组件画廊（开发者工具…）", "QoZnoS", "UI 组件画廊")` —— 中文走 `DSHCore.Ui.UiLocale`（游戏切英文时显示英文原名） |
+| `General.SampleVanillaOptions` | `false` | **原版设置界面样例**（另一条路）：把两条设置项放进**原版设置界面**（演示 `scope: UiOptionScope.VanillaMenu`）。这条路要完整注入链，**会让本 mod 注册一个 ModInfo（于是出现在 mod 列表里）**，所以默认关闭、而且刻意不被自测自动打开 |
 
 自测是为了让「UI 基础设施在这台机器上到底能不能工作」变成一个**可以 grep 的结论** ——
 不需要在游戏里打字，也不需要有人盯着屏幕。
@@ -76,7 +86,8 @@
 | `diff-dd-regions.ps1` | 针对上面那组下拉框探针的现成封装 |
 | `find-log.ps1` | 带上下文的日志检索（`BepInEx` 两个日志 / Unity 的 `Player.log`）：`-Pattern`、`-Context`、`-Last`，`-Which player-all` 会统计每个 `Player.log` 里的命中数 —— **`Player.log` 才是未捕获异常真正落盘的地方**（`LogOutput.log` 里往往什么都没有） |
 | `reset-selftest.ps1` | 关掉自测开关、结束游戏、清理截图与报告 |
-| `build-and-selftest.ps1` | 构建（**编译失败直接中止**，否则下面就变成拿旧 DLL 跑自测）→ 自测
+| `build-and-selftest.ps1` | 构建（**编译失败直接中止**，否则下面就变成拿旧 DLL 跑自测）→ 自测 |
+| `crop-image.ps1` | 把截图的某一块裁出来并放大（人肉核对渲染细节用；本仓库的规矩：视觉效果不能只看日志与矩形） |
 
 ⚠️ 像素 A/B **必须配“关着”的对照图 + 区域限制**：标题界面自己会动，全屏差分会被动画淹没
 （本仓库就因此把 13.9% 的全屏差异误读过一次）。
@@ -94,12 +105,11 @@
   （唯二可安全 `AddComponent` 的），其余一律克隆。
 - **零注入。** 不注册 il2cpp 类型、不注册 Definition、不注册 ModInfo。
   连每帧心跳都挂在官方本来就每帧跑的 `MainSceneController.Update` 上。
-  <br>❗ **唯一例外**：`General.SampleOptions` 打开时（默认关）会注入一个 `Mod` 子类
-  （`UiGalleryMod`）与两条设置项定义 —— 因为「mod 能不能给原版设置界面加一项」这件事
-  必须有一个真的注册了 `ModInfo` 的 mod 才能验证，而这正是这个 dev 工具该承担的试验。
-  它原本挂在 `LaboratoryMod`（玩家向的小游戏 mod）里，已搬到这里。
-  这一段同时也是 `ModNamespacePin` 的现场证据来源：实测三个注入 mod 在 ModInfo 刚创建时
-  其 `Namespace` 字段就已是「失效」（详见 `DSHCore/UI_RESEARCH.md` §7）。
+  <br>❗ **两条样例的代价不同**：`General.SampleOptions`（默认路径）是**零注入**的，
+  只声明进 DSHCore 的模组设置页；`General.SampleVanillaOptions`（原版设置界面那条路）
+  才需要注入一个 `Mod` 子类（`UiGalleryMod`）与两个定义类，所以它默认关、也不被自测自动打开。
+  `SampleVanillaOptions` 这段同时是 `ModNamespacePin` 的现场证据来源：实测三个注入 mod
+  在 ModInfo 刚创建时其 `Namespace` 字段就已是「失效」（详见 `DSHCore/UI_RESEARCH.md` §7）。
 - **不注册自己的热键、不改任何游戏状态。** 它只显示。
 
 ---
@@ -134,14 +144,15 @@
 ```
 UiGallery/
 ├─ Plugin.cs              插件入口（BepInDependency 硬依赖 DSHCore）
-├─ GalleryConfig.cs       配置：SelfTest / SampleOptions
+├─ GalleryConfig.cs       配置：SelfTest / SampleOptions / SampleVanillaOptions / SampleValues
 ├─ UiGalleryCommand.cs    /dshui（含 Tab 补全）
-├─ GalleryTick.cs         心跳 + 自测状态机（含布局 dump 与截图）
+├─ GalleryTick.cs         心跳 + 自测状态机（含布局 dump 与截图；最后还会验一遍「插件页 → 模组设置」）
 ├─ GalleryPanel.cs        面板本体 —— 「用 DSHCore.Ui 做一个面板要写多少代码」的答案
 ├─ GalleryPages.cs        9 个页面，每个演示一个素材
 ├─ ElementListWatchdog.cs 诊断哨兵：给「ElementList.Awake 空指针」那行日志命名（只在 SelfTest 下挂）
-├─ UiGalleryMod.cs        示例设置项用的注入 Mod（只在 SampleOptions 下创建）
-├─ SampleOptions.cs       示例设置项：声明/登记/写属性 + 复刻官方渲染判据的验收
-├─ assets/Content/metas/options.xml   两条示例项的文案与分类
+├─ SampleOptions.cs       **默认路径的样例**：3 条设置项 → DSHCore 的模组设置页（零注入）
+├─ SampleVanillaOptions.cs 另一条路的样例：2 条设置项 → 原版设置界面（需注入，默认关）
+├─ UiGalleryMod.cs        SampleVanillaOptions 用的注入 Mod（只在那个开关下创建）
+├─ assets/Content/metas/options.xml   SampleVanillaOptions 两条示例项的文案与分类
 └─ build.ps1
 ```

@@ -179,6 +179,53 @@ namespace DSHCore.Ui
             return Mathf.Max(120f, Screen.height * Mathf.Clamp(fraction, 0.1f, 0.95f));
         }
 
+        /// <summary>
+        /// 把列表的**行排布**调成「紧凑 + 铺满内容框」。
+        ///
+        /// <para>三件事，都是原版留给「条目又多又长」的列表的余量，我们的列表用不上：</para>
+        /// <list type="number">
+        /// <item><b>行间距</b>（<c>Content</c> 纵向布局组的 <c>spacing</c>）—— 原版素材是 10 单位，
+        /// 行与行之间空出一大截；</item>
+        /// <item><b>内距与铺满</b>：清掉 <c>Content</c> 的内距，并让行强制铺满宽度；</item>
+        /// <item><b>内容容器自己的水平内缩</b> —— 原版把 <c>Content</c> 摆得比视口窄一圈
+        /// （实测窄 12 屏幕像素），行因此看起来**没填满框体**。</item>
+        /// </list>
+        /// </summary>
+        /// <param name="spacing">行间距（单位）；&lt; 0 = 不改。</param>
+        public UiList SetRowFit(bool stretch = true, float spacing = -1f)
+        {
+            if (!IsValid)
+                return this;
+            try
+            {
+                var v = _content.GetComponent<VerticalLayoutGroup>();
+                if (v != null)
+                {
+                    if (spacing >= 0f)
+                        v.spacing = spacing;
+                    v.childControlWidth = true;
+                    v.childForceExpandWidth = stretch;
+                    v.childControlHeight = true;
+                    v.childForceExpandHeight = false;
+                    if (v.padding != null)
+                        v.padding = new RectOffset();
+                }
+
+                // 横向拉伸锚点下 sizeDelta.x 就是「比视口窄多少」→ 清 0 让它铺满。
+                if (stretch && !Mathf.Approximately(_content.anchorMin.x, _content.anchorMax.x))
+                {
+                    var sd = _content.sizeDelta;
+                    _content.sizeDelta = new Vector2(0f, sd.y);
+                }
+                Rebuild();
+            }
+            catch (Exception e)
+            {
+                UiLog.Warn("调整行排布失败：" + e.GetType().Name + ": " + e.Message);
+            }
+            return this;
+        }
+
         private UiList ApplyLayoutElement(Action<LayoutElement> apply)
         {
             if (!IsValid)
@@ -302,6 +349,33 @@ namespace DSHCore.Ui
             return row;
         }
 
+        /// <summary>
+        /// 改一个**原生文本按钮行**（<see cref="AddButton"/> 造出来的那种）的文案。
+        ///
+        /// <para><b>为什么不能用 <c>UiClone.SetLabel</c>：</b>行里的按钮是
+        /// <c>ButtonRow</c> 自己在运行时用 <c>UpdateButtons</c> 生成/复用出来的，
+        /// 直接找子节点上的 TMP 改字**不生效**（拿到的往往是模板那一份）——
+        /// 症状是「日志里改了，画面上还是老文案」。必须再调一次 <c>UpdateButtons</c>。</para>
+        /// </summary>
+        public static bool SetButtonLabel(GameObject row, string label)
+        {
+            if (!UiFinder.IsAlive(row))
+                return false;
+            try
+            {
+                var br = row.GetComponent<MVZ2.UI.ButtonRow>();
+                if (br == null)
+                    return false;
+                br.UpdateButtons(ToIl2Cpp(new[] { label ?? string.Empty }));
+                return true;
+            }
+            catch (Exception e)
+            {
+                UiLog.Warn("改按钮行文案失败：" + e.GetType().Name + ": " + e.Message);
+                return false;
+            }
+        }
+
         /// <summary>清空所有行。</summary>
         public void Clear()
         {
@@ -395,6 +469,58 @@ namespace DSHCore.Ui
         // ------------------------------------------------------------------
         // 诊断
         // ------------------------------------------------------------------
+
+        /// <summary>
+        /// 紧凑结构行：**滚动容器 → 视口 → 内容 → 首行** 的屏幕矩形，加一行「内容比视口窄多少」。
+        ///
+        /// <para>排查「行没有填满框体」时就靠这几行数字 —— <see cref="SetRowFit"/> 改的正是
+        /// 内容容器自己的水平内缩（原版素材把它摆得比视口窄一圈）。</para>
+        /// </summary>
+        public string DescribeStructure()
+        {
+            if (!IsValid)
+                return "  结构     : （无效列表）";
+            var sb = new StringBuilder(240);
+            try
+            {
+                var vp = Viewport();
+                sb.Append("  滚动容器 : ").Append(UiKit.Describe(_root)).Append('\n');
+                sb.Append("    视口   : ").Append(UiKit.Describe(vp == null ? null : vp.gameObject)).Append('\n');
+                sb.Append("    内容   : ").Append(UiKit.Describe(_content == null ? null : _content.gameObject)).Append('\n');
+                var w = _content == null ? 0f : _content.rect.width;
+                var vw = vp == null ? 0f : vp.rect.width;
+                sb.Append("    宽对比 : 内容=").Append(Round(w)).Append("  视口=").Append(Round(vw))
+                  .Append("  差=").Append(Round(vw - w)).Append(" 单位");
+                if (Count > 0)
+                {
+                    var first = _content.GetChild(0);
+                    if (first != null)
+                        sb.Append('\n').Append("    首行   : ").Append(UiKit.Describe(first.gameObject));
+                }
+            }
+            catch (Exception e)
+            {
+                sb.Append("（结构描述失败 ").Append(e.GetType().Name).Append("）");
+            }
+            return sb.ToString();
+        }
+
+        /// <summary>视口（<c>ScrollRect.viewport</c>）。</summary>
+        private RectTransform Viewport()
+        {
+            var sr = Scroll;
+            if (sr == null)
+                return null;
+            try
+            {
+                var vp = sr.viewport;
+                return vp == null ? null : vp;
+            }
+            catch (Exception)
+            {
+                return null;
+            }
+        }
 
         /// <summary>把列表的实际状态打出来（行数/高度/滚动位置/Content 的布局组件）。</summary>
         public string Describe()

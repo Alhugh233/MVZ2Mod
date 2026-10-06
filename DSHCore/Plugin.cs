@@ -4,6 +4,7 @@ using BepInEx;
 using BepInEx.Logging;
 using BepInEx.Unity.IL2CPP;
 using DSHCore.Diagnostics;
+using DSHCore.Ui;
 
 namespace DSHCore
 {
@@ -42,7 +43,7 @@ namespace DSHCore
 
         public const string NAME = "DSHCore";
 
-        public const string VERSION = "0.3.0";
+        public const string VERSION = "0.4.0";
 
         /// <summary>本库自己的日志通道。各 mod 建议保留自己的 Log，便于按来源过滤。</summary>
         public static new ManualLogSource Log;
@@ -78,6 +79,20 @@ namespace DSHCore
 
             // 5) arcade 条目 Index 平移：LoadMods 之后修正外部 mod 与 vanilla 的 Index 撞车。
             ArcadeIndexFix.Apply();
+
+            // 6) 插件页子页面设施：心跳 + 内建的「模组设置」页。
+            //    心跳挂在官方本来就每帧跑的 MainSceneController.Update 上（不注入 MonoBehaviour）。
+            //    页面本身是纯托管的登记，真正建 UI 要等主菜单素材就绪，所以放在 Load 里完全安全。
+            AddonPages.Apply();
+            new ModSettingsPage();
+
+            // 7) 模组文本本地化：把自己的小表挂进游戏的文本查找链
+            //    （mod 不用打语言包 .mo 也能有译文；挂了语言包的话两边都生效）。
+            UiLocale.Apply();
+
+            // 8) 内建 mod（游戏本体）在「模组设置」页里的介绍。
+            //    它没有声明任何设置项，名字/作者靠这一句来；不声明的话列表里显示裸命名空间 mvz2。
+            UiOptions.DeclareMod("mvz2", "Vanilla", "游戏本体（内置内容）", "Cuerzor", "原版");
 
             Log.LogInfo(NAME + " v" + VERSION + " loaded (infrastructure ready)");
         }

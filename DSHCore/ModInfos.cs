@@ -22,9 +22,15 @@ namespace DSHCore
     public static class ModInfos
     {
         /// <summary>
-        /// 存档数据版本，必须与 vanilla 一致
-        /// （= <c>LevelManager.CURRENT_DATA_VERSION</c>；0.7.0 test-4 时为 4）。
-        /// 不一致会让本 mod 的存档数据被判定为旧版本而丢弃。
+        /// 本 mod 的关卡存档数据版本，会随 <c>ModInfo.LevelDataVersion</c> 写进每份关卡存档头。
+        ///
+        /// 游戏存/读关卡时把「所有 mod 的 (命名空间, 版本号)」一起存下来，读档时**按命名空间
+        /// 逐个比对**（见 <c>LevelDataIdentifierList.Compare</c>）。因此这里唯一的要求是
+        /// **保持稳定**：只要本 mod 的关卡存档格式没变，就不要动这个值；
+        /// 动了（或改了命名空间）会让玩家已有的本 mod 关卡存档被判「版本不匹配」而读不进去。
+        ///
+        /// 它**不需要**等于 vanilla 的 <c>LevelManager.CURRENT_DATA_VERSION</c>
+        /// （0.7.0 test-9 / test-10 均为 5；本库一直用 4，两者并存没有问题）。
         /// </summary>
         public const int LevelDataVersion = 4;
 

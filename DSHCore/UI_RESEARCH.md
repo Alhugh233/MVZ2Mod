@@ -1,7 +1,7 @@
 # MVZ2 原版 UI 体系调研 · 与 DSHCore 的 UI 支持设计
 
 > **状态**：调研 + 设计稿（尚未实现）。本文是后续实现 `DSHCore.Ui` 与《子 mod UI 开发指南》的依据。
-> **适配**：MVZ2 0.7.0 test-4 / Windows x86 / IL2CPP metadata v31.1 / BepInEx be.788
+> **适配**：MVZ2 0.7.0 test-10 / Windows x86 / IL2CPP metadata v31.1 / BepInEx be.788
 > **源码基准**：仓库内 `_Scripts/0.7.0 in developing/`（下文简写为 `_Scripts/`）。
 > 凡标注「**实测**」的条目来自本仓库已跑通并记录的运行时验证，不是源码推断。
 
@@ -411,10 +411,16 @@ public void AddMod(Mod mod)
 | `UiHost` | 宿主与挂载 | `OwnPrefix` / `RegisterOwnName` / `IsOwn` / `MarkOwn` / `Resolve(layer)` / `DialogLayer()` / `CreateNode` / `CreateStretched` / `InsertAfter` / `Attach` |
 | `UiClone` | 克隆规范化 | `Instantiate`（`activate: false` 时不会触发 `Awake`）/ `Activate` / `Normalize` / `DisableAutoSizing` / **`SetFontSize(node, size, wrap?)`**（只改字号、不动文本）/ **`DescribeFont(node)`** → `FontInfo`（`Size/AutoSizing/Min/Max/Wrapping/Text`）/ `ForceGraphicsVisible` / `Stretch` / `FindText` / `SetLabel` / `FindButton` / `ClearButtonListeners` / `OnClick` / `KeepAlive` / `PruneKeepAlive` |
 | `UiOptionRow` | **控件行（唯一入口）** | `Create` / `Root` / `Widgets` / `Slider` / `Dropdown` / `SetKind` / `SetLabel` / `SetStretch` / `SetTooltip` / `SetToggle` / `SetSlider`（标签自动带值并实时刷新）/ `SetSliderValueFormat` / `SetSliderValue` / `SetDropdown`（⚠️ 不可用）/ `SetButton` / `Describe` / `LabelText` |
-| `UiList` | **纯代码可滚动列表** | `Create` / `Root` / `Scroll` / `Content` / `Count` / `Add` / `AddButton` / `AddOptionRow` / `Clear` / `Rebuild` / `SetFlexible` / `SetViewportHeight` / `SuggestHeight` / `ScrollToTop` / `ScrollToBottom` / `SetVerticalPosition` / `Describe` |
+| `UiList` | **纯代码可滚动列表** | `Create` / `Root` / `Scroll` / `Content` / `Count` / `Add` / `AddButton` / `AddOptionRow` / `Clear` / `Rebuild` / `SetFlexible` / `SetViewportHeight` / `SuggestHeight` / **`SetRowFit(stretch, spacing)`** / `ScrollToTop` / `ScrollToBottom` / `SetVerticalPosition` / `Describe` / **`DescribeStructure`** |
 | `UiDropdown` | TMP 弹窗的**诊断**（不属于功能 API） | `Of` / `Show` / `Hide` / `FindList` / `Describe` / `DumpCanvases` / `DumpScrollViews` / `PreparePopup` / `SetPopupCanvasMode` / `MoveListTo` / `MoveListToRoot` / `StripListCanvas` |
 | `UiTooltip` | 原版悬停提示全链 | `Attach(target, title, text)` / `AttachExisting(node, …)` / `SetText` / `AnchorPivot` / `Describe` / `Hide()` |
-| `UiOptions` | **L2：原生设置项**（零 UI 代码） | `DeclareToggle` / `DeclareSlider` / `Attach(mod)` / `ApplyProperties` / `For(nsp)` / `Lookup` / `LookupOf` / `Report`（时机要求见 §8「P4 结果」） |
+| `UiOptions` | **设置项注册**：默认进「模组设置」页（零注入）；`scope: VanillaMenu` 时才进原版设置界面 | `DeclareToggle` / `DeclareSlider` / **`DeclareChoice`** / `DeclareDropdown` / **`DeclareMod(space, 名, 说明, 作者, 中文?)`** / `SetModDisplayName(space, 源串, 中文?)` / `GetModEntry` / `GetModDisplayName` / **`GetModDisplayNameSource`** / `GetModDescription` / `GetModAuthor` / **`DeclaredSpaces`** / `For` / **`ForPage`** / **`SpacesWithSettings`** / `Report`；原版路径另有 `Attach(mod)` / `ApplyProperties()` |
+| `UiLocale` | **模组文本本地化**（把 mod 的小表挂进游戏的查找链；**支持玩家可编辑的外部文件**） | `Add` / `AddAll` / `Get` / `In` / `Format` / `CurrentLanguage` / `Apply` / `Languages` / `CountOf` / `Report` / **`ExternalDirectory`** / **`ReloadExternal`** / **`DescribeExternal(lang)`** / **`WriteTemplate(lang, overwrite?)`** / **`KnownKeys`** / **`DumpKeys`**；语言码常量 `Chinese`(`zh-Hans`) / `English`(`en-US`) / `SourceLanguage`；取词顺序 **外部文件 → 代码表 → 游戏 catalog → 源串** |
+| `UiTagRow` | **档案样式条目行**（`Toggle` + 文字；勾选 = 选中） | `Template(searchRoot?)` / `Create(parent, name, label, isOn, onChanged)` / `Set(row, label, isOn)` / `IsOn` / `TextOf` / `Describe` / `Forget` |
+| `UiKit` | 克隆小工具（行容器 / 文本 / 按钮 / 尺寸契约 / 克隆体修补 / 布局 dump） | `RowHeight` / `ButtonWidth` / `HContainer` / `VContainer` / `Fit` / `Label` / `Paragraph` / **`AutoHeight`** / **`SetBold`** / **`IsBold`** / `TextButton` / **`Separator`** / **`ImageAlpha`** / `ReplaceMask` / `ClearEmptySpriteAlpha` / `StripTextTranslators` / `NormalizeSubtree` / `MakeVertical` / `Path` / `SetWidthRatio` / **`SetTwoColumnWidth(left, right, totalRatio)`** / `Describe` / `DescribeTexts` |
+| `AddonPage` | **插件页子页面**（入口按钮 + 页面壳 + 生命周期全自动） | 抽象：`Id` / `EntryLabel` / `Title` / `ShellSource` / `WidthRatio` / **`TwoColumnWidthRatio`** / **`LeftColumnPath`** / `RightColumnPath` / **`TopHeight`** / `BuildContent(shell)` / `Suspended()` / `OnBuildFailed`；运行：`Register` / `Open` / `Close` / `RequestOpen` / `PumpNow` / `SetReturnTo` / `Root` / `EntryInstalled` / `LastError` |
+| `AddonPages` | 子页面登记表 + 心跳 + 共用查找 | `Register` / `Get` / `All` / `IsAddonsPage` / `FindShellSource` / `FindEntryTemplate` / `Apply`（挂心跳）/ `Report` |
+| `ModSettingsPage` | **内建的「模组设置（DSHCore）」页**（左栏 mod、右栏详细信息 + 设置项） | `SelectNamespace` / `SelectedNamespace` / `DumpLayout` |
 | `InjectedDefinitions` | 注入定义 → 官方定义表 | `Register` / `Bind` / `ListFor` / `All` / `Count` / `Track` / `Create<T>` / `Apply` / **`NamespaceOf(mod)`**（判定"这个 `Mod` 是不是我的"只用它） / `Report` |
 | `ModNamespacePin` | 钉住注入 `Mod` 的 `Namespace` 字段 | `Ensure(mod, spaceName)` / `IsPinned`（不钉会发生什么见 §6 坑清单） |
 
@@ -910,6 +916,215 @@ flowchart TD
 - **素材字号是「出厂值」，不是「规范值」**：早先版本把 `Text` 素材的 24pt 规范成 12pt，
   现已删除。库不再改任何素材字号；使用者用 `UiClone.SetFontSize` 自己选，
   用 `UiSkin.MeasureFont` / `UiClone.DescribeFont` 先问一句「现在是多大」。
+
+### 7.7 第四轮：插件页子页面 + 模组设置页（实测记录）
+
+**需求**：把「在插件页里加一个自己的页面」这套行为从 `Replay` 收敛进 DSHCore；
+用它做一个**模组设置页**（左栏已加载的 mod、右栏详细信息 + 设置项）；
+并把设置项注册的目标从原版设置菜单改成这个页面。
+
+**交付物**
+
+- `DSHCore/Ui/UiKit.cs` —— 从 `Replay/Ui/ReplayUiKit.cs` 收敛来的克隆小工具
+  （行容器 / 文本 / 按钮 / 尺寸契约 / 三种克隆体修补 / 布局描述）。`ReplayUiKit` 已删除。
+- `DSHCore/Ui/AddonPage.cs` —— `AddonPage`（子页面基类）+ `AddonPages`（登记表 + 心跳 +
+  共用查找）+ `AddonShell`（页面壳节点集合 + `PreparePanel`）。
+- `DSHCore/Ui/ModSettingsPage.cs` —— 内建的「模组设置（DSHCore）」页。
+- `DSHCore/Ui/UiOptions.cs` —— 新增 `UiOptionScope`（默认 `ModPage`）、`DeclareChoice`、
+  `SetModDisplayName`、`ForPage` / `SpacesWithSettings`。
+- `Replay` 的 `ReplayPage` 改成 `AddonPage` 的一个实现（只剩「面板里放什么」）；
+  `Loadout` 的 `CompatOptions` 改成零注入声明，`LoadoutMod`（注入的 Mod 体）已删除。
+- 工具：`tools/crop-image.ps1`（放大截图的某一块，人肉核对渲染细节）、
+  `tools/run-replay-gui-test.ps1`（一键跑 Replay 的 GUI 自测）。
+
+**实测结果（`_selftest.txt` + `_replay_gui.txt`）**
+
+- 插件页索引里追加了 `DSH_ModSettingsEntry`（460x40，与 `LanguagePacksButton` 同尺寸、同行依次排列），
+  文案 `模组设置（DSHCore）`@fs=16；页面壳 `DSH_ModSettingsPanel` 满屏，
+  `Top/Title` = `模组设置（DSHCore）`@fs=48，`Bottom/ReturnButton` 256x51。
+- 左栏 358x518 列出 5 个 mod（有设置项的排前、内置 `Vanilla` 排最后）；
+  右栏 358x518 = 5 行「详细信息」+ 分隔行 + 3 行原生设置行（复选框 / 滑条 / 选择）。
+- 3 条样例设置项的判据：`可编辑=是`、`选项=3`、`当前值=开 / 3 格 / 中` → **会出现在模组设置页**。
+
+**本轮新增的坑**
+
+- **`AddonPage` 子类忘了在构造函数里 `Register()` 时，症状是「入口不装、但一行错都不报」**。
+  实测踩到：`ReplayPage` 的 `Page` 类重写后漏了 `Register()`，
+  结果是 `AddonPages.Report()` 只列出 1 个页面、Replay 的入口永远不出现，
+  而日志里既没有异常也没有「登记失败」。**基类不替子类登记**是刻意的（登记要显式），
+  但这样一个静默失败值得写进文档。
+- **改「原生文本按钮行」的文案不能用 `UiClone.SetLabel`**：`ButtonRow` 的按钮是它自己在运行时用
+  `UpdateButtons` 生成/复用的，子节点上那个 TMP 往往不是被画出来的那一份 ——
+  症状是「日志里改了、画面没变」。正解是 `UiList.SetButtonLabel(row, text)`（内部再调一次
+  `UpdateButtons`）。
+- **同一个 `VerticalLayoutGroup` 被两个子页面各自 `MakeVertical` 一次**会互相覆盖
+  （行铺满宽度、内容高度都被重算）。所以入口与页面壳必须只有**一处**实现 —— 这正是收敛的理由。
+- **列表里太长的一行会被原版按钮的自动缩放压小一号**：`AddonPage` 的左栏按钮文案来自
+  mod 自己的显示名，写太长（带书名号全名）就会比邻居明显小一圈。`SetModDisplayName`
+  的注释里因此写了「建议写短一点」。
+- **`Il2CppReferenceArray<T>` 转托管数组**：`ModManager.GetAllModInfos()` 的 interop 签名是
+  `Il2CppReferenceArray<ModInfo>`，直接 `var` 接住再取 `.Length` 是错的（那是 `Count`）。
+  写成 `ModInfo[] infos = mm.GetAllModInfos();` 让它走隐式转换最稳。
+
+---
+
+### 7.8 第五轮：行样式 / 两栏宽度 / 本地化（实测记录）
+
+**需求**：列表用**对话档案那种逐行列表**（不要按钮行）；两栏合计宽度与「回放」页一致；
+栏目标题居中且大一点；列表里的 mod 名要中文；顺带把 mod 多语言接口接进来；
+自测模式下从插件页「返回」黑屏要修掉。
+
+**交付物**
+
+- `DSHCore/Ui/UiTagRow.cs` —— 档案条目行（`Toggle` + 文字）模板的取用与造行/改行。
+  模板来自档案索引页左栏那个 `ElementList` 的 `_template`（公开属性），
+  **必须在清空左栏那棵树之前捞**。
+- `DSHCore/Ui/UiLocale.cs` —— 模组文本本地化：`Add` / `Get` / `Report`，
+  并把小表挂进 `LanguageManager.TryGetLocalizedString`（前缀补丁 + 启动自检）。
+- `UiKit.SetTwoColumnWidth(left, right, totalRatio)` —— 两栏合计宽度（比例）+
+  整体重新居中；`AddonPage.TwoColumnWidthRatio` / `LeftColumnPath` / `RightColumnPath`。
+- `AddonPages.Apply()` 顺带补一个坑：`DisplayAddons(null)` → 默认返回目标（回主菜单）。
+- `UiOptions.SetModDisplayName(space, 源串, 中文)`（第三个参数就是一句 `UiLocale.Add`）、
+  `GetModDisplayNameSource`；模组设置页整体走取词。
+
+**实测结果（`_selftest.txt`，373 行）**
+
+- 两栏：左 `x=31..415 (384)`、右 `x=440..993 (553)` → **31..993 = 963 屏幕像素 = 752 单位**
+  （画布 800 × 0.94），与「回放」页的 `Center/List` 963 像素**完全一致**；
+  算法是量出来的（左 300 + 间距 20 + 右 432 = 752），没有一个写死的数字。
+- 左栏条目行：`行样式 = 档案条目行（Toggle + 文字）`，模板命中；5 行都是 `333x32`，
+  文案 `图形化控制台 (1)` / `UI 组件画廊 (3)` / `实验室` / `模块化诅咒` / `原版`，
+  选中行 `勾选=1`；右栏 10 行（多了一行「名称原文」）。
+- 栏目标题：左 `"已加载的模组"@18 对齐=Center`、右 `"UI 组件画廊"@18 对齐=Center`。
+- 本地化：`zh-Hans 6 条 / en-US 15 条`，`游戏查找链：已挂补丁，自检=已跑`，
+  源串 `MVZ2 Loadout` → 当前语言 `图形化控制台`、英文 `MVZ2 Loadout`。
+- 截图 `_uig_modsettings.png` 人肉核对：左栏是纯文字行（没有按钮框），
+  **选中行整行绿色**（与档案页勾选同源），中文名齐全，两栏宽度与回放页对齐。
+
+**本轮新增的坑**
+
+- **`ClearEmptySpriteAlpha` 会连同「正当的无 sprite 色块」一起清掉**：档案条目的
+  勾选条（绿）与悬停条（白）在 prefab 里就是 `m_Sprite: {fileID: 0}` 的纯色 Image，
+  可见性靠 `Toggle` / `Selectable` 写 `CanvasRenderer` 的 alpha，而 `Image.color.a` 是总开关。
+  整备页面壳时模板（当时还在那棵树里）被清成透明 → 克隆出来的行**永远透明**：
+  文字在、勾选状态对，但看不出选了哪一条。修法：造行时按「rgb 还在、alpha 被清」的指纹还原。
+- **`DisplayAddons(null)` = 一屏黑**：`MainScenePage.Return()` 是
+  `OnReturnClick?.Invoke(); Hide();` —— 回调为空时「返回」只把页面藏起来，
+  没有任何东西顶上来。官方入口（主菜单的「插件」按钮）自己传回调，只有程序化调用会漏
+  （自测里就漏了）。现在两处都补：自测传 `DisplayMainmenuToBasement`，
+  DSHCore 再对 `DisplayAddons` 挂前缀兜底。
+- **「原文」那一行不能被二次取词**：`AddInfo` 的 value 统一过 `UiLocale.Get`，
+  于是「名称原文 = MVZ2 UI Gallery」被它自己的译文替换成了中文名。
+  需要原文的行要显式跳过取词。
+- **`LanguageManager.TryGetLocalizedString` 在 interop 里有两个重载**
+  （`Il2CppReferenceArray<Il2CppSystem.Object>` 与 `Il2CppSystem.Object[]`）——
+  用 `AccessTools.Method(type, name, 参数类型数组)` 时必须写全四个参数类型才不会歧义；
+  两个都挂上前缀最稳（空参数走我们、带参数的放行）。
+- **`params object[]` 的 interop 调用**：从托管侧调 `GetLocalizedString(text, lang, args)`
+  要传 `new Il2CppSystem.Object[0]`（`Loadout/Ui/NameIndex` 里的 `NoArgs` 就是这个）。
+
+---
+
+### 7.9 第六轮：条目行样式 / 两栏宽度 / 标题 / 信息布局（实测记录）
+
+**需求**：`Replay` 没出现在模组列表里；左栏条目要紧密且填满框体、名字末尾别带设置项条数；
+两个栏目标题占的高度太多（字号别动）且要加粗；右栏信息条目间距收紧、长文本换行；
+去掉「设置项：N 条」与「── 设置项 ──」文字行，改用**原版设置页那条真分割线**；
+显示名/名称原文 → 说明/作者；命名空间挪到逻辑体下面。
+
+**交付物**
+
+- `UiOptions.DeclareMod(space, 名, 说明, 作者, 中文?)` + `ModEntry` + `DeclaredSpaces()` /
+  `GetModDescription` / `GetModAuthor`；`SetModDisplayName` 变成它的薄封装。
+  **声明过的命名空间无条件进列表** —— 这是 `Replay`（纯补丁 mod，没有 ModInfo、没有设置项）
+  能露脸的唯一途径。
+- `UiKit.Label(..., preferredHeight)`（`-1` = 原版行高 / `0` = 高度交给内容 / `>0` = 指定）、
+  `UiKit.AutoHeight`、`UiKit.SetBold` / `IsBold`、`UiKit.Separator` / `ImageAlpha`。
+- `UiList.SetRowFit(stretch, spacing)` + `UiList.DescribeStructure()`。
+- `AddonPage.TopHeight`（标题行高度覆盖）。
+- `ModSettingsPage`：栏目标题 18pt **加粗**、行高 40 → 26 单位；两栏列表 `SetRowFit`；
+  信息行改成「内容撑高 + 值可换行」；信息顺序 = 说明 / 作者 / 来源 / 逻辑体 / 命名空间；
+  分割线换成原版 `Line`。
+- 各 mod 一句 `DeclareMod`：`loadout` / `uig` / `mvz2_lab` / `modular_curse` / `replay` / `mvz2`（内置）。
+
+**实测结果（`_selftest.txt`，383 行）**
+
+- 列表里 **6 个 mod**，`replay` 在列表里（`名字="回放" 说明="关卡回放录制 / 播放（.mre…" 作者="QoZnoS"`）。
+- 左栏条目：`358x32`，**行距 ≈ 2.5 px**（改前 12.75 px）；条目的 x 范围 `44..402`
+  = 滚动容器/视口的 x 范围（**内容比视口窄 0 单位**，改前窄 12 屏幕像素）。
+- 栏目标题：`"已加载的模组"@18 对齐=Center 加粗=1`（右栏同理）；标题行高 40 → 26 单位。
+- 内容区：`602 → 622`（页面标题行 80 → 64）；两栏列表 `518 → 557`（+39 px）。
+- 右栏：9 行 → 说明（**换行成 2 行，39 px**）/ 作者 / 来源 / 逻辑体 / 命名空间 /
+  **原版分割线（`527x3`，子树里没有 TMP）** / 3 行设置项。信息行高 19 px（改前 51 px），行距 ≈ 7 px。
+- 截图 `_uig_modsettings.png` 人肉核对：选中行整行绿条、条目紧密、栏目标题明显比正文粗、
+  分割线在「命名空间」与设置项之间、说明那一行折成两行。
+
+**本轮新增的坑**
+
+- **原版分割线在 `CategoryTemplate/**Title**/Line`，不是 CategoryTemplate 的直子节点**：
+  按 `Line` 找会扑空（我第一版就是），而**拿不到素材时页面只是少一条线、不报错** ——
+  日志里唯一的线索是 `UiKit` 在整备那棵子树时打的「把 xxx 的透明度清 0」警告，
+  路径里带出了真实层级。现在 `LineTemplate()` 依次试 `Title/Line` → `Line` → 子树里找名叫 Line 的。
+- **想让行高由「换行后的文本」决定，就不能给 `LayoutElement.preferredHeight` 填 0**：
+  `LayoutElement.layoutPriority`（1）高于 `TextMeshProUGUI`（0），而 `GetLayoutProperty` 里
+  **返回值 < 0 才会被跳过** —— 填 0 会以更高优先级胜出，把 TMP 算好的多行高度盖成 0 高。
+  要么不挂 `LayoutElement`，要么三项高度全清成 -1（`UiKit.AutoHeight`）。
+- **`UiClone.SetLabel` 的第 4 个位置参数就是 `wrap`**（签名 `(node, text, fontSize, bool? wrap)`）：
+  「位置传 `false` + 再写 `wrap:` 命名参数」直接编译报 `CS1744`（同一形参被赋了两次）。
+- **分不清「插件页的标题」和「栏目的标题」**：面板里一共三层标题（页面标题 `Top/Title`、
+  两栏各自的栏目标题）。调高度前先确认说的是哪一层 —— 栏目标题走 `UiKit.Label(..., preferredHeight)`,
+  页面标题走 `AddonPage.TopHeight`（后者影响的是整页内容区的高度）。
+
+### 7.10 第七轮：内边距 / 日志降噪 / 外部译文文件（实测记录）
+
+**需求**：右侧面板内容框里再加 4~8px 内边距（参考菜单页）；清理不必要的日志；
+**让多语言可以通过外部文件编辑**，用户不修改 mod 也能加语言；
+mod 语言始终跟游戏设置走 —— 所以新增一种语言仍需要玩家先导入支持该语言的语言包。
+
+**交付物**
+
+- `ModSettingsPage.PanelPadding = 6`（≈ 8 px），左右两栏都过 `AddonShell.PreparePanel(..., padding:)`
+  → `UiKit.SetPadding`。
+- 日志降噪（4 处）：去掉每次重建都打的「分割线克隆」info；分割线素材路径改成**一次性** info
+  且不再打 rect；`UiLocale` 挂链自检**只在失败时**告警；插件页入口 info 压成一行。
+- `UiLocale` 外部文件：`ExternalDirectory`（`<config>/DSHCore/lang`）、
+  `lang/<语言码>.txt` + `lang/<语言码>.d/*.txt`（排序、后者胜）、
+  `EnsureExternal`（每语言惰性读一次）、`ReloadExternal`、`DescribeExternal`、
+  `KnownKeys` / `WriteTemplate` / `DumpKeys`；取词顺序改为
+  **外部文件 → 代码表 → 游戏 catalog → 源串**。
+- `Diagnostics/TransCommand.cs`：`/dshtrans [keys|write <lang> [overwrite]|reload|help]`；
+  `DebugCommands` 的分派与补全改成依次问两条指令（`LogViewerCommand` → `TransCommand`），
+  都返回 `null` 才放行给原版。
+
+**实测结果（`_selftest.txt`，391 行）**
+
+- 内边距：`内边距 : 左=6 右=6 单位（PanelPadding=6）`；左栏列表 `x51..394 (343x530)`，
+  右栏 `x461..973 (512x530)`，两侧 `宽对比 : 内容=268/400 视口=268/400 差=0`。
+  行高不变（左 `343x32`、右信息行 `512x19`、分割线 `512x3`）。
+- 外部译文探针（自测写文件 → 断言 → 删文件）：
+  `外部译文文件：新键 OK（外部文件命中）；覆盖代码表 OK（图形化控制台 → 外部文件优先）`
+  → `外部译文文件已清理，回退代码表 OK` → `判据 外部译文文件：通过`。
+  探针跑完 `config/DSHCore/lang/` 里不留任何东西。
+- `UiLocale.Report()` 现在打出 `外部目录` / 每语言的 `代码表 N 条 外部 …` /
+  `本次会话见过的源串：35 条`。
+- 截图 `_uig_modsettings.png` 人肉核对：内容框四周出现留白、分割线仍在、条目仍铺满。
+
+**本轮新增的坑**
+
+- **玩家可编辑 = 不能只认「代码里的表」**：`Add` 走的是编译进 DLL 的字面串，
+  玩家改不了；要「不碰 mod 加语言」就必须在**取词链最前面**插一份磁盘文件，
+  而不是让玩家去改 `Add` 的调用点。顺序放在代码表**之前**，玩家才有最终决定权。
+- **外部文件不能凭空创造语言**：游戏的可用语言来自 `ICatalogProvider`（语言包资源包），
+  `lang/<语言码>.txt` 只有在游戏**已经有**该语言时才会被读到 —— 这是需求本身的要求
+  （「始终根据游戏设置走」），也是必须写进文档的一条约束，否则用户会以为是坏掉了。
+- **热路径上别每次取词都读盘**：前缀补丁对**每一次**游戏文本查找都会跑，
+  所以外部表必须每语言只读一次（`_external` 缓存 + `ReloadExternal` 显式失效）。
+- **模板导出不能覆盖已有文件**：`WriteTemplate` 默认「已存在就返回 null」，
+  因为模板是**追加**在 mod 自带译文之上的，覆盖只会白白抹掉玩家已经译好的内容
+  （要强制重写得显式加 `overwrite`）。
+- **键表只能来自「实际查过」的源串**：没有静态元数据可扫（源串散落在各 mod 的代码里），
+  所以 `KnownKeys` 记录的是**本次会话**被问过的键 —— 想导出完整模板，
+  得先把各个界面都开一遍（模组设置页会一次问完大部分）。
 
 ---
 

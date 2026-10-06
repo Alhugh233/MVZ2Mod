@@ -1,70 +1,81 @@
 using System;
 using System.Text;
-using DSHCore;
 using DSHCore.Ui;
-using HarmonyLib;
-using MVZ2;
-using MVZ2.Managers;
-using MVZ2.Modding;
-using MVZ2Logic;
-using MVZ2Logic.Commands;
-using MVZ2Logic.Modding;
-using MVZ2Logic.Options;
-using PVZEngine;
 
 namespace UiGallery
 {
     /// <summary>
-    /// **示例：用零 UI 代码往原版设置界面加两个设置项。**
+    /// **示例：三句话把设置项挂进「模组设置」页**（<see cref="UiOptions"/> 的**默认路径**）。
     ///
-    /// <para>这是 <see cref="UiOptions"/>（L2 封装）的活样本 —— 只在
-    /// <see cref="GalleryConfig.SampleOptions"/> 打开时生效（默认关闭；自测模式会强制打开）。
-    /// 它原本挂在 <c>LaboratoryMod</c> 里，但那是玩家向的小游戏 mod，塞开发验证物不合适，
-    /// 所以移到了这个 dev 工具里。</para>
+    /// <para>它声明三条设置项（复选框 / 滑条 / 多值），它们会出现在
+    /// 「插件页 → 模组设置（DSHCore）」里 <c>uig</c> 名下 —— **不占用原版设置菜单**。</para>
     ///
-    /// <para><b>三处调用解决的事</b>：声明（<c>Plugin.Load</c>）→ 登记（官方 <c>LoadStages</c> 时机）
-    /// → 写属性（<c>PostInit</c>）。底层要做的却是一整套：手工创建注入定义、绕过
-    /// <c>Mod.GetDefinitions</c> 的原生 LINQ、钉 GC 根、自己推导 7 个属性键、
-    /// 还要把属性写在正确的时机 —— 这些都在 DSHCore 里，见 <see cref="InjectedDefinitions"/>
-    /// 与 <see cref="UiOptions"/> 的类注释。</para>
+    /// <para><b>这条路要写的东西只有这些</b>：一句声明 + 读写值的两个回调。
+    /// 不需要 <c>ModInfo</c>、不需要注入定义类、不需要 <c>options.xml</c>、
+    /// 不需要 <c>Attach</c> 的三时机 —— 这个 mod 因此仍然是**零注入**的。
+    /// 对照的另一条路见 <see cref="SampleVanillaOptions"/>。</para>
     ///
-    /// <para><b>XML 仍然要一份</b>（<c>assets/Content/metas/options.xml</c>）：文案与分类在那里。
-    /// 分类必须是**已存在**的分类 ID（<c>general</c> / <c>graphics</c> / …）；
-    /// 写不存在的分类不会报错，但整组会从界面上消失。</para>
+    /// <para><b>值存哪</b>：本 mod 自己的 BepInEx 配置项
+    /// （<see cref="GalleryConfig.SampleToggle"/> 等）—— 顺便示范「值的持久化完全由声明方决定」。</para>
     /// </summary>
     internal static class SampleOptions
     {
-        /// <summary>复选框的 id（与 <c>assets/Content/metas/options.xml</c> 一致）。</summary>
+        /// <summary>本 mod 在设置页里的命名空间。</summary>
+        public const string SpaceName = "uig";
+
         public const string ToggleId = "uig_sample_toggle";
-
-        /// <summary>滑条的 id（与 <c>assets/Content/metas/options.xml</c> 一致）。</summary>
         public const string SliderId = "uig_sample_slider";
+        public const string ChoiceId = "uig_sample_choice";
 
-        private static readonly NamespaceID ToggleKey = new NamespaceID(UiGalleryMod.spaceName, ToggleId);
-        private static readonly NamespaceID SliderKey = new NamespaceID(UiGalleryMod.spaceName, SliderId);
+        private const int OrderToggle = 100;
+        private const int OrderSlider = 101;
+        private const int OrderChoice = 102;
 
-        /// <summary>
-        /// 打开整个示例功能：注册命名空间与注入类 → 声明两条设置项 → 挂登记补丁 → 订阅 ModInfo 注册点。
-        /// 只在 <see cref="GalleryConfig.SampleOptions"/> 为真时调用。
-        /// </summary>
+        private static readonly string[] ChoiceItems = { "低", "中", "高" };
+
+        /// <summary>由插件 <c>Load()</c> 调用（纯托管，不碰游戏）。</summary>
         internal static void Enable()
         {
             try
             {
-                // 登记命名空间 + 注册全部注入类（必须在任何实例化之前）。
-                ModBootstrap.Register(
-                    spaceName: UiGalleryMod.spaceName,
-                    logicType: typeof(UiGalleryMod),
-                    xmlDefaultNamespace: "mvz2");
+                // 走默认路径的 mod 不注册 ModInfo，所以自己要给“模组设置”页一个介绍。
+                // 名字/说明/作者都是源串；末位参数是中文译文。
+                UiOptions.DeclareMod(SpaceName, "MVZ2 UI Gallery",
+                    "UI 组件画廊（开发者工具：用原版素材拼界面的最小范例）", "QoZnoS", "UI 组件画廊");
 
-                InjectedDefinitions.Apply();
-                InjectedDefinitions.Register(UiGalleryMod.spaceName);
+                UiOptions.DeclareToggle(
+                    SpaceName, ToggleId,
+                    category: "general",
+                    label: "UI 画廊示例开关",
+                    tooltip: "由 UiGallery 经 DSHCore.Ui.UiOptions 声明的设置项：这一行没有任何 UI 代码。",
+                    order: OrderToggle,
+                    getter: GetToggle,
+                    setter: SetToggle);
 
-                Declare();
-                ApplyPatch();
+                UiOptions.DeclareSlider(
+                    SpaceName, SliderId,
+                    category: "graphics",
+                    label: "UI 画廊示例滑条",
+                    min: 0f, max: 10f, wholeNumbers: true,
+                    tooltip: "同一个封装出来的滑条：标签显示成「标签：值」，拖动时逐帧刷新，松手才提交。",
+                    order: OrderSlider,
+                    getter: GetSlider,
+                    setter: SetSlider,
+                    format: v => ((int)v) + " 格");
 
-                ModInfos.OnRegister(OnRegisterModInfos);
-                Plugin.Log?.LogInfo("[SampleOptions] 已启用（会往原版设置界面注入 2 条示例设置项）");
+                UiOptions.DeclareChoice(
+                    SpaceName, ChoiceId,
+                    category: "gameplay",
+                    label: "UI 画廊示例选择",
+                    items: ChoiceItems,
+                    tooltip: "多值项在模组设置页里是「标签：当前值」的按钮行，点一下切到下一个值"
+                        + "（原版下拉框的展开列表在本环境画不出来，本库不提供替代实现）。",
+                    order: OrderChoice,
+                    getter: GetChoice,
+                    setter: SetChoice);
+
+                Plugin.Log?.LogInfo("[SampleOptions] 已声明 3 条设置项"
+                    + "（它们会出现在「插件 → 模组设置（DSHCore）」的 uig 名下；零注入）");
             }
             catch (Exception e)
             {
@@ -72,149 +83,60 @@ namespace UiGallery
             }
         }
 
-        /// <summary>
-        /// 向游戏注册本 mod 的 ModInfo。
-        ///
-        /// <para>注意：这一步让 UiGallery **出现在 mod 列表里**（平时它不注册 ModInfo）。
-        /// 这是示例功能的必要代价 —— 没有 Mod 实例就没有 <c>mod.AddDefinition</c>。</para>
-        /// </summary>
-        private static Il2CppSystem.Threading.Tasks.Task OnRegisterModInfos(
-            MVZ2Logic.Games.IGlobalGame game,
-            Il2CppSystem.Collections.Generic.List<ModInfo> results)
-        {
-            try
-            {
-                var logic = UiGalleryMod.CreateInstance();
-                VTableRebind.Ensure(typeof(UiGalleryMod));
-                results.Add(ModInfos.Create(UiGalleryMod.spaceName, logic, "MVZ2 UI Gallery (示例设置项)"));
-                Plugin.Log?.LogInfo("[SampleOptions] ModInfo 已注册（" + UiGalleryMod.spaceName + "）");
-            }
-            catch (Exception e)
-            {
-                Plugin.Log?.LogError("[SampleOptions] OnRegisterModInfos error: " + e);
-            }
-            return Il2CppSystem.Threading.Tasks.Task.CompletedTask;
-        }
-
-        /// <summary>在 <c>Plugin.Load()</c> 调用（纯托管，不碰游戏）。</summary>
-        internal static void Declare()
-        {
-            try
-            {
-                UiOptions.DeclareToggle(
-                    UiGalleryMod.spaceName, ToggleId,
-                    category: "general",
-                    label: "UI 画廊示例开关",
-                    tooltip: "由 UiGallery 经 DSHCore.Ui.UiOptions 注入的设置项：这一行没有任何 UI 代码。",
-                    order: 100,
-                    getter: GetToggle,
-                    setter: SetToggle);
-
-                UiOptions.DeclareSlider(
-                    UiGalleryMod.spaceName, SliderId,
-                    category: "graphics",
-                    label: "UI 画廊示例滑条",
-                    min: 0f, max: 10f, wholeNumbers: true,
-                    tooltip: "同一个封装出来的滑条：标签显示成「标签：值」，拖动时逐帧刷新。",
-                    order: 101,
-                    getter: GetSlider,
-                    setter: SetSlider,
-                    format: v => ((int)v) + " 格");
-            }
-            catch (Exception e)
-            {
-                Plugin.Log?.LogError("[SampleOptions] Declare error: " + e);
-            }
-        }
-
-        // ---- 值的存取：用游戏自己的全局选项（键落在本 mod 的命名空间里，不会和别人撞） ----
+        // ---- 值的存取（这里用本 mod 的配置项；用游戏全局选项或静态字段也一样） ----
 
         private static bool GetToggle()
         {
-            return Global.Options.GetOptionBool(ToggleKey);
+            var entry = GalleryConfig.SampleToggle;
+            return entry != null && entry.Value;
         }
 
         private static void SetToggle(bool value)
         {
-            Global.Options.SetOptionBool(ToggleKey, value);
-            Global.Options.SaveOptions();
+            var entry = GalleryConfig.SampleToggle;
+            if (entry != null)
+                entry.Value = value;
         }
 
         private static float GetSlider()
         {
-            return Global.Options.GetOptionInt(SliderKey);
+            var entry = GalleryConfig.SampleSlider;
+            return entry == null ? 0f : entry.Value;
         }
 
         private static void SetSlider(float value)
         {
-            Global.Options.SetOptionInt(SliderKey, (int)value);
-            Global.Options.SaveOptions();
+            var entry = GalleryConfig.SampleSlider;
+            if (entry != null)
+                entry.Value = (int)value;
+        }
+
+        private static int GetChoice()
+        {
+            var entry = GalleryConfig.SampleChoice;
+            return entry == null ? 0 : entry.Value;
+        }
+
+        private static void SetChoice(int value)
+        {
+            var entry = GalleryConfig.SampleChoice;
+            if (entry != null)
+                entry.Value = value;
         }
 
         // ------------------------------------------------------------------
-        // 登记（官方 LoadStages 时机）
+        // 验收
         // ------------------------------------------------------------------
 
         /// <summary>
-        /// 在官方 <c>ModLoader.LoadStages</c> 时机登记本 mod 声明的设置项。
+        /// 「这三条会不会出现在模组设置页里」的可读结论（自测用）。
         ///
-        /// <para>为什么必须是这个时机：<c>Mod.AddDefinition</c> 要落在 <c>LoadDefinitions</c> 之内、
-        /// <c>game.AddMod</c> 之前，否则定义进不了全局内容表。</para>
-        /// </summary>
-        internal static void ApplyPatch()
-        {
-            try
-            {
-                var target = AccessTools.Method(typeof(ModLoader), "LoadStages");
-                if (target == null)
-                {
-                    Plugin.Log?.LogError("[SampleOptions] 找不到 ModLoader.LoadStages");
-                    return;
-                }
-                new Harmony(Plugin.GUID + ".sampleoptions").Patch(target,
-                    prefix: new HarmonyMethod(typeof(SampleOptions), nameof(LoadStagesPrefix)));
-            }
-            catch (Exception e)
-            {
-                Plugin.Log?.LogError("[SampleOptions] 挂钩失败：" + e.GetType().Name + ": " + e.Message);
-            }
-        }
-
-        private static void LoadStagesPrefix(Mod mod)
-        {
-            try
-            {
-                // 判定归属必须用 NamespaceOf（先比 native 指针）：注入实例的 mod.Namespace
-                // 字符串存在被 GC 回收的窗口，直接比字符串会让登记静默失败。
-                if (InjectedDefinitions.NamespaceOf(mod) != UiGalleryMod.spaceName)
-                    return;
-                // 复核一次命名空间字段：登记之后游戏自己也要读它。
-                ModNamespacePin.Ensure(mod, UiGalleryMod.spaceName);
-                var n = UiOptions.Attach(mod);
-                Plugin.Log?.LogInfo("[SampleOptions] LoadStages：已登记 " + n + " 条设置项");
-            }
-            catch (Exception e)
-            {
-                Plugin.Log?.LogError("[SampleOptions] Attach error: " + e);
-            }
-        }
-
-        // ------------------------------------------------------------------
-        // 验收（复刻官方渲染判据，见 DSHCore/UI_RESEARCH.md §8）
-        // ------------------------------------------------------------------
-
-        /// <summary>
-        /// 把"这两条设置项到底会不会出现在设置界面里"变成一个可读结论。
-        ///
-        /// <para>判据就是**官方渲染代码自己的判据**
-        /// （<c>OptionsDialogController.UpdateMoreOptionsPageWidgets</c>）：
-        /// 定义在官方表里 → <c>GetCategoryID()</c> 有效 → 该分类的 meta 存在
-        /// （否则整组静默消失）→ 类型模式匹配 → <c>GetValue()</c> 可读。
-        /// 全部满足就一定会被画出来，不需要人肉去点设置界面。</para>
+        /// <para>判据就是模组设置页自己的取数逻辑：<see cref="UiOptions.ForPage"/>
+        /// 能拿到声明、且这条声明带 getter/setter（否则页面会把它渲染成只读行）。</para>
         /// </summary>
         internal static string Report()
         {
-            var sb = new StringBuilder(800);
+            var sb = new StringBuilder(600);
             try
             {
                 if (!GalleryConfig.SampleOptions)
@@ -223,16 +145,10 @@ namespace UiGallery
                     return sb.ToString();
                 }
 
-                var main = MainManager.Instance;
-                if (main == null)
-                {
-                    sb.Append("MainManager 未就绪");
-                    return sb.ToString();
-                }
-
-                sb.Append(UiOptions.Report());
-                sb.Append(CheckOne("Toggle", ToggleId));
-                sb.Append(CheckOne("Slider", SliderId));
+                var mine = UiOptions.ForPage(SpaceName);
+                sb.Append("模组设置页（uig）取到的设置项：").Append(mine.Length).Append(" 条\n");
+                for (var i = 0; i < mine.Length; i++)
+                    sb.Append(CheckOne(mine[i]));
             }
             catch (Exception e)
             {
@@ -241,48 +157,37 @@ namespace UiGallery
             return sb.ToString();
         }
 
-        private static string CheckOne(string kind, string id)
+        private static string CheckOne(UiOptions.Declaration d)
         {
-            var full = UiGalleryMod.spaceName + ":" + id;
-            var sb = new StringBuilder(220);
-            sb.Append("  ").Append(kind).Append(' ').Append(full);
-
+            var sb = new StringBuilder(200);
             try
             {
-                var main = MainManager.Instance;
-                var game = main.Game;
-                var res = main.ResourceManager;
-                var nid = new NamespaceID(UiGalleryMod.spaceName, id);
+                sb.Append("  ").Append(d.FullID)
+                  .Append(" [").Append(d.PageKind).Append(']')
+                  .Append("  文案=「").Append(d.Text).Append('」')
+                  .Append("  可编辑=").Append(d.CanEdit ? "是" : "**否**");
 
-                var def = game.GetDefinition<OptionWidgetDefinition>(
-                    MVZ2Logic.Definitions.LogicDefinitionTypes.OPTION_WIDGET, nid);
-                if (def == null)
+                switch (d.PageKind)
                 {
-                    sb.Append("：**定义不在官方表里**（登记失败）\n");
-                    return sb.ToString();
+                    case UiOptionKind.Slider:
+                        sb.Append("  范围=").Append(d.SliderMin).Append('~').Append(d.SliderMax)
+                          .Append("  当前值=").Append(d.CurrentValueText);
+                        break;
+                    case UiOptionKind.Button:
+                        sb.Append("  选项=").Append(d.Items.Length)
+                          .Append("  当前=").Append(d.CurrentItemText);
+                        break;
+                    default:
+                        sb.Append("  当前值=").Append(d.CurrentBool ? "开" : "关");
+                        break;
                 }
 
-                var cat = def.GetCategoryID();
-                var catMeta = cat == null ? null : res.GetOptionCategoryMeta(cat);
-                var widgetMeta = res.GetOptionWidgetMeta(nid);
-
-                // 类型模式匹配：官方 GetWidgetViewData 是 switch(definition) { case OptionToggleDefinition: ... }，
-                // 匹配不上就会被渲染成"未知控件"，所以这一条也要查。
-                var typed = def is OptionToggleDefinition || def is OptionSliderDefinition;
-
-                sb.Append("  category=").Append(cat == null
-                    ? "**null（会被官方过滤掉）**" : cat.SpaceName + ":" + cat.Path);
-                sb.Append(" 分类meta=").Append(catMeta == null ? "**缺失 → 整组消失**" : "有");
-                sb.Append(" 元数据=").Append(widgetMeta == null ? "无" : "有");
-                sb.Append(" label='").Append(widgetMeta == null ? "-" : widgetMeta.Label).Append('\'');
-                sb.Append(" 类型匹配=").Append(typed ? "是" : "**否**");
-                sb.Append(" → ").Append(cat != null && catMeta != null && typed
-                    ? "**会出现在设置界面**" : "**不会出现**");
+                sb.Append(" → ").Append(d.CanEdit ? "**会出现在模组设置页**" : "**不会出现（只读）**");
                 sb.Append('\n');
             }
             catch (Exception e)
             {
-                sb.Append("：检查抛异常 ").Append(e.GetType().Name).Append(": ").Append(e.Message).Append('\n');
+                sb.Append("：检查抛异常 ").Append(e.GetType().Name).Append('\n');
             }
             return sb.ToString();
         }

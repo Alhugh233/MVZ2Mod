@@ -72,6 +72,26 @@ namespace DSHCore.Ui
         }
 
         /// <summary>
+        /// 反激活一个节点（<c>SetActive(false)</c>）。配合 <see cref="Activate"/> 用来
+        /// 「建好但先别显示」—— 建页面时先摆好再一次性亮出来，避免玩家看到半成品。
+        /// </summary>
+        public static GameObject Deactivate(GameObject go)
+        {
+            if (!UiFinder.IsAlive(go))
+                return null;
+            try
+            {
+                if (go.activeSelf)
+                    go.SetActive(false);
+            }
+            catch (Exception e)
+            {
+                UiLog.Warn("反激活节点失败：" + e.GetType().Name);
+            }
+            return go;
+        }
+
+        /// <summary>
         /// 规范化一个刚克隆出来的节点（原地处理，返回同一个对象便于链式调用）：
         /// <list type="number">
         /// <item>改名并打上己方标记（否则下次查找会把自己的克隆体当成模板）；</item>

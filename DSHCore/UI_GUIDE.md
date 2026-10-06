@@ -4,7 +4,7 @@
 > 它只讲"怎么做"；"为什么是这样"的论证、实测路径与完整坑表在
 > [`UI_RESEARCH.md`](UI_RESEARCH.md)，可运行范例在 [`../UiGallery/`](../UiGallery/README.md)。
 >
-> 全部结论都来自**本机实测**（MVZ2 0.7.0 test-4 / x86 / IL2CPP metadata v31.1）。
+> 全部结论都来自**本机实测**（MVZ2 0.7.0 test-10 / x86 / IL2CPP metadata v31.1）。
 > 凡是没实测过的，我都在这份文档里标了「未验证」。
 
 ---
@@ -21,14 +21,21 @@
 │    └─ ✅ L1：level.ShowAdvice(text, timeout)                          ← 零 UI 代码
 │
 ├─ 要「开 / 关」「0~1 的滑条」这类设置项？
-│    └─ ✅ L2：UiOptions.DeclareToggle / DeclareSlider + options.xml            → §3
-│         （零 UI 代码，外观 100% 原生，进原版设置界面）
+│    └─ ✅ L2：UiOptions.DeclareToggle / DeclareSlider / DeclareChoice             → §3
+│         （零 UI 代码，进「插件页 → 模组设置（DSHCore）」，不占用原版设置菜单；
+│          想让某一项进原版设置界面就加 scope: VanillaMenu，代价见 §3.1）
+│
+├─ 要在「插件」页里加一个自己的页面？
+│    └─ ✅ L2.5：AddonPage（入口按钮 + 页面壳 + 生命周期全自动）                  → §4
+│
+├─ 界面上的文字要跟着游戏语言变？
+│    └─ ✅ UiLocale（纯托管，不用打语言包也有译文）                              → §11
 │
 ├─ 要往原版已有的面板/对话框里加东西？
-│    └─ ✅ L3：UiSkin.Clone + 插进原版 LayoutGroup                       → §4
+│    └─ ✅ L3：UiSkin.Clone + 插进原版 LayoutGroup                              → §5
 │
 ├─ 要一个自己的面板 / 列表 / 常驻窗口？
-│    └─ ✅ L3：UiSkin.Clone(Dialog) + UiOptionRow / UiList              → §5
+│    └─ ✅ L3：UiSkin.Clone(Dialog) + UiOptionRow / UiList                      → §6
 │
 └─ 想自己画控件（new GameObject + AddComponent）？
      └─ ❌ 做不到。字体、Sprite、点击音效全是私有 [SerializeField]，
@@ -72,28 +79,60 @@ Global.GUI.ShowDialog("标题", "正文", new[] { "好" }, index => { });
 
 ---
 
-## 3. L2 —— 数据驱动的设置项（零 UI 代码）
+## 3. L2 —— 数据驱动的设置项（默认进「模组设置」页）
 
-原版设置界面（主菜单 / 地图 / 关卡三处共用）会**自动**列出所有 `OptionWidgetDefinition`。
-mod 只要声明几条 + 一份 `options.xml`，就能得到 100% 原生观感的设置项，
-连分类页、滚动、值持久化、悬停提示都不用管。
+**默认路径：声明一句就够了，设置项会出现在「插件页 → 模组设置（DSHCore）」里**，
+按命名空间归到对应 mod 名下。不需要 `ModInfo`、不需要注入定义类、不需要 `options.xml`、
+不需要三时机 —— 这条路是**零注入**的。
 
 ```csharp
-// ① Load()：声明（纯托管，不碰游戏）
-UiOptions.DeclareToggle("my_mod", "my_toggle", "general", "我的开关", "说明文字", 0,
-    getter: () => _value, setter: v => _value = v);
+// Load()：声明（纯托管，不碰游戏）。就这一句，没有第 ② ③ 步。
+UiOptions.DeclareMod("my_mod", "My Mod",                  // 可选但推荐：左栏里显示的名字
+    description: "一句话说明（右栏「说明」那一行）",
+    author: "你的名字",
+    chinese: "我的模组");                                   // 显示名的中文译文（见 §11）
 
-UiOptions.DeclareSlider("my_mod", "my_volume", "graphics", "音量", 0f, 1f, false,
-    order: 1, getter: () => _vol, setter: v => _vol = v, format: v => (v * 100) + "%");
+UiOptions.DeclareToggle("my_mod", "my_toggle", label: "我的开关",
+    tooltip: "说明文字", getter: () => _value, setter: v => _value = v);
 
-// ② LoadStages 时机（放在你自己已有的 LoadStages prefix 里即可）
+UiOptions.DeclareSlider("my_mod", "my_volume", label: "音量", min: 0f, max: 1f, wholeNumbers: false,
+    getter: () => _vol, setter: v => _vol = v, format: v => (v * 100) + "%");
+
+UiOptions.DeclareChoice("my_mod", "my_level", label: "强度", items: new[] { "低", "中", "高" },
+    getter: () => _level, setter: i => _level = i);
+```
+
+- **值怎么存由你决定**（BepInEx 配置项 / `Global.Options` / 静态字段都行）——
+  声明只要求一个 `getter` 和一个 `setter`。
+- 三种控件：复选框 / 滑条 / **多值选择**。多值在模组设置页里是**按钮行**
+  （「标签：当前值」，点一下切到下一个值），因为原版下拉框的展开列表在本环境画不出来（§10）。
+- `category` 参数只在「同时进原版设置界面」时才用得到，走默认路径时可以随便填。
+- 页面本身在 `DSHCore.Plugin.Load` 里就登记好了（内建，不需要任何 mod 去开）。
+- **`DeclareMod` 还决定「这个 mod 会不会出现在列表里」**：声明过的命名空间**无条件列出**，
+  哪怕它既没注册 `ModInfo`、也没有任何设置项 —— 纯补丁 mod（只有 Harmony 补丁、
+  没有任何游戏内容，例如 `Replay`）就靠这一句露脸。不声明又没有设置项 = 列表里看不到它。
+- 说明 / 作者 / 显示名都是**可翻译的源串**（§11）；没声明「说明」「作者」时右栏显示「（未声明）」。
+
+
+### 3.1 另一条路：放进**原版设置界面**
+
+原版设置界面（主菜单 / 地图 / 关卡三处共用）会**自动**列出游戏认得的 `OptionWidgetDefinition`。
+想让某一项出现在那里就显式写 `scope: UiOptionScope.VanillaMenu` ——
+它要完整走一遍官方链路（三时机 + `options.xml` + 一个真的 `Mod` 实例）：
+
+```csharp
+UiOptions.DeclareToggle("my_mod", "my_toggle", category: "general", label: "我的开关",
+    getter: () => _value, setter: v => _value = v,
+    scope: UiOptionScope.VanillaMenu);      // ← 唯一的区别
+
+// ② 在你自己已有的 LoadStages prefix 里（官方 ModLoader.LoadStages 时机）
 UiOptions.Attach(mod);
 
-// ③ PostInit
+// ③ Mod.PostInit
 UiOptions.ApplyProperties();
 ```
 
-**为什么必须是三次调用（本次实测结论，别合并）：**
+**为什么这一步必须是三次调用（实测结论，别合并）：**
 
 | 步骤 | 时机 | 为什么 |
 | --- | --- | --- |
@@ -101,8 +140,7 @@ UiOptions.ApplyProperties();
 | `Attach(mod)` | 官方 `ModLoader.LoadStages` | 创建定义 + `Mod.AddDefinition` 必须落在 `LoadDefinitions` 内、`game.AddMod` 之前 |
 | `ApplyProperties()` | `Mod.PostInit` | ⚠️ 写早了**会被静默丢弃**：属性键那时还没就绪，`SetProperty` 一声不吭、"已应用"日志照打，但官方渲染时 `GetCategoryID()` 读回 null → 被 `!NamespaceID.IsValid(categoryID)` 过滤掉，界面上什么都不多 |
 
-`options.xml`（`Content/metas/options.xml`）承载文案/分类/顺序；**它其实是可选的**
-（声明里也带这些，找不到 meta 时代码会兜底并记一行警告），但正式发布建议写：
+`options.xml`（`Content/metas/options.xml`）承载文案/分类/顺序：
 
 ```xml
 <options>
@@ -120,19 +158,112 @@ UiOptions.ApplyProperties();
   `general` / `graphics` / `gameplay` / `hp_bar` / `control` / `about`
   （裸名按 mod 的默认命名空间解析，`general` → `mvz2:general`）。
   写错了**不会报错**，整个分类组会被静默丢掉。
-- 值的持久化：自己的 setter 里存。最省事的是游戏自己的全局选项
-  （`Global.Options.SetOptionBool/Int(自己的 NamespaceID, v)` + `SaveOptions()`）。
 
 > 底层设施是 `DSHCore.InjectedDefinitions`（把注入定义接进官方链路：托管定义列表 +
 > 拦 `Mod.GetDefinitions` + 跳 `Mod.PostReloadMods` + 钉 GC 根）。要自己造非设置项的定义
-> （关卡、buff…）看它的类注释；活样本见 `UiGallery/SampleOptions.cs`（**默认关闭**，
-> 开 `General.SampleOptions` 或跑自测就能看到它把两条设置项钉进原版设置界面）。
+> （关卡、buff…）看它的类注释；活样本见 `UiGallery/SampleVanillaOptions.cs`（**默认关闭**，
+> 开 `General.SampleVanillaOptions` 就能看到它把两条设置项钉进原版设置界面）。
 > 另：注入 `Mod` 实例的 `Namespace` 字段会被 GC 回收，判定归属一律用
 > `InjectedDefinitions.NamespaceOf(mod)`，并让 `ModNamespacePin` 把它钉住 —— 否则整套登记会静默失败。
 
 ---
 
-## 4. L3 基础 —— 把东西插进原版已有的布局
+## 4. 插件页子页面（`AddonPage`）—— 在「插件」页里加一个自己的页面
+
+**主菜单 → 更多选项 → 插件** 那一页是游戏留给扩展内容的地方。DSHCore 把「在那儿加一个页面」
+整件事封成了 `AddonPage`：入口按钮的安装与文案纠正、页面壳的克隆与修补、
+「藏起插件页索引 → 叠上自己的面板」、离开插件页自动收起、以及心跳驱动 —— 全都不用自己写。
+
+```csharp
+internal sealed class MyPage : AddonPage
+{
+    public override string Id { get { return "MyPage"; } }           // 唯一 id（节点名 / 日志）
+    public override string EntryLabel { get { return "我的页面"; } }  // 插件页上的按钮文案
+    public override string Title { get { return "我的页面"; } }       // 页面标题
+
+    public MyPage() { Register(); }        // ← 构造时登记（幂等）
+
+    protected override bool BuildContent(AddonShell shell)
+    {
+        // PreparePanel：杀掉它自带的 Scroll View + 让框体美术不参与排版 + 保证有纵向布局组
+        var body = shell.PreparePanel(shell.Node("Center/List"));
+        if (body == null) return Fail("页面壳里找不到 Center/List。");
+
+        var list = UiList.Create(body.transform, "MyList");
+        if (list == null || !list.IsValid) return Fail("可滚动列表建不出来。");
+        list.SetFlexible();
+        list.AddButton("你好", () => Plugin.Log.LogInfo("点了"));
+        return true;
+    }
+}
+```
+
+然后：
+
+| 事项 | 怎么做 |
+| --- | --- |
+| 让页面出现在插件页 | 什么都不用做 —— 构造（`Register()`）之后心跳会自己把入口装上 |
+| 心跳 | **DSHCore 自己驱动**（挂在 `MainSceneController.Update` 上），不要再自己挂一份 |
+| 两种版式 | `ShellSource = AddonsIndex`（单栏，默认，与「资源包」「回放」同款）/ `ArchiveIndex`（左右两栏，与「对话档案」同款） |
+| 面板宽度 | `WidthTargetPath` + `WidthRatio`（**比例**，不是像素）。原版面板写死 500 单位，一行里多放几格就放不下 |
+| 两栏版式的**合计**宽度 | `TwoColumnWidthRatio`（比例）。左栏保持 prefab 宽度、**右栏吸收全部增量**，两栏整体重新水平居中（`UiKit.SetTwoColumnWidth`）。想让总宽与某个单栏页面一致时，两边填同一个比例 |
+| 两栏版式的栏位路径 | `LeftColumnPath` / `RightColumnPath`（默认 `Center/Filter` / `Center/List`） |
+| 标题行太高、想给内容区让高度 | `TopHeight`（单位，0 = 用 prefab 原值 80）。壳是纵向布局组、`Center` 是弹性那一个，所以调小标题行 = 内容区自动变高 |
+| 「先切页、页面就绪后再打开」 | `RequestOpen()`；`PumpNow()` 是「同帧抢页面」（用于从关卡直接落到本页，别让玩家看到插件页索引闪一下） |
+| 「关掉本页之后去哪」 | `SetReturnTo(action)`；非 null 时**不会**因为离开插件页而自动收起 |
+| 不想装入口 / 不想开页面的时机 | override `Suspended()`（例如「回放」在播放中） |
+| 面板建不出来时的提示 | override `OnBuildFailed(error)`（有对话框能力的子类可以弹提示） |
+| 验收 | `EntryInstalled` / `Root` / `LastError` / `DescribeEntry()`；全局状态用 `AddonPages.Report()` |
+
+**内建与现成的两个实现**：
+
+- `DSHCore.Ui.ModSettingsPage`（「模组设置（DSHCore）」）—— 左栏已加载的 mod、右栏详细信息与设置项，
+  版式取自 `ArchiveIndex`（两栏合计宽 = 0.94 画布宽，与「回放」页同宽）；
+  左栏条目是**档案页自己的条目行**（`UiTagRow`，见 §4.1），它同时是 §3 那条设置项链路的**消费者**。
+- `Replay/Ui/ReplayPage.cs` —— 单栏版式（`AddonsIndex`），列表里放回放条目。
+
+### 4.1 档案样式的条目行（`UiTagRow`）
+
+「像对话档案那样的一行」= 原版 `ArchiveTagItem`（`Toggle` + 文字）。
+`UiTagRow` 从档案页左栏那个 `ElementList` 的**条目模板**克隆，所以行高、勾选条、悬停视觉
+全是原版像素同源，不用自己描一个。
+
+```csharp
+UiTagRow.Template(left.transform);          // 先从壳里捞出模板（必须在清空那棵树之前）
+var row = UiTagRow.Create(list.Content, "Row0", "我的条目", isOn: true, v => Select(0));
+list.Add(row);
+UiTagRow.Set(row, "改个文案", isOn: false);  // 改文案 / 改勾选（不回调）
+```
+
+- **勾选 = 选中**：行的勾选条铺满整行（绿色），悬停时另有一层白色半透明条。
+- 行的点击由它自己的 `Toggle` 处理，本库只订阅 `OnValueChanged` 做单选归一。
+- ⚠️ **必须让 `UiTagRow.Create` 造行**：行的色块是**无 sprite 的纯色 Image**，
+  而整备页面壳时 `UiKit.ClearEmptySpriteAlpha` 会把这类图清成透明 ——
+  `Create` 内部会把它们还原回来（否则文字在、看不出选了哪一条）。
+- 拿不到素材时 `Create` 返回 null：**降级用 `UiList.AddButton`**，功能不要丢。
+
+⚠️ **不要**自己克隆插件页索引、也不要自己插入口按钮：两个页面各插一次会互相撞车
+（各自 `MakeVertical` 同一个列表容器、各自把文案写回去），而且「入口文案会被插件页自己的
+刷新回调写回原样、需要在心跳里纠正」这个细节只有一处实现才不会分叉。
+
+### 4.2 两栏页面的排版要点（照抄「模组设置」页就行）
+
+`ModSettingsPage` 是两栏版式的参考实现（左栏列表 + 右栏详情）。四个可复制的结论：
+
+| 想要的效果 | 怎么做 | 为什么 |
+| --- | --- | --- |
+| **列表条目紧密排列、并且填满框体** | `list.SetRowFit(true, spacing: 2f)` | 原版列表素材的行间距是 10 单位；而**内容容器自己比视口窄一圈**（实测 12 屏幕像素），行因此看着没填满框体 |
+| 栏目标题比正文醒目、又不占高度 | `UiKit.Label(..., fontSize: 18f, ..., preferredHeight: 26f)` + `UiKit.SetBold(tmp)` | 原版行高是 40 单位，标题只占一行 → 一半是空白；标题行矮下来，弹性高度的列表自己就变高了 |
+| 信息行之间不要那么空 | `UiKit.Fit(row, -1f, -1f, 1f)` + `UiKit.AutoHeight(...)`（**别给固定高度**） | 行高由里面最高的那个文本决定（单行 ≈ 19 px，而原版控件行是 51 px） |
+| 长文本换行而不是被截断 | 值用 `UiKit.Paragraph(...)`（`Label` 是省略号截断） | `Label` 是给「一行里摆好几格」用的 |
+
+**原版分割线**：`UiKit.Separator(parent, name)` → 克隆设置界面里的 `CategoryTemplate/Title/Line`
+（2 单位高、铺满宽、**无 sprite 的纯色 Image**，就是原版分类标题下面那条）。
+拿不到时返回 null，降级成一行空白 —— **不要**用文字画分割线。
+
+---
+
+## 5. L3 基础 —— 把东西插进原版已有的布局
 
 **核心原则：只克隆 + 插进原版已有的 `LayoutGroup`，坐标/尺寸交给原版算。**
 
@@ -153,7 +284,7 @@ var host = UiGame.SceneUi.dialog.buttonRowList._listRoot;   // 只是一个例�
 
 ---
 
-## 5. L3 实战 —— 三个可直接抄的例子
+## 6. L3 实战 —— 三个可直接抄的例子
 
 ### 例 1：一个「标题 + 正文 + 若干按钮」的面板
 
@@ -225,7 +356,7 @@ ScrollRect：horizontal=0 vertical=1 viewport=…/DSH_Sample_List/Viewport
 
 ---
 
-## 6. 七条硬约定（写 UI 时的规范）
+## 7. 七条硬约定（写 UI 时的规范）
 
 1. **绝不算坐标、绝不定尺寸、绝不定义全局缩放。** 插进原版已有的 `LayoutGroup` 里，排版交给原版。
    *唯一的例外是滚动视图的视口高度* —— 它必须有界，用 `UiList.SetViewportHeight(UiList.SuggestHeight())`
@@ -258,7 +389,7 @@ ScrollRect：horizontal=0 vertical=1 viewport=…/DSH_Sample_List/Viewport
 
 ---
 
-## 7. 坑清单速查（完整版见 `UI_RESEARCH.md` §6）
+## 8. 坑清单速查（完整版见 `UI_RESEARCH.md` §6）
 
 | 主题 | 记住这一条 |
 | --- | --- |
@@ -271,12 +402,17 @@ ScrollRect：horizontal=0 vertical=1 viewport=…/DSH_Sample_List/Viewport
 | 布局 | 父布局组 `forceExpandWidth = 0` 时，子节点不给 `flexibleWidth` 就是 **0 宽**（列表踩过） |
 | 布局 | 对话框高度是**内容撑的、而且不能滚**：内容超过屏幕高度时框体直接顶出屏幕（标题整个跑到屏幕外，但所有 `activeInHierarchy` 都是 1，看图才发现）→ 每行都要短、行数要克制；拿不准就量 `_selftest.txt` 里的 `框体` 矩形 |
 | 克隆 | `Image.sprite == null` 时 uGUI 画的是**纯白矩形**（不是透明）→ 空图要手动 `alpha = 0`（还需吃射线时）或 `enabled = false` |
+| 克隆 | 但**无 sprite 的纯色图也可能是正当视觉**（档案条目行的勾选条/悬停条就是）—— 整备页面壳时的一刀切清 alpha 会连它们一起清掉，克隆出来的行就「文字在、看不出选了哪一条」。`UiTagRow.Create` 内部会按「rgb 还在、alpha 被清」的指纹还原 |
 | 遮罩 | 换成 `RectMask2D` 之后，原本当 `Mask` 图形用的那个 `Image` 会**开始画自己** —— `Mask.showMaskGraphic = false` 时它只写模板缓冲不画，换了遮罩就变成一个亮框 → `UiSkin` 会自动把它 `alpha = 0`（这就是"列表背景变白"的根因） |
 | 文本 | 中文字符串里混进 ASCII 双引号会**截断字符串**并报一堆 `CS1003`（行号还指在别处）→ 用 `「」` |
 | 克隆 | 克隆体一被**激活**，挂在它上面的组件就会跑 `Awake` —— 所以「要删的组件」必须在激活**之前**删（`UiClone.Instantiate(..., activate: false)` → 修补 → `UiClone.Activate`），而且要用 `DestroyImmediate`（`Destroy` 帧末生效，同帧照样会 Awake） |
 | 克隆 | 原版有些节点上挂着**我们不需要的行生成器**（`ElementList` / `ElementListUI`），它们的 `_template` 可能是空的（运行时才赋值）→ `Awake` 必抛空指针。`UiSkin` 对可滚动容器会自动摘掉它们 |
 | 遮罩 | 别用 `Mask`（模板缓冲会让 TMP 的子网格去申请**共享**的 Stencil 材质实例，克隆体与模板共用后互相销毁 → 对方 `OnDisable` 时空指针）→ `RectMask2D`（矩形裁剪、不需要 Sprite） |
 | 交互 | il2cpp 事件在 interop 里是**属性**（`add_OnXxx`）→ `DelegateSupport.ConvertDelegate` + 自己持有托管委托 |
+| 交互 | `DisplayAddons(null)` = **一屏黑**：`MainScenePage.Return()` 是 `OnReturnClick?.Invoke(); Hide();`，回调为空时只把页面藏起来、没有东西顶上来。程序化调用必须自己传回调（DSHCore 对 `DisplayAddons` 挂了前缀兜底，但自己传才是正解） |
+| 文本 | **统一取词会把「原文」也换掉**：`AddInfo` 之类的值过一遍 `UiLocale.Get` 之后，「名称原文 = MVZ2 UI Gallery」就变成中文名了 → 需要原文的地方要显式跳过取词 |
+| 布局 | **想让行高由内容（换行后的文本）决定，就不能给 `LayoutElement.preferredHeight` 填 0**：`LayoutElement` 的 `layoutPriority`（1）高于 TMP（0），任何 ≥ 0 的返回值都会把 TMP 自己算的换行高度盖掉。要么不挂 `LayoutElement`，要么把三项高度都清成 -1（`UiKit.AutoHeight`） |
+| 诊断 | interop 类型上的 `params object[]` 会生成**两个重载**（`Il2CppReferenceArray<T>` 与 `T[]`）→ `AccessTools.Method` 找方法时要把四个参数类型都写全，否则歧义 |
 | 定义 | **属性要在 `PostInit` 写**：早了（`LoadStages` 时）属性键还没就绪，`SetProperty` 静默丢弃，官方于是把这条设置项过滤掉 —— 而所有日志看起来都成功了 |
 | 定义 | 注入类上**不要有返回纯托管类型的方法**：Il2CppInterop 会给每个方法生成代理，报 `has unsupported return type` 警告 → 挪到普通静态 helper 上 |
 | 定义 | 注入类实例的字段不被 il2cpp GC 追踪 → `id`/`propertyDict`/`triggers` 一律 `Il2CppPin.Pin(...)`；托管委托则放在**静态**表里（`UiOptions` 就是这么做的） |
@@ -285,7 +421,7 @@ ScrollRect：horizontal=0 vertical=1 viewport=…/DSH_Sample_List/Viewport
 
 ---
 
-## 8. 怎么验收（本仓库的方法：没有"看截图"这条路）
+## 9. 怎么验收（本仓库的方法：没有"看截图"这条路）
 
 **「节点存在 + 尺寸正确」≠「看得见」。** 必须用数字：
 
@@ -306,7 +442,7 @@ ScrollRect：horizontal=0 vertical=1 viewport=…/DSH_Sample_List/Viewport
 
 ---
 
-## 9. 已知不可用 / 未验证
+## 10. 已知不可用 / 未验证
 
 | 项 | 状态 |
 | --- | --- |
@@ -315,3 +451,121 @@ ScrollRect：horizontal=0 vertical=1 viewport=…/DSH_Sample_List/Viewport
 | 设置项的**实际显示** | ⚠️ 验证方式是**复刻官方渲染判据**（分类有效 + 分类 meta 存在 + 类型模式匹配 + GetValue 可读），没有真的打开设置界面截图。判据本身就是数据驱动的，但保守起见归为"未截图确认" |
 | `UiList` 的实际滚动（拖拽/滚轮） | ⚠️ 只验证了"建得出来、行数对、内容比视口高、布局不重叠"；**输入交互没做模拟验证** |
 | 关卡内 `UiSkin` 是否仍有效 | ⚠️ 预期有效（`Main` 场景不卸载），未实测 |
+| 档案条目行（`UiTagRow`） | ✅ 已截图确认：文字 + 选中行的绿色整行条都与档案页同源。**点击切换只做了代码路径分析，没模拟鼠标** |
+| 两栏合计宽度（`UiKit.SetTwoColumnWidth`） | ✅ 实测：左 300 + 间距 20 + 右 432 = 752 单位（= 画布 800×0.94），与「回放」页的 963 屏幕像素完全一致 |
+
+---
+
+## 11. 模组文本本地化（`UiLocale`）
+
+### 11.1 游戏那一套是怎么回事
+
+- **源语言是 `zh-Hans`**（`LanguageManager.SOURCE_LANGUAGE`）—— 游戏自己的文案就写中文，
+  其它语言是 catalog 里查出来的；默认语言也是 `zh-Hans`。
+- 唯一的查找入口是 `LanguageManager.TryGetLocalizedString(text, language, out str)`：
+  依次问每个 `ICatalogProvider`，全都没命中就返回**原文**。
+  `Global.Localization.GetText(...)` / `_(...)` / TMP 上的 `TextMeshProUGUITranslator`
+  最终都走到这里。
+- **官方的 mod 多语言 = 语言包资源包**：`assets/<nsp>/<lang>/*.mo`（gettext），
+  由 `ResourcePackManager` 读成 `ResourcePack`（它自己实现 `ICatalogProvider`）
+  再 `LanguageManager.AddCatalogProvider`。玩家在 **插件页 → 语言包** 里启用。
+  —— **出正式多语言就打包这个，不需要写代码。**
+
+### 11.2 本库给的第二条路：`UiLocale`（几行代码，不用打包）
+
+```csharp
+// Load() 里声明（纯托管）
+UiLocale.Add("Better Furnace", "更好的熔炉");                     // 省略语言 = 源语言(zh-Hans)
+UiLocale.Add("Better Furnace", "Better Furnace", UiLocale.English);
+
+string label = UiLocale.Get("更好的熔炉");                         // 当前语言下的文案
+```
+
+它把自己挂进游戏的查找链（`LanguageManager.TryGetLocalizedString` 的前缀补丁，
+由 `Plugin.Load()` 调 `UiLocale.Apply()`；挂不上只影响「别人查我们」，
+`UiLocale.Get` 自己永远生效）。启动会打一条 `[UiLocale] 已挂进游戏文本查找链（补丁 N 处）`；
+挂链**自检失败**时才会再打一条警告 —— 没有警告就是好的，别猜。
+
+| 事项 | 怎么做 |
+| --- | --- |
+| 只给自己界面用 | `UiLocale.Get(源串)`；查不到返回源串，不补译文也不会崩 |
+| 让游戏里的别处也读到（例如 mod 自己注册的实体名） | 什么都不用做 —— 补丁挂上之后全局生效 |
+| 源串写什么 | **语言中立的那一份**（一般是英文名）。源语言是中文，所以中文用 `Add(key, 中文)` 补 |
+| 界面里的一整句中文 | 直接以中文为源串，再 `AddAll(UiLocale.English, "中文", "English", …)` 补英文（`ModSettingsPage.DeclareTexts` 就是这么做的） |
+| 列表里的 mod 名 | `UiOptions.DeclareMod(space, 源串, 说明, 作者, 中文)` —— 声明一次，名字/说明/作者全有了 |
+| 设置项文案 | 声明时给的 label/tooltip 就是源串，模组设置页会过一遍 `UiLocale.Get` |
+
+### 11.3 为什么不实现 `ICatalogProvider`
+
+托管类要实现 il2cpp 接口得走 `ClassInjector` 的接口代理，而这套环境里接口分派是有坑的
+（`MetaInjection` 就是为了绕开它才改成直读磁盘 XML）。改在**查找入口挂前缀**与
+「多注册一个 provider」效果等价，且失败模式温和（挂不上只是不生效，有日志）。
+
+### 11.4 坑
+
+- **带参数的串（`{0}`）不走本表**：官方 provider 命中后会自己 `string.Format`，
+  而我们拿到的是 il2cpp 的 `object[]`；本库只接管**不带参数**的查找（带参数的直接放行）。
+- **取词时机**：模组设置页是在**打开时**取词的，所以玩家切语言后重进本页即可看到新语言；
+  页面上已经画出来的文字不会自动重刷。
+- `MVZ2.Localization.TextMeshProUGUITranslator` 会让 TMP **自动跟着语言变**
+  （组件上配 Context + Key）。本库对**克隆来的原版节点**一律摘掉它
+  （`UiKit.StripTextTranslators`，否则你改的文案会被它写回去）；
+  自己的文字请走 `UiLocale`，不要指望那个组件。
+- 官方语言包里的 `zh-Hans` catalog 是合法的（可以覆盖源串）——
+  所以「英文当 key、中文写在 catalog 里」这条路也是通的。
+
+### 11.5 第三条路：外部文件（玩家自己加语言，不用改 mod）
+
+想让「不碰 mod 本体也能加语言」，就不能把译文只写在代码里。`UiLocale` 除了代码表，
+还会读一份**玩家可编辑的文件**，取词顺序是：
+
+```
+外部文件 → 代码里的 Add 表 → 游戏本地化（语言包 .mo / catalog）→ 原样返回源串
+```
+
+**放哪（`<游戏目录>/BepInEx/config/DSHCore/lang/`）**
+
+```
+lang/zh-Hans.txt        主文件 —— 玩家直接编辑这一份
+lang/zh-Hans.d/*.txt    附加文件 —— 按文件名排序，可放多份，后加载的覆盖先加载的
+```
+
+语言码里的 `-` 也接受写成 `_`（`zh_Hans.txt`），两种都读。
+
+**写什么**（UTF-8；`#` / `;` 开头是注释；空行忽略；`=` 取第一个，译文里可以再出现 `=`）
+
+```ini
+MVZ2 Loadout = Graphical Console
+UI 组件画廊 = UI Gallery
+```
+
+转义：`\n` 换行、`\t` 制表符、`\\` 反斜杠。键**必须与 mod 里的源串逐字符一致** —— 
+照抄 `/dshtrans keys` 的输出最保险。
+
+**译文留空（`键 =`）等于「还没译」**：这一条会被跳过，取词继续往下走。所以
+`/dshtrans write` 导出的模板可以直接当工作稿 —— 没填的行不会把界面变成空白。
+
+**游戏内指令 `/dshtrans`**
+
+| 指令 | 作用 |
+| --- | --- |
+| `/dshtrans` | 状态：外部目录、当前语言读到了几条、见过多少源串 |
+| `/dshtrans keys` | 列出全部已知源串与它们当前的取值 |
+| `/dshtrans write en-US` | 把键表写成 `lang/en-US.txt` 模板（**已存在就不覆盖**；加 `overwrite` 强制） |
+| `/dshtrans reload` | 重新读盘（改完文件不用重启游戏） |
+
+**关键约束：它不会凭空让游戏多出一种语言。**
+mod 的显示语言始终跟着**游戏设置**走，而游戏的语言列表来自 catalog provider —— 
+只有玩家在 **插件 → 语言包** 里启用了一份支持该语言的语言包，这个语言码才存在，
+我们的 `lang/<该语言码>.txt` 才会被读到。所以流程是：
+**先导入并启用语言包 → 再放/编辑 `<语言码>.txt` → 重进页面（或 `/dshtrans reload`）**。
+
+| 事项 | 怎么做 |
+| --- | --- |
+| 加载时机 | 每种语言**第一次取词时惰性读一次**，之后走缓存（热路径只有一次字典查找） |
+| 文件不存在 | 静默跳过 —— 没放文件就是没有外部译文，不会有任何警告 |
+| 读到了文件 | 打**一条** `[UiLocale] 已加载外部译文（<语言>）：<文件名（N 条）> 目录 …` |
+| 解析出错 | 打警告并跳过该文件（不影响代码表与语言包） |
+| 空译文 | `键 =`（右边为空）= 还没译 → 跳过这一条，取词继续往下走 |
+| 导出模板 | `WriteTemplate(lang)` / `/dshtrans write <lang>`；键表来自本次会话**实际查过**的源串（`KnownKeys`） |
+| 诊断 | `UiLocale.Report()` / `DescribeExternal(lang)` / `DumpKeys()` |

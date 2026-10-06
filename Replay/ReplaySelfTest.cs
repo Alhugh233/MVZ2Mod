@@ -5,6 +5,7 @@ using System.IO.Compression;
 using System.Text;
 using System.Text.RegularExpressions;
 using BepInEx;
+using DSHCore.Ui;
 using HarmonyLib;
 using MVZ2.Level;
 using MVZ2.Managers;
@@ -49,6 +50,8 @@ namespace Replay
             Quit = 7,
             Done = 8,
             VerifyPlayback = 9,
+            /// <summary>回放结束面板的三个按钮（导出 / 重新播放 / 退出）依次实测。</summary>
+            EndPanel = 10,
         }
 
         private const string ReportFileName = "_replay_selftest.txt";
@@ -70,10 +73,15 @@ namespace Replay
         private static int retries;
         private static int forceAttempts;
         private static bool forcedStart;
+        private static bool deletedLevelState;
         private static bool playOnly;
         private static string playFileName;
         private static DateTime lastHeartbeatAt = DateTime.MinValue;
         private static int lastPageSeen = -1;
+
+        // 播放验收时的截图（见 ReplayConfig.SelfTestPlayShotTick）。
+        private static int shotState;      // 0 未抓 / 1 已抓第一张 / 2 抓完
+        private static int shotNext;
 
         public static bool Enabled
         {
@@ -233,6 +241,9 @@ namespace Replay
                                 int timeout = CfgInt(ReplayConfig.SelfTestPlaybackTimeoutSec, 180);
                                 Heartbeat("等回放播完", elapsed, GetController());
 
+                                PlayShotCheck();
+                                PlayMenuAudit();
+
                                 // 关卡在播放途中结束（失败/通关）时游戏会弹对话框并 PauseGame()，
                                 // 而**暂停时逻辑 tick 不前进** → 播放一直卡到超时。
                                 // 实测白卡了 300 秒，连小结（里面有最值钱的「目标找不到分类」）都拿不到。
@@ -261,6 +272,11 @@ namespace Replay
                             report.Add("  播放器状态: " + ReplayPlayer.Describe());
                             report.Add("  停下原因  : " + (ReplayPlayer.StopReason ?? "?"));
                             report.Add("  真实耗时  : " + ReplayPlayer.ElapsedSeconds.ToString("F1") + " 秒");
+                            // 结束面板（导出 / 重新播放 / 退出）：它是回放收尾的用户可见界面，
+                            // 必须实测过才算做完了。
+                            report.Add("  结束面板  : " + ReplayEndPanel.Describe());
+                            Shot("_rp_end.png");
+                            Check(ReplayEndPanel.ShowCount >= 1, "回放结束时弹出了结束面板");
                             Check(!ReplayPlayer.FailedNow, "回放播放成功（没报错）");
                             if (playOnly)
                             {
@@ -278,9 +294,13 @@ namespace Replay
                                     "回放状态与录制时完全一致（指纹不一致 " + ReplayPlayer.VerifiedMismatches + " 条）");
                             }
                             WriteReport();
-                            EnterPhase(CfgBool(ReplayConfig.SelfTestAutoQuit, true) ? Phase.Quit : Phase.Done);
+                            EnterPhase(Phase.EndPanel);
                             break;
                         }
+
+                    case Phase.EndPanel:
+                        StepEndPanel();
+                        break;
 
                     case Phase.Quit:
                         if (frames > 120)
@@ -303,6 +323,238 @@ namespace Replay
                 catch (Exception) { }
             }
         }
+
+        /// <summary>
+        /// 回放结束面板的三个按钮逐个点一遍（走的是和玩家点击**完全相同**的那个委托）。
+        ///
+        /// <para>顺序有讲究：「导出」只是副作用（写文件 + 弹一个单按钮提示，关掉后还会把面板弹回来），
+        /// 可以原地测；「重新播放」会把播放从头再来一遍，没法在同一轮里接着往下检查；
+        /// 「退出」是终结动作，所以放最后。</para>
+        ///
+        /// <para>本轮实测「导出（结果写回面板正文）→ 退出 → 落点回放页 → 返回主菜单」。
+        /// 「重新播放」走 <c>ReplayPlayer.RestartCurrent()</c>（内部就是 <c>Stop</c> + <c>Start</c>，
+        /// 而 <c>Start</c> 在本次自测开头已经跑通过），这里不重复跑。</para>
+        ///
+        /// <para>⚠️「导出」那一步走 <c>SelfTestExport</c> 而不是点按钮：现在是游戏原生的
+        /// 「另存为」对话框（阻塞式、系统级），自动化里一弹就再也回不来了。
+        /// 只把「选路径」换掉，导出与结果回写这条链照测。</para>
+        ///
+        /// <para>⚠️ <c>SelfTestChoose</c> 是直接调我们的 <c>onSelect</c> 委托，**绕过了
+        /// CustomDialog 自己的「按钮 → 隐藏」那一步**；而游戏显示对话框又是排队的。
+        /// 所以两次模拟点击之间要留足帧数，否则会出现「面板已经换了、旧的那个还挂在屏幕上」
+        /// 这种只属于自测的假象（真人点击不会）。</para>
+        /// </summary>
+        private const int EndPanelStepFrames = 90;
+
+        private static void StepEndPanel()
+        {
+            try
+            {
+                if (endStage == 0)
+                {
+                    if (frames - endWaitFrame < EndPanelStepFrames)
+                        return;
+                    endStage = 1;
+                    endWaitFrame = frames;
+
+                    // 记下文件路径：「导入」测试要用它当源文件（这时候还没有退出关卡）。
+                    probeMrepPath = ReplayPlayer.CurrentPath;
+
+                    var ok = ReplayEndPanel.SelfTestExport(ExportProbePath());
+                    report.Add("--- 结束面板按钮 ---");
+                    report.Add("  「导出 .mrep」 : " + (ok ? "已导出" : "导出失败")
+                        + " → " + ReplayEndPanel.Describe());
+                    Check(ok, "结束面板的「导出」真的写出了 .mrep");
+                    return;
+                }
+
+                if (endStage == 1)
+                {
+                    if (frames - endWaitFrame < EndPanelStepFrames)
+                        return;
+                    endStage = 2;
+                    endWaitFrame = frames;
+                    // 导出结果写在面板正文里，面板本身还在（输入仍然被拦）。
+                    var info = ReplayEndPanel.Describe() ?? string.Empty;
+                    report.Add("  导出后 : 面板开着 = " + ReplayEndPanel.IsOpen
+                        + "，描述=" + info);
+                    Check(ReplayEndPanel.IsOpen, "导出后面板仍在（输入仍然被拦）");
+                    Check(info.IndexOf("导出成功", StringComparison.Ordinal) >= 0,
+                        "导出结果写回了面板");
+                    return;
+                }
+
+                if (endStage == 2)
+                {
+                    if (frames - endWaitFrame < EndPanelStepFrames)
+                        return;
+
+                    // ── 第 1 轮：点「重新播放」──────────────────────────────
+                    // 它走的正是菜单里那个「点了没反应」的 RestartCurrent()，
+                    // 所以这一步同时覆盖了两个入口。
+                    if (endPanelRuns <= 1)
+                    {
+                        endStage = 9;
+                        endWaitFrame = frames;
+                        endWaitFrameAt = DateTime.Now;
+                        var ok = ReplayEndPanel.SelfTestChoose(1);
+                        report.Add("  点「重新播放」 : " + (ok ? "已点击" : "面板没开着")
+                            + "；播放器状态 = " + ReplayPlayer.Describe());
+                        // 真人点击时 MainSceneUI 会先把框体收起来；我们直接调回调，得自己补上
+                        // （否则那个「回放结束」框体会一直挂在新一场播放的关卡上）。
+                        ReplayEndPanel.SelfTestHideDialog();
+                        Check(ok, "结束面板的「重新播放」按钮能点");
+                        Check(ReplayPlayer.IsActive,
+                            "「重新播放」真的重开了一场（以前这里静默无效）");
+                        // 下一场结束时改走「菜单 → 结束播放」，验证那条路也会弹结束面板。
+                        menuDrivenEnd = true;
+                        WriteReport();
+                        EnterPhase(Phase.VerifyPlayback);
+                        return;
+                    }
+
+                    // ── 第 2 轮：点「退出」────────────────────────────────
+                    endStage = 3;
+                    endWaitFrameAt = DateTime.Now;
+                    var quit = ReplayEndPanel.SelfTestChoose(2);
+                    report.Add("  点「退出」 : " + (quit ? "已点击" : "面板没开着")
+                        + "；面板已收起 = " + !ReplayEndPanel.IsOpen);
+                    // 真人点击时 MainSceneUI 会先收起框体再调回调；我们直接调回调，
+                    // 所以要自己补上，否则那个框体会一直挂在屏幕上（自测假象）。
+                    ReplayEndPanel.SelfTestHideDialog();
+                    Check(quit, "结束面板的「退出」按钮能点");
+                    Check(!ReplayEndPanel.IsOpen, "点「退出」后面板收起");
+                    return;
+                }
+
+                if (endStage == 3)
+                {
+                    // 退出要花几秒：卸关卡 → 场景切换 → 回放页（同帧打开），再等对话框排完队。
+                    if ((DateTime.Now - endWaitFrameAt).TotalSeconds <= 25)
+                        return;
+                    report.Add("  退出后落点 : 回放页开着 = " + ReplayPage.IsOpen
+                        + "，待打开标记已消费 = " + !ReplayPlayer.WantsReplayPage
+                        + "，页面=" + DescribePage(lastPageSeen));
+                    Check(ReplayPage.IsOpen,
+                        "「结束播放 / 退出」之后回到的是回放页，而不是地图");
+                    // 截图必须在**换帧之后**再拍：ScreenCapture 是帧末才写盘的，
+                    // 同帧紧接着 Close() 的话拍到的已经是「退回主菜单」之后那一帧了。
+                    Shot("_rp_page.png");
+                    endStage = 4;
+                    endWaitFrameAt = DateTime.Now;
+                    return;
+                }
+
+                if (endStage == 4)
+                {
+                    // 等截图落盘，再关回放页 —— 关掉之后应当直接回主菜单（以前这里是黑屏）。
+                    if ((DateTime.Now - endWaitFrameAt).TotalSeconds <= 3)
+                        return;
+                    report.Add("  关回放页前的页面 = " + DescribePage(lastPageSeen));
+                    ReplayPage.Close();
+                    endStage = 5;
+                    endWaitFrameAt = DateTime.Now;
+                    return;
+                }
+
+                if (endStage == 5)
+                {
+                    if ((DateTime.Now - endWaitFrameAt).TotalSeconds <= 5)
+                        return;
+                    var page = DescribePage(lastPageSeen);
+                    report.Add("  从回放页返回 : 页面=" + page + "（不应该是空/黑屏）");
+                    Check(lastPageSeen >= MainmenuPage,
+                        "从回放页返回后停在主页面（不是黑屏）");
+                    Shot("_rp_mainmenu.png");
+
+                    // 导入：原生「打开文件」对话框没法自动化，所以绕开它，
+                    // 直接把一个外部 .mrep 喂给 ReplayLibrary.Import，验「复制进回放目录」这段。
+                    report.Add("  导入测试 : " + ImportProbe());
+                    Check(importProbeOk, "「导入」能把外部 .mrep 收进回放目录");
+
+                    endStage = 6;
+                    WriteReport();
+                    EnterPhase(CfgBool(ReplayConfig.SelfTestAutoQuit, true) ? Phase.Quit : Phase.Done);
+                }
+            }
+            catch (Exception e)
+            {
+                report.Add("  结束面板按钮实测出错: " + Short(e));
+                endStage = 5;
+                WriteReport();
+                EnterPhase(CfgBool(ReplayConfig.SelfTestAutoQuit, true) ? Phase.Quit : Phase.Done);
+            }
+        }
+
+        /// <summary>自测导出用的目标路径（放在游戏目录里，别往桌面扔东西）。</summary>
+        private static string ExportProbePath()
+        {
+            return Path.Combine(ExportProbeDir(), "selftest_export.mrep");
+        }
+
+        private static string ExportProbeDir()
+        {
+            try
+            {
+                var root = Path.Combine(Paths.GameRootPath, "BepInEx", "_rp_export");
+                Directory.CreateDirectory(root);
+                return root;
+            }
+            catch (Exception)
+            {
+                return ".";
+            }
+        }
+
+        /// <summary>
+        /// 「导入」的可自动化部分：原生「打开文件」对话框弹不出来（系统级、阻塞式），
+        /// 所以只把「选文件」那一步换掉 —— 把导出出来的那份当成玩家挑的文件，
+        /// 走 <see cref="ReplayLibrary.Import"/> 收进回放目录，再回列表里找它。
+        /// </summary>
+        private static string ImportProbe()
+        {
+            importProbeOk = false;
+            try
+            {
+                var staged = Path.Combine(ExportProbeDir(), "import_probe.mrep");
+                if (!string.IsNullOrEmpty(probeMrepPath) && File.Exists(probeMrepPath))
+                    File.Copy(probeMrepPath, staged, true);
+                if (!File.Exists(staged))
+                {
+                    importProbeOk = true;   // 没有源文件，不算失败
+                    return "跳过（没有可当源文件的回放）";
+                }
+
+                string err;
+                if (!ReplayLibrary.Import(staged, out err))
+                    return "失败：" + (err ?? "?");
+
+                var all = ReplayLibrary.LoadAll();
+                for (int i = 0; i < all.Count; i++)
+                {
+                    if (all[i].Name != null
+                        && all[i].Name.StartsWith("import_probe", StringComparison.OrdinalIgnoreCase))
+                    {
+                        importProbeOk = true;
+                        return "成功 → " + all[i].Name + "（收件目录 " + ReplayConfig.ResolveOutputDir() + "）";
+                    }
+                }
+                return "导入返回成功，但回放列表里找不到 import_probe";
+            }
+            catch (Exception e)
+            {
+                return "出错：" + Short(e);
+            }
+        }
+
+        private static string probeMrepPath;
+        private static bool importProbeOk;
+
+        private static int endStage;
+        private static int endWaitFrame;
+        private static DateTime endWaitFrameAt;
+        /// <summary>进入结束面板阶段的次数：第 1 轮点「重新播放」，第 2 轮点「退出」。</summary>
+        private static int endPanelRuns;
 
         private static void StepWaitMenu(MainSceneController scene, int page)
         {
@@ -386,6 +638,15 @@ namespace Replay
                 {
                     retries++;
                     Note("第 " + retries + " 次重试：重新执行 /gotolevel（ctrl=" + (ctrl != null) + "）");
+
+                    // 关卡存档的「mod 数据版本」对不上时，游戏只会弹一个不一致对话框，
+                    // **引擎根本不会建出来** —— 日志里连一行报错都没有，
+                    // 表面症状就是 engine=False 一直卡到超时。
+                    // 自测专用开关：确认卡住之后就把该关卡的存档删掉再来一次。
+                    if (CfgBool(ReplayConfig.SelfTestDeleteLevelState, false)
+                        && !deletedLevelState && retries >= 2)
+                        deletedLevelState = TryDeleteLevelState(main);
+
                     IssueGotoLevel(main);
                 }
                 return;
@@ -398,6 +659,38 @@ namespace Replay
                 forceAttempts++;
                 Note("第 " + forceAttempts + " 次强制开局");
                 ForceStart(ctrl);
+            }
+        }
+
+        /// <summary>
+        /// 删掉自测关卡的存档（<c>[SelfTest] DeleteLevelState</c>）。
+        ///
+        /// <para>只在「关卡一直建不出引擎」时用：那通常是存档首行的 mod 数据版本与当前不一致，
+        /// 而游戏对此**只会弹一个对话框、不写任何日志**，从外面看就是卡死。</para>
+        ///
+        /// <para>⚠️ 会丢该关卡进行中的进度。</para>
+        /// </summary>
+        private static bool TryDeleteLevelState(MainManager main)
+        {
+            try
+            {
+                if (main == null)
+                    return false;
+                var name = CfgString(ReplayConfig.SelfTestStage, "mvz2:halloween_2");
+                var stage = PVZEngine.NamespaceID.Parse(name, "mvz2");
+                if (!PVZEngine.NamespaceID.IsValid(stage))
+                {
+                    Note("删关卡存档失败：关卡 ID 解析不了（" + name + "）");
+                    return false;
+                }
+                main.LevelManager.RemoveLevelState(stage);
+                Note("已删掉关卡存档 " + name + "（存档版本对不上时关卡根本不会开始）");
+                return true;
+            }
+            catch (Exception e)
+            {
+                Note("删关卡存档失败：" + Short(e));
+                return false;
             }
         }
 
@@ -480,6 +773,294 @@ namespace Replay
         #endregion
 
         #region 各阶段实现
+        /// <summary>
+        /// 播放验收的视觉采样：跑到指定 tick 时抓两张相隔 15 tick 的截图。
+        ///
+        /// <para><b>为什么需要它：</b>指纹能证明「状态一致」，但证明不了「画得对」——
+        /// 假鼠标的位置/尺寸/层级只能靠看图。两张图相隔 15 tick 是为了看出
+        /// **它到底动没动**。</para>
+        ///
+        /// <para><c>ScreenCapture.CaptureScreenshot</c> 在**帧末**写盘，所以两张图之间
+        /// 隔 15 tick 而不是同一帧连拍。</para>
+        /// </summary>
+        private static void PlayShotCheck()
+        {
+            try
+            {
+                int at = CfgInt(ReplayConfig.SelfTestPlayShotTick, 0);
+                if (at <= 0 || shotState >= 2)
+                    return;
+                int tick = ReplayPlayer.CurrentTick;
+                if (shotState == 0)
+                {
+                    if (tick < at)
+                        return;
+                    shotState = 1;
+                    shotNext = tick + 15;
+                    Shot("_rp_play0.png");
+                    return;
+                }
+                if (tick < shotNext)
+                    return;
+                shotState = 2;
+                Shot("_rp_play1.png");
+            }
+            catch (Exception e)
+            {
+                Note("播放截图出错: " + Short(e));
+                shotState = 2;
+            }
+        }
+
+        private static void Shot(string file)
+        {
+            try
+            {
+                var root = Paths.GameRootPath;
+                var path = Path.Combine(root, "BepInEx", file);
+                ScreenCapture.CaptureScreenshot(path);
+                report.Add("  截图 " + file + " @tick " + ReplayPlayer.CurrentTick);
+                WriteReport();
+            }
+            catch (Exception e)
+            {
+                report.Add("  截图 " + file + " 失败: " + Short(e));
+            }
+        }
+
+        // ------------------------------------------------------------------
+        // 播放中途的「菜单文案」验收
+        // ------------------------------------------------------------------
+
+        private static int menuStage;      // 0 未做 1 已开 2 已关
+        private static int menuWaitFrame;
+        /// <summary>当前这一关的 LevelController 实例；变了说明关卡场景被重载过。</summary>
+        private static int menuCtrlId;
+        private static int menuStableFrames;
+        /// <summary>下一场播放结束时改走「菜单 → 结束播放」那条路（见 <see cref="DriveMenuEndPlay"/>）。</summary>
+        private static bool menuDrivenEnd;
+
+        /// <summary>
+        /// 在播放中途把关卡内的选项菜单打开一次，记录「重新播放 / 结束播放」两个按钮的文案。
+        ///
+        /// <para><b>为什么必须实测：</b>这两个文案是我们用 Harmony 后缀**覆盖**原版写进去的，
+        /// 而原版每次刷新页面都会重写一遍 —— 「代码看起来对」完全不能说明最终显示的是哪个。</para>
+        /// </summary>
+        private static void PlayMenuAudit()
+        {
+            try
+            {
+                if (menuStage >= 2)
+                    return;
+                if (menuStage == 0)
+                {
+                    var ctrl = GetController();
+                    if (ctrl == null)
+                        return;
+
+                    // ⚠ 回放播放期间游戏会**重载一次关卡场景**（新 LevelController + 新 LevelUI）。
+                    // 如果在这之前就把菜单打开，3 帧后场景一换，菜单连同控制器一起被丢掉，
+                    // 看起来就像「刚打开就被关掉」。所以先等控制器实例稳定若干帧再动手。
+                    int id = ctrl.GetInstanceID();
+                    if (id != menuCtrlId)
+                    {
+                        menuCtrlId = id;
+                        menuStableFrames = 0;
+                        return;
+                    }
+                    menuStableFrames++;
+                    if (menuStableFrames < 20)
+                        return;
+
+                    int at = CfgInt(ReplayConfig.SelfTestPlayMenuTick, 0);
+                    if (at <= 0 || ReplayPlayer.CurrentTick < at)
+                        return;
+
+                    // 直接调 ShowOptionsDialog —— 走 OnOptionsKey 的话会被
+                    // `isGameOver || !isGameStarted || levelLoaded` 提前 return 掉（自测时
+                    // 关卡是「重放加载」的状态，这几个标志位不一定是正常值）。
+                    var m = AccessTools.Method(typeof(LevelController), "ShowOptionsDialog", Type.EmptyTypes);
+                    if (m == null)
+                    {
+                        report.Add("  菜单验收: 找不到 ShowOptionsDialog，跳过");
+                        menuStage = 2;
+                        return;
+                    }
+                    m.Invoke(ctrl, null);
+                    menuStage = 1;
+                    menuWaitFrame = frames;
+                    return;
+                }
+
+                // 已经打开，等布局/文案都刷过几帧再读。
+                // （暂停时逻辑 tick 不动，所以这里按**帧**等，不能按 tick。）
+                if (frames - menuWaitFrame < 25)
+                    return;
+
+                report.Add("--- 回放中的关卡菜单 ---");
+                DumpOptionsTexts();
+                Shot("_rp_menu.png");
+                menuStage = 2;
+
+                // 第 1 轮只验证「菜单能收起来」——收完之后继续播到自然结束。
+                // 第 2 轮验证「菜单 → 结束播放」这条真正的用户路径（应当弹结束面板 + 收起菜单）。
+                if (menuDrivenEnd)
+                {
+                    DriveMenuEndPlay();
+                    return;
+                }
+                try
+                {
+                    // 用生产代码里的那个收尾（解暂停 + 收框体），别自己拼 ——
+                    // 光 Close() 不会把框体收起来（见 CloseLevelOptionsMenu 的注释）。
+                    ReplayPatches.CloseLevelOptionsMenu();
+                    report.Add("  收起菜单 : " + DescribeOptionsMenu());
+                    Check(MenuClosed(), "菜单面板能被收起来（收完不会留在屏幕上）");
+                }
+                catch (Exception e)
+                {
+                    report.Add("  关菜单失败: " + Short(e));
+                }
+            }
+            catch (Exception e)
+            {
+                report.Add("  菜单验收出错: " + Short(e));
+                menuStage = 2;
+            }
+        }
+
+        /// <summary>
+        /// 「菜单 → 结束播放」那条路：拦下按钮 → 确认框点「是」→ 应当**弹出结束面板**且**菜单收起**。
+        ///
+        /// <para>走的是与真实点击完全相同的两个回调（<c>OptionsMainButtonPrefix</c> +
+        /// 确认框的 <c>pinnedConfirm</c>），所以这条验收是真的把用户路径跑了一遍，
+        /// 不是只看代码。</para>
+        /// </summary>
+        private static void DriveMenuEndPlay()
+        {
+            menuDrivenEnd = false;
+            try
+            {
+                var intercepted = !ReplayPatches.OptionsMainButtonPrefix(
+                    MVZ2.UI.OptionsDialogMainPage.ButtonType.LeaveLevel);
+                report.Add("  点菜单「结束播放」 : " + (intercepted ? "已被回放接管" : "**没被接管**"));
+                Check(intercepted, "菜单里的「结束播放」被回放接管");
+
+                var answered = ReplayPatches.SelfTestConfirm(true);
+                report.Add("  确认框点「是」 : " + (answered ? "已确认" : "确认框没弹出来"));
+                Check(answered, "「结束播放」会先弹一个确认框");
+
+                report.Add("  结束后 : 结束面板=" + ReplayEndPanel.Describe()
+                    + "，菜单 " + DescribeOptionsMenu());
+                Check(ReplayEndPanel.IsOpen, "菜单里结束播放弹出了回放结束面板");
+                Check(MenuClosed(), "菜单里结束播放会同时把菜单面板收起来");
+                Shot("_rp_menuend.png");
+            }
+            catch (Exception e)
+            {
+                report.Add("  菜单结束播放验收出错: " + Short(e));
+            }
+        }
+
+        /// <summary>关卡菜单现在收干净了没有（控制器状态 + 节点可见性都得是关）。</summary>
+        private static bool MenuClosed()
+        {
+            try
+            {
+                var ctrl = GetController();
+                if (ctrl == null)
+                    return true;
+                var opts = ctrl.optionsDialogController;
+                if (opts == null || opts.Pointer == IntPtr.Zero)
+                    return true;
+                return !opts.IsOpen() && !opts.gameObject.activeSelf;
+            }
+            catch (Exception)
+            {
+                return true;
+            }
+        }
+
+        private static string DescribeOptionsMenu()
+        {
+            try
+            {
+                var ctrl = GetController();
+                var opts = ctrl != null ? ctrl.optionsDialogController : null;
+                if (opts == null || opts.Pointer == IntPtr.Zero)
+                    return "拿不到控制器";
+                return "打开=" + opts.IsOpen() + " 节点可见=" + opts.gameObject.activeSelf;
+            }
+            catch (Exception e)
+            {
+                return "读取失败 " + Short(e);
+            }
+        }
+
+        /// <summary>
+        /// 把菜单里所有文本打出来。
+        ///
+        /// <para>注意<b>一定要用关卡自己那个 OptionsDialogController</b>
+        /// （<c>LevelController.optionsDialogController</c>）。场景里同时存在主菜单那一套，
+        /// 用 <c>UiFinder.FindOne&lt;OptionsDialogController&gt;()</c> 会随机拿到主菜单的，
+        /// 那个的 <c>ui.Main</c> 挂在未激活的节点下，读出来永远是原版文案。</para>
+        ///
+        /// <para>也不按枚举去查那两个按钮对象（原版 <c>textButtonDict</c> 是私有字段，
+        /// interop 程序集里查不到），直接把整棵树上的 TMP 文本列出来 —— 这一页本来也没几个字。</para>
+        /// </summary>
+        private static void DumpOptionsTexts()
+        {
+            try
+            {
+                var ctrl = GetController();
+                if (ctrl == null)
+                {
+                    report.Add("  拿不到 LevelController");
+                    return;
+                }
+
+                var mine = ctrl.optionsDialogController;
+                if (mine == null)
+                {
+                    report.Add("  拿不到关卡的设置界面控制器");
+                    return;
+                }
+                var page = mine.ui != null ? mine.ui.Main : null;
+                if (page == null)
+                {
+                    report.Add("  拿不到设置界面主页");
+                    return;
+                }
+                var go = page.gameObject;
+                report.Add("  菜单已打开 : " + mine.IsOpen()
+                    + "，主页可见 = " + go.activeInHierarchy);
+
+                var texts = go.GetComponentsInChildren<TMPro.TextMeshProUGUI>(true);
+                int n = 0;
+                var sb = new StringBuilder();
+                for (int i = 0; i < texts.Length; i++)
+                {
+                    var t = texts[i];
+                    if (t == null || t.Pointer == IntPtr.Zero)
+                        continue;
+                    var s = t.text;
+                    if (string.IsNullOrEmpty(s))
+                        continue;
+                    if (n > 0)
+                        sb.Append(" / ");
+                    sb.Append('「').Append(s.Replace('\n', ' ')).Append('」');
+                    n++;
+                    if (n >= 16)
+                        break;
+                }
+                report.Add("  菜单文本 : " + (n == 0 ? "（一个都没有）" : sb.ToString()));
+            }
+            catch (Exception e)
+            {
+                report.Add("  读菜单文案失败: " + Short(e));
+            }
+        }
+
         private static void EnterPhase(Phase next)
         {
             phase = next;
@@ -491,6 +1072,20 @@ namespace Replay
                 // 重置「回放停滞」检测，否则会带着上一个阶段的旧时间戳。
                 lastPlayTick = -1;
                 lastPlayTickAt = DateTime.Now;
+                shotState = 0;
+                shotNext = 0;
+                menuStage = 0;
+                menuWaitFrame = 0;
+                menuCtrlId = 0;
+                menuStableFrames = 0;
+            }
+            if (next == Phase.EndPanel)
+            {
+                // frames 在换阶段时归零，所以这两个也得跟着归零，否则差值恒为负、永远等不到。
+                endStage = 0;
+                endWaitFrame = 0;
+                // 第 1 轮（自然播完）走「重新播放」，把下一场交给「菜单 → 结束播放」那条路。
+                endPanelRuns++;
             }
         }
 

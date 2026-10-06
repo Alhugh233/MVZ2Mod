@@ -110,7 +110,7 @@ namespace UiGallery
                     if (!opened)
                     {
                         Plugin.Log?.LogError("[SelfTest] 画廊打不开，自测中止。");
-                        state = 9;
+                        Finish();
                         return;
                     }
                     pageCursor = 0;
@@ -125,16 +125,15 @@ namespace UiGallery
                         Plugin.Log?.LogInfo("[SelfTest] 布局 dump（末页）：\n" + GalleryPanel.LayoutDump());
                         Plugin.Log?.LogInfo("[SelfTest] 最终报告：\n" + GalleryPanel.Report());
 
-                        // 示例设置项：把"会不会出现在原版设置界面"的判据也留进日志
-                        // （复刻官方渲染判据，见 SampleOptions.Report）。
+                        // 样例设置项：把「会不会出现在对应界面里」的判据也留进日志。
                         if (GalleryConfig.SampleOptions)
-                            Plugin.Log?.LogInfo("[SelfTest] 示例设置项：\n" + SampleOptions.Report());
+                            Plugin.Log?.LogInfo("[SelfTest] 模组设置页样例：\n" + SampleOptions.Report());
+                        if (GalleryConfig.SampleVanillaOptions)
+                            Plugin.Log?.LogInfo("[SelfTest] 原版设置界面样例：\n" + SampleVanillaOptions.Report());
 
-                        // 纯 ASCII 结束标记：脚本（tools/run-selftest.ps1）拿它当等待条件，
-                        // 不用去匹配中文（中文在无 BOM 的 ps1 里会被按 GBK 误读）。
-                        Plugin.Log?.LogInfo("[SelfTest] SELFTEST_DONE");
-                        Plugin.Log?.LogInfo("[SelfTest] 自测结束。");
-                        state = 9;
+                        // 画廊 9 页验完了，接着验**插件页子页面**那条路：
+                        // 切到插件页 → 等入口装好 → 点开「模组设置（DSHCore）」→ dump + 截图。
+                        Next(7);
                         return;
                     }
 
@@ -215,13 +214,333 @@ namespace UiGallery
                     pageCursor++;
                     Next(2);
                     return;
+
+                // ---- 插件页子页面：模组设置（DSHCore） ----
+                //
+                // 这一段验的是「在插件页里加一个新子页面」这一整套行为：
+                // 入口按钮会被自动装上 → 点开 → 页面壳克隆 + 左栏模组列表 + 右栏设置项。
+                // 它是 DSHCore 的能力（AddonPage），所以判据放在这里而不是某个 mod 自己的自测里。
+
+                case 7:
+                    // 先收起画廊面板，再把主场景切到插件页。
+                    GalleryPanel.Close();
+                    try
+                    {
+                        var scene = UiGame.Scene;
+                        if (scene == null)
+                        {
+                            Plugin.Log?.LogWarning("[SelfTest] 主场景还没起来，跳过模组设置页自测。");
+                            Finish();
+                            return;
+                        }
+                        // ⚠ 必须给「返回」回调。官方 MainScenePage.Return() 是
+                        //   `OnReturnClick?.Invoke(); Hide();` —— 传 null 时返回只会把页面
+                        //   藏起来、没有任何东西顶上来，就是一整屏黑（自测里踩过）。
+                        //   正常入口（主菜单的「插件」按钮）自己会传，程序化调用别漏。
+                        scene.DisplayAddons(ReturnToMainmenu(scene));
+                        Plugin.Log?.LogInfo("[SelfTest] 已请求切到插件页（DisplayAddons + 返回回调）");
+                        Plugin.Log?.LogInfo("[SelfTest] 判据 外部译文文件："
+                            + (ProbeExternalLocale() ? "通过" : "失败"));
+                        Plugin.Log?.LogInfo("[SelfTest] 判据 游戏内指令分派："
+                            + (ProbeTransCommand() ? "通过" : "失败"));
+                        Plugin.Log?.LogInfo("[SelfTest] 本地化状态：\n" + DSHCore.Ui.UiLocale.Report());
+                    }
+                    catch (Exception e)
+                    {
+                        Plugin.Log?.LogWarning("[SelfTest] 切插件页失败：" + e.GetType().Name + ": " + e.Message);
+                        Finish();
+                        return;
+                    }
+                    Next(8);
+                    return;
+
+                case 8:
+                    // 等：① 真的停在插件页；② 模组设置页的入口已经装上。
+                    if (stateFrame > 600)
+                    {
+                        Plugin.Log?.LogWarning("[SelfTest] 10 秒内没等到模组设置页入口，放弃。\n"
+                            + DSHCore.Ui.AddonPages.Report());
+                        Finish();
+                        return;
+                    }
+                    if (!DSHCore.Ui.AddonPages.IsAddonsPage())
+                        return;
+                    {
+                        var page = DSHCore.Ui.AddonPages.Get("ModSettings");
+                        if (page == null || !page.EntryInstalled)
+                            return;
+
+                        Plugin.Log?.LogInfo("[SelfTest] 插件页子页面入口：\n" + page.DescribeEntry());
+                        var entered = page.Open();
+                        Plugin.Log?.LogInfo("[SelfTest] 打开模组设置页：" + (entered ? "成功" : "失败")
+                            + (entered ? "" : "（" + page.LastError + "）"));
+                        if (!entered)
+                        {
+                            Finish();
+                            return;
+                        }
+                        // 默认选中项可能不是本 mod —— 为了截图可复现，显式选中 uig。
+                        var settings = page as DSHCore.Ui.ModSettingsPage;
+                        if (settings != null)
+                            Plugin.Log?.LogInfo("[SelfTest] 切到 uig：" + (settings.SelectNamespace("uig") ? "OK" : "找不到"));
+                    }
+                    Next(10);
+                    return;
+
+                case 10:
+                    if (stateFrame < 90)
+                        return;
+                    {
+                        var page = DSHCore.Ui.AddonPages.Get("ModSettings") as DSHCore.Ui.ModSettingsPage;
+                        Plugin.Log?.LogInfo("[SelfTest] 模组设置页布局 dump：\n"
+                            + (page == null ? "（拿不到页面对象）" : page.DumpLayout()));
+                    }
+                    Shot("modsettings");
+                    Next(11);
+                    return;
+
+                case 11:
+                    if (stateFrame < 30)
+                        return;
+                    {
+                        var page = DSHCore.Ui.AddonPages.Get("ModSettings");
+                        if (page != null)
+                            page.Close();
+                        Plugin.Log?.LogInfo("[SelfTest] 插件页子页面状态：\n" + DSHCore.Ui.AddonPages.Report());
+                    }
+                    Finish();
+                    return;
             }
+        }
+
+        /// <summary>
+        /// 自测收尾：写 ASCII 结束标记（脚本拿它当等待条件）。
+        /// </summary>
+        private static void Finish()
+        {
+            Plugin.Log?.LogInfo("[SelfTest] SELFTEST_DONE");
+            Plugin.Log?.LogInfo("[SelfTest] 自测结束。");
+            state = 9;
+        }
+
+        /// <summary>
+        /// 「插件页返回」要去的目标：回主菜单（与官方主菜单里那个「插件」按钮传的回调一致）。
+        ///
+        /// <para>注意 <c>DisplayAddons</c> 收的是 <c>Il2CppSystem.Action</c>，
+        /// 托管 lambda 必须转成 il2cpp 委托并**保活**（il2cpp 侧只存裸函数指针）。</para>
+        /// </summary>
+        private static Il2CppSystem.Action ReturnToMainmenu(MVZ2.Scenes.MainSceneController scene)
+        {
+            var managed = new Action(() =>
+            {
+                try { scene.DisplayMainmenuToBasement(); }
+                catch (Exception e)
+                {
+                    Plugin.Log?.LogWarning("[SelfTest] 回主菜单失败：" + e.GetType().Name);
+                }
+            });
+            var il2cpp = Il2CppInterop.Runtime.DelegateSupport
+                .ConvertDelegate<Il2CppSystem.Action>(managed);
+            UiClone.KeepAlive(scene.gameObject, managed, il2cpp);
+            return il2cpp;
+        }
+
+        /// <summary>
+        /// 外部译文文件（<c>BepInEx/config/DSHCore/lang/</c>）的探针。
+        ///
+        /// <para>这条路径**是给玩家用的**：平时不会有人自动去改那个文件，所以放进自测里跑一遍。
+        /// 断言三件事 —— ①文件里的新键能查到；②与代码表同名的键**以文件为准**；
+        /// ③`WriteTemplate` 导出的模板（值全空）不会把界面变成空白（空值 = 还没译 → 放行）。</para>
+        ///
+        /// <para>跑完无论成败都把文件删掉（玩家的 lang 目录不该留下我们塞的东西）。</para>
+        /// </summary>
+        private static bool ProbeExternalLocale()
+        {
+            const string Lang = "zh-Hans";
+            const string NewKey = "DSHCore.LocaleSelfTest.NewKey";
+            const string CodeKey = "MVZ2 Loadout";
+            const string FallKey = "MVZ2 Laboratory";       // 只存在于代码表，用来验「模板空值放行」
+
+            var codeBefore = UiLocale.In(CodeKey, Lang);
+            var fallBefore = UiLocale.In(FallKey, Lang);
+            var dir = System.IO.Path.Combine(UiLocale.ExternalDirectory, Lang + ".d");
+            var path = System.IO.Path.Combine(dir, "zz_selftest.txt");
+            var mainPath = System.IO.Path.Combine(UiLocale.ExternalDirectory, Lang + ".txt");
+            var mainExisted = System.IO.File.Exists(mainPath);
+            var okNew = false;
+            var okPrec = false;
+            var okTemplate = false;
+            var okBack = false;
+            try
+            {
+                System.IO.Directory.CreateDirectory(dir);
+                System.IO.File.WriteAllText(path,
+                    "# 自测用，跑完会删掉\n"
+                    + NewKey + " = 外部文件命中\n"
+                    + CodeKey + " = 外部文件优先\n",
+                    new System.Text.UTF8Encoding(false));
+
+                UiLocale.ReloadExternal();
+
+                var gotNew = UiLocale.In(NewKey, Lang);
+                var gotCode = UiLocale.In(CodeKey, Lang);
+                okNew = gotNew == "外部文件命中";
+                okPrec = gotCode == "外部文件优先";
+
+                Plugin.Log?.LogInfo("[SelfTest] 外部译文文件：新键 " + (okNew ? "OK" : "FAIL")
+                    + "（" + gotNew + "）；覆盖代码表 " + (okPrec ? "OK" : "FAIL")
+                    + "（" + codeBefore + " → " + gotCode + "）");
+
+                // 导出模板：值全空 → 不该抢走代码表的译文（否则导出一次界面就全白了）。
+                // 已存在真文件时不写（WriteTemplate 也不覆盖），跳过而不是 FAIL。
+                if (mainExisted)
+                {
+                    okTemplate = true;
+                    Plugin.Log?.LogInfo("[SelfTest] 导出模板：跳过（" + mainPath + " 已存在）");
+                }
+                else
+                {
+                    var written = UiLocale.WriteTemplate(Lang);
+                    UiLocale.ReloadExternal();
+                    var gotFall = UiLocale.In(FallKey, Lang);
+                    var size = System.IO.File.Exists(mainPath)
+                        ? new System.IO.FileInfo(mainPath).Length : 0;
+                    okTemplate = written != null && size > 0 && gotFall == fallBefore;
+                    Plugin.Log?.LogInfo("[SelfTest] 导出模板：" + (okTemplate ? "OK" : "FAIL")
+                        + "（" + System.IO.Path.GetFileName(mainPath) + " " + size + " 字节；空值放行 "
+                        + fallBefore + " → " + gotFall + "）");
+                }
+            }
+            catch (Exception e)
+            {
+                Plugin.Log?.LogWarning("[SelfTest] 外部译文自测异常：" + e.GetType().Name + ": " + e.Message);
+            }
+
+            // 收尾：删文件 → 清缓存 → 应当退回代码表的值。
+            try
+            {
+                if (System.IO.File.Exists(path))
+                    System.IO.File.Delete(path);
+                if (!mainExisted && System.IO.File.Exists(mainPath))
+                    System.IO.File.Delete(mainPath);
+                if (System.IO.Directory.Exists(dir) && System.IO.Directory.GetFileSystemEntries(dir).Length == 0)
+                    System.IO.Directory.Delete(dir);
+            }
+            catch (Exception e)
+            {
+                Plugin.Log?.LogWarning("[SelfTest] 清理自测译文失败：" + e.GetType().Name);
+            }
+            try
+            {
+                UiLocale.ReloadExternal();
+                var back = UiLocale.In(CodeKey, Lang);
+                okBack = back == codeBefore;
+                Plugin.Log?.LogInfo("[SelfTest] 外部译文文件已清理，回退代码表 "
+                    + (okBack ? "OK" : "FAIL") + "（" + back + "）");
+            }
+            catch (Exception)
+            {
+            }
+
+            return okNew && okPrec && okTemplate && okBack;
         }
 
         /// <summary>下拉框那一页的下标（探针只在那一页跑）。</summary>
         private static int DropdownPage
         {
             get { return GalleryPages.IndexOf("下拉框"); }
+        }
+
+        /// <summary>
+        /// 游戏内指令 <c>/dshtrans</c> 的探针（两段，见下）。
+        ///
+        /// <para>①**分派表**：用反射直接调 <c>TransCommand.Execute/Suggest</c>，
+        /// 断言「不是我的指令返回 null」「自己的子指令有内容」「Tab 能补出指令名与子指令」。
+        /// 它是纯函数（字符串进、字符串出），所以能离线断言。</para>
+        ///
+        /// <para>②**端到端**：真的往游戏控制台入口（<c>Global.Debugs.ExecuteCommand</c>）提交一条，
+        /// 然后用 <c>LogViewer</c> 的捕获计数判据 —— prefix 命中时会打一条
+        /// <c>[dsh] 收到：…</c>，没命中则什么都不打（原版只往控制台 UI 里写）。
+        /// 这样不必去解析控制台文本也能证明「从控制台进来能走到我们的分派」。</para>
+        /// </summary>
+        private static bool ProbeTransCommand()
+        {
+            const string TypeName = "DSHCore.Diagnostics.TransCommand";
+            var okDispatch = false;
+            var okSuggest = false;
+            var okConsole = false;
+
+            try
+            {
+                var type = HarmonyLib.AccessTools.TypeByName(TypeName);
+                var execute = type == null ? null : HarmonyLib.AccessTools.Method(type, "Execute");
+                var suggest = type == null ? null : HarmonyLib.AccessTools.Method(type, "Suggest");
+                if (execute == null || suggest == null)
+                {
+                    Plugin.Log?.LogWarning("[SelfTest] 找不到 " + TypeName + " 的 Execute/Suggest（指令没接进去？）");
+                    return false;
+                }
+
+                var help = execute.Invoke(null, new object[] { new[] { "dshtrans", "help" } }) as string;
+                var status = execute.Invoke(null, new object[] { new[] { "dshtrans" } }) as string;
+                var keys = execute.Invoke(null, new object[] { new[] { "dshtrans", "keys" } }) as string;
+                var notMine = execute.Invoke(null, new object[] { new[] { "dshlog", "status" } });
+                var empty = execute.Invoke(null, new object[] { new string[0] });
+
+                okDispatch = !string.IsNullOrEmpty(help) && help.Contains("write")
+                    && !string.IsNullOrEmpty(status) && status.Contains("外部目录")
+                    && !string.IsNullOrEmpty(keys) && keys.Length > 0
+                    && notMine == null && empty == null;
+
+                var s1 = suggest.Invoke(null, new object[] { new[] { "ds" } }) as string[];
+                var s2 = suggest.Invoke(null, new object[] { new[] { "dshtrans", "w" } }) as string[];
+                var s3 = suggest.Invoke(null, new object[] { new[] { "dshl" } }) as string[];
+                okSuggest = s1 != null && Array.IndexOf(s1, "dshtrans") >= 0
+                    && s2 != null && Array.IndexOf(s2, "write") >= 0
+                    && s3 != null && s3.Length == 0;    // 前缀对不上就别乱补
+
+                Plugin.Log?.LogInfo("[SelfTest] 指令 /dshtrans 分派 " + (okDispatch ? "OK" : "FAIL")
+                    + "（help=" + (help == null ? "null" : help.Length + " 字符")
+                    + "，status=" + (status == null ? "null" : status.Length + " 字符")
+                    + "，别人的指令 → " + (notMine == null ? "null" : "**非 null**") + "）");
+                Plugin.Log?.LogInfo("[SelfTest] 指令 Tab 补全 " + (okSuggest ? "OK" : "FAIL")
+                    + "（/ds → [" + Join(s1) + "]；/dshtrans w → [" + Join(s2) + "]" + "）");
+            }
+            catch (Exception e)
+            {
+                Plugin.Log?.LogWarning("[SelfTest] 指令分派探针异常：" + e.GetType().Name + ": " + e.Message);
+            }
+
+            // ② 端到端：清空捕获 → 提交 → 看有没有新记录（只有 prefix 命中才会打日志）。
+            try
+            {
+                var debug = MVZ2Logic.Global.Debugs;
+                if (debug == null)
+                {
+                    Plugin.Log?.LogInfo("[SelfTest] 指令控制台端到端：跳过（控制台未就绪）");
+                }
+                else
+                {
+                    DSHCore.LogViewer.ClearHistory();
+                    var before = DSHCore.LogViewer.CapturedCount;
+                    debug.ExecuteCommand("/dshtrans help", 1);
+                    var after = DSHCore.LogViewer.CapturedCount;
+                    okConsole = after > before;
+                    Plugin.Log?.LogInfo("[SelfTest] 指令控制台端到端 " + (okConsole ? "OK" : "FAIL")
+                        + "（捕获 " + before + " → " + after + "）");
+                }
+            }
+            catch (Exception e)
+            {
+                Plugin.Log?.LogWarning("[SelfTest] 指令控制台端到端异常：" + e.GetType().Name + ": " + e.Message);
+            }
+
+            return okDispatch && okSuggest;
+        }
+
+        private static string Join(string[] items)
+        {
+            return items == null || items.Length == 0 ? "" : string.Join("、", items);
         }
 
         /// <summary>列表那一页的下标（在那页额外打印列表状态）。</summary>

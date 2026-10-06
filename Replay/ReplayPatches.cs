@@ -1,14 +1,19 @@
 using System;
+using DSHCore.Ui;
 using MVZ2.Level;
 using MVZ2.Level.Entities;
 using MVZ2.Level.HeldItems;
 using MVZ2.Level.Inputing;
 using MVZ2.Managers;
+using MVZ2.Scenes;
 using MVZ2Logic.HeldItems;
 using MVZ2Logic.Level;
 using PVZEngine.Entities;
 using PVZEngine.Level;
 using UnityEngine;
+
+// DSHCore 的 UiLog 是 internal，跨程序集用不了 —— 别名到本 mod 自己的那份。
+using UiLog = Replay.ReplayLog;
 
 namespace Replay
 {
@@ -26,7 +31,7 @@ namespace Replay
     /// 所以改挂 5 个调用点 —— 那里的参数都是 int / 枚举 / 强类型引用，读起来零风险，
     /// 而且拿到的正是「语义目标」（行列、实体 ID、卡槽号），本来就是回放最需要的形态。
     ///
-    /// 这 5 个点就是玩家输入影响仿真的全部入口（0.7.0 test-9 实测枚举）。
+    /// 这 5 个点就是玩家输入影响仿真的全部入口（0.7.0 test-9 枚举，test-10 复核签名未变）。
     /// </summary>
     internal static class ReplayPatches
     {
@@ -223,14 +228,358 @@ namespace Replay
             ReplayRecorder.NotifyQuit();
         }
 
-        /// <summary>主场景每帧（自测 / 播放器 / 回放页的驱动点）。</summary>
+        /// <summary>主场景每帧（自测 / 播放器的驱动点）。</summary>
         public static void SceneUpdatePostfix(MVZ2.Scenes.MainSceneController __instance)
         {
             ReplaySelfTest.Tick(__instance);
             ReplayGuiTest.Tick(__instance);
             ReplayPlayer.Tick(__instance);
-            ReplayPage.Tick();
+            // 回放页（插件页子页面）的心跳由 DSHCore.Ui.AddonPages 自己驱动，
+            // 这里不再需要调 —— 那是「插件页子页面」这套行为的一部分。
         }
+        #endregion
+
+        #region 假鼠标（纯视觉通道）
+        private static Vector2 savedPointerScreen;
+
+        /// <summary>
+        /// <c>LevelController.UpdateHeldItemPosition</c> 前缀：把「游戏认为的指针位置」
+        /// 临时换成假鼠标的位置。
+        ///
+        /// <para><b>为什么挑这个方法：</b>它是手持物（蓝图 / 镐子 / 星之碎片 / 触发器）
+        /// 每帧世界坐标的唯一来源（<c>levelCamera.Camera.ScreenToWorldPoint(指针)</c> →
+        /// <c>ui.SetHeldItemPosition(world)</c>），而它是**纯表现** —— 不参与任何逻辑。
+        /// 指针位置还有几个消费者（<c>MinecartRideable</c> 的整车位置、<c>Snipenser</c> 的
+        /// 射击方向、<c>BreakoutBoard</c>）**会改仿真**，所以只能在这一层换，
+        /// 不能去改 <c>ReplayPlayer.pointerScreen</c> 本身
+        /// （详见 <see cref="FakePointer"/> 的类注释）。</para>
+        ///
+        /// <para>换完由后缀**无条件还原**，所以这个方法之外的代码看到的永远是事件原值，
+        /// 指纹不可能受影响。</para>
+        /// </summary>
+        public static void HeldItemPosPrefix()
+        {
+            savedPointerScreen = ReplayPlayer.PointerScreen;
+            if (FakePointer.Active)
+                ReplayPlayer.SetPointerScreen(FakePointer.ScreenPos);
+        }
+
+        /// <summary><c>LevelController.UpdateHeldItemPosition</c> 后缀：还原指针位置。</summary>
+        public static void HeldItemPosPostfix()
+        {
+            ReplayPlayer.SetPointerScreen(savedPointerScreen);
+        }
+        #endregion
+
+        #region 回放模式的菜单（重新播放 / 结束播放）
+        /// <summary>回放期间菜单里「重新开始」的文案。</summary>
+        private const string LabelReplay = "重新播放";
+        /// <summary>回放期间菜单里「返回地图」的文案。</summary>
+        private const string LabelEndPlay = "结束播放";
+
+        /// <summary>
+        /// <c>OptionsDialogController.UpdateRestartButton</c> 后缀：回放期间把「重新开始」改成
+        /// 「重新播放」。
+        ///
+        /// <para>为什么挂后缀而不是自己算完再写：原版按钮文案由
+        /// <c>UpdateMainPageWidgets</c> 统一刷新（切页 / 改语言 / 重复打开都会跑），
+        /// 我们在它写完之后**立刻覆盖**，就不会出现「先对后错」。</para>
+        /// </summary>
+        public static void OptionsRestartLabelPostfix(MVZ2.Options.OptionsDialogController __instance)
+        {
+            SetOptionButtonText(__instance, MVZ2.UI.OptionsDialogMainPage.TextButtonType.Restart, LabelReplay);
+        }
+
+        /// <summary><c>OptionsDialogController.UpdateLeaveLevelButton</c> 后缀：回放期间改成「结束播放」。</summary>
+        public static void OptionsLeaveLabelPostfix(MVZ2.Options.OptionsDialogController __instance)
+        {
+            SetOptionButtonText(__instance, MVZ2.UI.OptionsDialogMainPage.TextButtonType.LeaveLevel, LabelEndPlay);
+        }
+
+        /// <summary>
+        /// 菜单主页面按钮点击的前缀：回放期间「重新播放 / 结束播放」由我们接管。
+        ///
+        /// <para>原版这两个按钮会分别去 <c>ShowRestartConfirmDialog</c>（走
+        /// <c>RestartLevel</c> → 清关卡存档 + 重载）与 <c>ExitLevel</c>（落点 = 地图/主菜单）。
+        /// 回放要的是「重播这条回放」与「结束播放（弹结束面板）」，所以整段拦下。</para>
+        ///
+        /// <para>两个回调都先 <see cref="CloseLevelOptionsMenu"/> —— 否则菜单会一直挂在屏幕上
+        /// （结束面板只是叠在它上面，玩家能看到底下那半透明的菜单）。</para>
+        /// </summary>
+        public static bool OptionsMainButtonPrefix(MVZ2.UI.OptionsDialogMainPage.ButtonType type)
+        {
+            if (!ReplayPlayer.IsActive)
+                return true;
+
+            if (type == MVZ2.UI.OptionsDialogMainPage.ButtonType.Restart)
+            {
+                ConfirmInLevel(LabelReplay, "确认要重新播放吗？\n当前进度会从头开始。", () =>
+                {
+                    CloseLevelOptionsMenu();
+                    ReplayPlayer.RestartCurrent();
+                });
+                return false;
+            }
+            if (type == MVZ2.UI.OptionsDialogMainPage.ButtonType.LeaveLevel)
+            {
+                ConfirmInLevel(LabelEndPlay, "确认要结束播放吗？\n结束后会弹出回放结束面板，可以导出、重播或退出。", () =>
+                {
+                    CloseLevelOptionsMenu();
+                    ReplayPlayer.FinishFromMenu();
+                });
+                return false;
+            }
+            return true;
+        }
+
+        /// <summary>
+        /// 把回放期间打开的那个关卡菜单面板收起来。
+        ///
+        /// <para><b>为什么必须自己 <c>ResumeGame</c>：</b>真正把菜单框体收起来的是
+        /// <c>LevelController.ResumeGame</c> 里的 <c>ui.SetOptionsDialogActive(false)</c>；
+        /// 光调 <c>optionsDialogController.Close()</c> 只清 context、不收框体。
+        /// 而 <c>ResumeGame</c> 里有一条 <c>if (Main.Scene.HasDialog()) return false;</c> ——
+        /// 我们的确认框是**先收起来再回调**的（所以此刻还过得去），但也不能依赖
+        /// <c>Close()</c> 触发的那条 <c>ResumeGameDelayed</c> 协程：它要下一帧才跑，
+        /// 那时结束面板已经弹出来了，必然被这条挡住，菜单就留在屏幕上了。</para>
+        /// </summary>
+        public static void CloseLevelOptionsMenu()
+        {
+            try
+            {
+                var main = MainManager.Instance;
+                var lm = main != null ? main.LevelManager : null;
+                var ctrl = lm != null ? lm.GetLevelController() : null;
+                if (ctrl == null || ctrl.Pointer == IntPtr.Zero)
+                    return;
+
+                var opts = ctrl.optionsDialogController;
+                if (opts == null || opts.Pointer == IntPtr.Zero)
+                    return;
+
+                bool wasOpen = opts.IsOpen();
+
+                // ① 暂停中就走正路：解暂停 + 收框体 + 恢复音乐。
+                if (ctrl.IsGamePaused())
+                    ctrl.ResumeGame(0);
+
+                // ② 兜底：游戏没在跑时（通关/失败之后打开菜单）上面那条会 early return，
+                //    那就自己把状态和节点收掉（下次 Open() 时 ShowOptionsDialog 会再 SetActive(true)）。
+                if (wasOpen && opts.IsOpen())
+                    opts.Close();
+                try
+                {
+                    if (opts.gameObject.activeSelf)
+                        opts.gameObject.SetActive(false);
+                }
+                catch (Exception) { }
+            }
+            catch (Exception e)
+            {
+                Plugin.Log?.LogError("[Replay] 收起菜单面板失败：" + Fmt(e));
+            }
+        }
+
+        /// <summary>
+        /// 用游戏自己的对话框弹一个「是 / 否」确认，确认后执行 <paramref name="onYes"/>。
+        /// 与 <c>OptionsDialogController.ButtonType.LeaveLevel</c> 原来的做法完全一致
+        /// （原版就是用 <c>Main.Scene.ShowDialogSelectAsync</c> 问一句再退出）。
+        /// </summary>
+        private static void ConfirmInLevel(string title, string desc, Action onYes)
+        {
+            try
+            {
+                var main = MainManager.Instance;
+                if (main == null || main.Scene == null)
+                    return;
+                var cb = new Action<bool>(yes =>
+                {
+                    if (!yes)
+                        return;
+                    try { onYes(); }
+                    catch (Exception e) { Plugin.Log?.LogError("[Replay] 菜单确认后执行失败：" + Fmt(e)); }
+                });
+                // ⚠️ 必须钉住：ShowDialogSelect 的回调最终落在 il2cpp 的委托字段上，
+                // 只在调用点建一个局部委托的话随时可能被 GC 掉（症状：点「是」毫无反应，且不报错）。
+                pinnedConfirm = cb;
+                main.Scene.ShowDialogSelect(title, desc, cb);
+            }
+            catch (Exception e)
+            {
+                Plugin.Log?.LogError("[Replay] 弹确认框失败：" + Fmt(e));
+            }
+        }
+
+        private static Action<bool> pinnedConfirm;
+
+        /// <summary>
+        /// 自测用：相当于玩家在「是 / 否」确认框里点了某个按钮。
+        /// 走的是**和真实点击完全相同**的那个回调（<see cref="pinnedConfirm"/>）。
+        /// </summary>
+        public static bool SelfTestConfirm(bool yes)
+        {
+            var cb = pinnedConfirm;
+            if (cb == null)
+                return false;
+            cb(yes);
+            return true;
+        }
+
+        /// <summary>把异常摊平成一行（本文件局部用，不引 ReplayPlayer 的私有同名方法）。</summary>
+        private static string Fmt(Exception e)
+        {
+            if (e == null)
+                return "?";
+            var s = e.GetType().Name + "：" + e.Message;
+            if (e.InnerException != null)
+                s += "  <- " + e.InnerException.GetType().Name + "：" + e.InnerException.Message;
+            return s;
+        }
+
+        /// <summary>
+        /// 回放中拦住「暂停 / 选项」热键：结束面板开着的时候不要让它被别的对话框盖住。
+        ///
+        /// <para>⛔ 判据只能是「结束面板开着没有」，**不能**再叠一个 <c>IsActive</c> ——
+        /// 面板是在 <c>FinishPlayback</c> 里弹的，那时 <c>phase</c> 已经是 <c>Ended</c>、
+        /// <c>IsActive</c> 为 false，写成 <c>!IsActive || !IsOpen</c> 的话这里永远返回 true
+        /// （= 不拦），玩家可以按 Esc 把设置菜单叠到结束面板上。</para>
+        /// </summary>
+        public static bool OptionsKeyBlockPrefix()
+        {
+            try { return !ReplayEndPanel.IsOpen; }
+            catch (Exception) { return true; }
+        }
+
+        /// <summary>
+        /// 回放中拦住原版的**通关**流程。
+        ///
+        /// <para>⛔ 不拦会出真事：原版会 <c>RemoveLevelState()</c>（**删掉该关卡的存档文件**）、
+        /// 解锁关卡、写难度记录，再走通关对话 + 退场动画。回放只是在重演一局，
+        /// 拿它去改玩家的存档是错的。</para>
+        /// </summary>
+        public static bool EngineClearPrefix()
+        {
+            if (!ReplayPlayer.IsActive)
+                return true;
+            ReplayPlayer.NotifyLevelCleared();
+            return false;
+        }
+
+        /// <summary>回放中拦住原版的**失败**对话框（否则会和我们的结束面板并排出现）。</summary>
+        public static bool GameOverDialogPrefix()
+        {
+            if (!ReplayPlayer.IsActive)
+                return true;
+            ReplayPlayer.NotifyGameOver();
+            return false;
+        }
+
+        /// <summary>
+        /// <c>MainSceneController.GotoMapOrMainmenu</c> 前缀：本次要回**回放页**时改去回放页。
+        ///
+        /// <para>这是「结束播放」的落点开关。<c>ExitLevel()</c> 与 <c>GotoMapOrMainmenu</c>
+        /// 是游戏里唯一的「打完一局去哪」决策点，改这里就不用在退出流程里插一脚。</para>
+        ///
+        /// <para><b>为什么要在这里就把面板打开（而不是挂个单等下一帧）：</b>
+        /// 回放页的壳是「插件页 Index」的克隆体，而 <c>DisplayAddons</c> 会把插件页自己的
+        /// 索引（资源包 / 语言）显示出来 —— 面板晚一帧开就是**一帧插件页**，
+        /// 玩家看到的是「先闪一下插件页，再变成回放页」。同一帧里
+        /// <c>DisplayAddons</c> → <c>Open</c>（内部会把索引藏起来）就没有这一帧。</para>
+        ///
+        /// <para><b>黑色屏幕的那个 bug：</b>以前传的 <c>onReturn</c> 是 <c>null</c>，
+        /// 于是插件页的「返回」按钮 <c>OnReturnClick?.Invoke()</c> 什么都不做、只把页面
+        /// <c>Hide()</c> 掉 —— 页面全灭、没有任何东西顶上来，就是黑屏。
+        /// 现在把「返回」接到主菜单（<c>DisplayMainmenuToBasement</c>），
+        /// 并且让**回放页自己的「返回」**也直接走这条路（见 <c>ReplayPage.SetReturnTo</c>）：
+        /// 玩家是从关卡直接落到回放页的，从没经过插件页的索引，退出时自然该回主菜单。</para>
+        /// </summary>
+        public static bool GotoMapOrMainmenuPrefix(MainSceneController __instance)
+        {
+            if (!ReplayPlayer.WantsReplayPage)
+                return true;
+            ReplayPlayer.ConsumeReplayPage();
+            try
+            {
+                if (__instance == null)
+                    return true;
+
+                var backToMain = new Action(() =>
+                {
+                    try { __instance.DisplayMainmenuToBasement(); }
+                    catch (Exception e) { Plugin.Log?.LogError("[Replay] 回主菜单失败：" + Fmt(e)); }
+                });
+
+                // 背景就用插件页（回放页的壳本来就是从它那儿克隆的，版式一致）。
+                __instance.DisplayAddons(backToMain);
+
+                // 关掉回放页时不再亮出插件页的索引，而是直接回主菜单。
+                ReplayPage.SetReturnTo(backToMain);
+
+                // 同一帧就把面板亮出来 —— 玩家看不到插件页那一瞬。
+                ReplayPage.RequestOpen();
+                ReplayPage.PumpNow();
+
+                Plugin.Log?.LogInfo("[Replay] 结束播放的落点：回放页（同帧打开，返回时回主菜单）");
+                return false;
+            }
+            catch (Exception e)
+            {
+                Plugin.Log?.LogError("[Replay] 切到回放页失败，退回原版行为：" + Fmt(e));
+                ReplayPage.SetReturnTo(null);
+                return true;
+            }
+        }
+
+        /// <summary>
+        /// 给设置界面主页上的某个文本按钮改字。
+        ///
+        /// <para>走的是原版公开的 <c>OptionsDialogMainPage.SetButtonText</c>（内部按枚举查表），
+        /// 所以拿到 <c>OptionsDialogController</c> 之后要往下走两级：
+        /// <c>controller.ui</c> → <c>OptionsDialog.Main</c>。</para>
+        ///
+        /// <para>⛔ <b>必须用传进来的那个控制器</b>，不能自己去场景里找：主菜单那套里也有一个
+        /// <c>OptionsDialogController</c>，<c>UiFinder.FindOne</c> 会随机命中它 —— 那个的
+        /// <c>ui.Main</c> 挂在未激活的节点下，写进去的文案没人看得见（症状：菜单里还是
+        /// 「重新开始 / 返回主界面」，且毫无报错）。</para>
+        /// </summary>
+        private static void SetOptionButtonText(MVZ2.Options.OptionsDialogController ctrl,
+            MVZ2.UI.OptionsDialogMainPage.TextButtonType type, string text)
+        {
+            if (!ReplayPlayer.IsActive)
+                return;
+            try
+            {
+                var page = FindOptionsMainPage(ctrl);
+                if (page == null)
+                {
+                    UiLog.WarnOnce("rp-optpage", "找不到设置界面主页，回放菜单文案改不了。");
+                    return;
+                }
+                page.SetButtonText(type, text);
+            }
+            catch (Exception e)
+            {
+                UiLog.WarnOnce("rp-opttext", "改回放菜单文案失败：" + e.GetType().Name + "：" + e.Message);
+            }
+        }
+
+        private static MVZ2.UI.OptionsDialogMainPage FindOptionsMainPage(MVZ2.Options.OptionsDialogController ctrl)
+        {
+            try
+            {
+                if (ctrl == null || ctrl.Pointer == IntPtr.Zero)
+                    return null;
+                var optUi = ctrl.ui;
+                if (optUi == null)
+                    return null;
+                return optUi.Main;
+            }
+            catch (Exception)
+            {
+                return null;
+            }
+        }
+
         #endregion
     }
 

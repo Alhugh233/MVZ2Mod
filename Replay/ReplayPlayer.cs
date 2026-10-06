@@ -142,6 +142,20 @@ namespace Replay
         private static Vector2 pointerScreen;
         private static int pointerQueries;
 
+        /// <summary>
+        /// 当前「游戏认为的指针位置」。
+        ///
+        /// <para>⚠️ 这是**事件原值**，会被 <c>Global.Input</c> 的那几个查询读到，
+        /// 而其中 <c>MinecartRideable</c> / <c>Snipenser</c> / <c>BreakoutBoard</c>
+        /// 会拿它去改仿真 —— **绝不能**把它换成假鼠标的平滑值。
+        /// 假鼠标只允许在 <c>LevelController.UpdateHeldItemPosition</c> 那一层临时替换
+        /// （见 <see cref="FakePointer"/> 的类注释）。</para>
+        /// </summary>
+        public static Vector2 PointerScreen => pointerScreen;
+
+        /// <summary>整体替换当前指针位置（只给「视觉通道」的临时替换用）。</summary>
+        public static void SetPointerScreen(Vector2 value) => pointerScreen = value;
+
         private const int MaxReports = 60;
 
         /// <summary>
@@ -177,12 +191,123 @@ namespace Replay
         public static bool IsActive => phase != Phase.Idle && phase != Phase.Failed && phase != Phase.Ended;
 
         /// <summary>是否要拦掉玩家的实际输入（回放中，且不是我们自己在注入）。</summary>
-        public static bool ShouldBlockInput => phase == Phase.Playing && !injecting;
+        ///
+        /// <para>结束面板开着的时候也要拦：那时 <c>phase</c> 已经是 Ended，
+        /// 否则玩家还能在「已经播完的那一局」里乱点、把器械放下去。</para>
+        public static bool ShouldBlockInput
+        {
+            get
+            {
+                if (phase == Phase.Playing && !injecting)
+                    return true;
+                try { return ReplayEndPanel.IsOpen; }
+                catch (Exception) { return false; }
+            }
+        }
 
         /// <summary>回放期间录制要停手，否则会把注入的动作又录一遍。</summary>
         public static bool SuppressRecording => phase != Phase.Idle && phase != Phase.Ended && phase != Phase.Failed;
 
         public static string CurrentName => file != null ? System.IO.Path.GetFileName(file.Path) : null;
+
+        /// <summary>当前回放的文件路径（优先 <c>.mrep.json</c>，见 <see cref="ReplayFile.Load"/>）。</summary>
+        public static string CurrentPath => file != null ? file.Path : null;
+
+        /// <summary>当前回放文件本体（结束面板要拿它拼文案）。</summary>
+        public static ReplayFile CurrentFile => file;
+
+        /// <summary>
+        /// 本次播放结束之后，是否要把「退出关卡」的落点从地图改成**回放页**。
+        /// 由 <see cref="EndToReplayPage"/> 置位，被 <c>ReplayPatches.GotoMapOrMainmenuPrefix</c>
+        /// 读一次就清掉（一次性指令）。
+        /// </summary>
+        private static bool wantsReplayPage;
+
+        public static bool WantsReplayPage { get { return wantsReplayPage; } }
+
+        public static void ConsumeReplayPage() { wantsReplayPage = false; }
+
+        /// <summary>
+        /// 重新播放当前这一条（结束面板的「重新播放」、以及菜单里的「重新播放」）。
+        /// 走的是与 <c>/replay play</c> 完全相同的路径 —— 会重新加载一次关卡场景。
+        /// </summary>
+        public static string RestartCurrent()
+        {
+            var name = CurrentName;
+            if (string.IsNullOrEmpty(name))
+                return "[replay] 没有可重播的回放。";
+            ReplayEndPanel.Close();
+            wantsReplayPage = false;
+
+            // ⛔ **必须先 Stop**。Start() 开头就是
+            //    `if (IsActive) return "[replay] 已经在播放了…"`，
+            //    而 Playing 阶段 IsActive 为 true —— 不先收尾的话这里会**静默无效**
+            //    （返回一句提示字符串，没人看；菜单按钮就成了「点了没反应」）。
+            Stop("restart");
+
+            Plugin.Log?.LogInfo("[Replay] 重新播放：" + name);
+            return Start(name);
+        }
+
+        /// <summary>
+        /// 「菜单 → 结束播放」：结束本次播放并**弹出回放结束面板**（导出 / 重新播放 / 退出），
+        /// 而不是直接退出关卡。
+        ///
+        /// <para>与「播完 / 通关 / 失败」走同一个 <see cref="FinishPlayback"/>，
+        /// 所以收尾完全一致：面板上再选「退出」才真的离开关卡回回放页。</para>
+        /// </summary>
+        public static void FinishFromMenu()
+        {
+            if (!IsActive)
+                return;
+            Plugin.Log?.LogInfo("[Replay] 菜单请求结束播放");
+            FinishPlayback("manual-end");
+        }
+
+        /// <summary>
+        /// 结束播放并回到**回放页**。
+        ///
+        /// <para>做法：置一个一次性标志，然后走游戏自己的 <c>LevelController.ExitLevel()</c> ——
+        /// 它内部会调 <c>Scene.GotoMapOrMainmenu()</c>，由
+        /// <c>ReplayPatches.GotoMapOrMainmenuPrefix</c> 把落点换成回放页（同帧把面板叠上去，
+        /// 不会先闪一下插件页），关掉回放页时再回主菜单。</para>
+        ///
+        /// <para>为什么不在模式里直接操作场景切换：退出关卡要清的东西很多
+        /// （保档 / Dispose / 卸场景 / 重置光照），照抄一遍必然会漏。</para>
+        /// </summary>
+        public static void EndToReplayPage()
+        {
+            ReplayEndPanel.Close();
+            var ctrl = bound;
+            phase = Phase.Ended;
+            stopReason = "manual-end";
+            elapsedSeconds = Time.realtimeSinceStartup - phaseStart;
+            lastSummary = BuildSummary();
+            ReplayHud.Hide();
+            FakePointer.End();
+
+            ReplayPage.RequestOpen();
+            wantsReplayPage = true;
+
+            if (ctrl == null || ctrl.Pointer == IntPtr.Zero)
+            {
+                // 关卡已经不在（罕见）：直接切页面，不走 ExitLevel。
+                try { MainManager.Instance.Scene.GotoMapOrMainmenu(); }
+                catch (Exception e) { Note("结束播放时切页面失败：" + Describe(e)); }
+                return;
+            }
+            try
+            {
+                // 只发出去、不等它 —— 后续全靠 ExitLevel 内部自己 await。
+                _ = ctrl.ExitLevel();
+                Plugin.Log?.LogInfo("[Replay] 结束播放：已请求退出关卡（回到回放页）");
+            }
+            catch (Exception e)
+            {
+                wantsReplayPage = false;
+                Note("结束播放时退出关卡失败：" + Describe(e));
+            }
+        }
 
         // 供自测报告使用
         public static int InjectedEventCount => injectedCount;
@@ -293,6 +418,7 @@ namespace Replay
                 sb.Append("  Global.Input 指针位置查询被改写 ").Append(pointerQueries).Append(" 次\n");
             if (ReplayPointerAction.Enabled)
                 sb.Append("  回放的指针动作（POST_POINTER_ACTION）").Append(ReplayPointerAction.Fired).Append(" 次\n");
+            FakePointer.AppendReport(sb);
             return sb.ToString().TrimEnd('\n');
         }
         #endregion
@@ -359,6 +485,11 @@ namespace Replay
             ReplayHud.Reset();
             ReplayProbe.Reset();
             ReplayPointerAction.Reset();
+            FakePointer.Begin(f);
+            ReplayEndPanel.Close();
+            wantsReplayPage = false;
+            // 「回放页关掉后去哪」属于上一次播放的收尾状态，新一场开播时必须清掉。
+            ReplayPage.SetReturnTo(null);
 
             Plugin.Log?.LogInfo("[Replay] 开始播放 " + f.Path + " —— " + f.Describe());
             var sb = new StringBuilder();
@@ -380,6 +511,7 @@ namespace Replay
             stopReason = reason;
             elapsedSeconds = Time.realtimeSinceStartup - phaseStart;
             ReplayHud.Hide();
+            FakePointer.End();
             bound = null;
             cursor = 0;
             lastSummary = BuildSummary();
@@ -394,6 +526,7 @@ namespace Replay
             failReason = reason;
             phase = Phase.Failed;
             ReplayHud.Hide();
+            FakePointer.End();
             bound = null;
             Plugin.Log?.LogError("[Replay] 播放失败：" + reason);
             try { Global.Debugs?.Print("[replay] 播放失败：" + reason + "\n"); } catch (Exception) { }
@@ -759,6 +892,10 @@ namespace Replay
                 int tick = ToTick(lvl.GetLevelTime());
                 currentTick = tick;
 
+                // 先推进假鼠标（纯视觉），再派发事件 —— 这样「到站」的那一刻
+                // 正好就是动作发生的那一个 tick。
+                FakePointer.Tick(bound, engine, tick);
+
                 var events = file.Events;
                 while (cursor < events.Count && events[cursor].Tick <= tick)
                 {
@@ -1057,11 +1194,54 @@ namespace Replay
 
         private static void FinishPlayback(string reason)
         {
+            // 只允许「还在跑的时候」收尾一次。重复调用（例如结束面板开着的时候又触发一遍）
+            // 会把面板重弹一次、还会把小结冲掉。
+            if (!IsActive)
+                return;
+
             phase = Phase.Ended;
             stopReason = reason;
             elapsedSeconds = Time.realtimeSinceStartup - phaseStart;
             lastSummary = BuildSummary();
+
+            // 收尾时把 REC 标签和假鼠标收掉 —— 和 Stop()/Fail() 保持一致。
+            // （不回放期间它们本来还在屏幕上留着，REC 会一直停在最后一帧的数字上。）
+            ReplayHud.Hide();
+            FakePointer.End();
+
             try { Global.Debugs?.Print(lastSummary + "\n"); } catch (Exception) { }
+            // 回放结束了，把结束面板弹出来（导出 / 重新播放 / 退出）。
+            ReplayEndPanel.Show(reason);
+        }
+
+        /// <summary>
+        /// 「关卡通关」被拦截时的收尾。
+        ///
+        /// <para>⛔ 必须拦：原版 <c>OnEngineClearCallback</c> 会
+        /// <c>RemoveLevelState()</c>（删掉该关卡的存档文件！）+ 解锁关卡 +
+        /// 写难度记录 + 走通关对话与退场动画。回放只是在「重演一局」，
+        /// 拿它去改玩家的存档是错的。</para>
+        /// </summary>
+        public static void NotifyLevelCleared()
+        {
+            if (phase != Phase.Playing)
+                return;
+            Plugin.Log?.LogInfo("[Replay] 回放里关卡通关了（已拦下原版的解锁/存档/退场流程）");
+            FinishPlayback("level-cleared");
+        }
+
+        /// <summary>
+        /// 「关卡失败」被拦截时的收尾。
+        ///
+        /// <para>原版会弹自己的「重试 / 返回」对话框并暂停关卡；回放里我们弹自己的面板，
+        /// 两条对话框兼存只会让人无所适从。</para>
+        /// </summary>
+        public static void NotifyGameOver()
+        {
+            if (phase != Phase.Playing)
+                return;
+            Plugin.Log?.LogInfo("[Replay] 回放里关卡失败了（已拦下原版的失败对话框）");
+            FinishPlayback("game-over");
         }
 
         /// <summary>

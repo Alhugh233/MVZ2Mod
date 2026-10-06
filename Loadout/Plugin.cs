@@ -13,8 +13,8 @@ namespace Loadout
     /// <list type="bullet">
     /// <item>不注册任何 Definition、不注册自己的 ModInfo
     /// → 完全避开 metadata v31 下注入类的那一堆坑；
-    /// （**唯一的例外**是「兼容性等级」那一行原生设置项 —— 它必须有一个真的 Mod 实例，
-    /// 见 <see cref="CompatOptions"/>）；</item>
+    /// （「兼容性等级」那一行设置项也走零注入路径 —— 它声明进 DSHCore 的「模组设置」页，
+    /// 见 <see cref="CompatOptions"/>，不再需要 Mod 实例）；</item>
     /// <item>全部功能落在「读写原版已有属性」「调用原版已有接口」「克隆原版已有 UI」上；</item>
     /// <item>UI 建立在 <c>DSHCore.Ui</c>（原版控件克隆基础设施）之上：不算坐标、不定尺寸、不自绘控件；</item>
     /// <item>Harmony 补丁都是**只读 / 只追加**性质，且可以被「兼容性等级」在运行时关掉；</item>
