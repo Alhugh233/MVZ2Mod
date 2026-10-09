@@ -3,7 +3,7 @@
 **开发者工具。** 把 `DSHCore.Ui` 提供的每个 UI 素材以真实观感展示出来，同时充当
 「用原版零件做 UI」的最小可编译范例。
 
-- 适配：MVZ2 0.7.0 test-10 / Windows x86 / IL2CPP metadata v31.1 / BepInEx be.788
+- 适配：MVZ2 0.7.0 test-11 / Windows x86 / IL2CPP metadata v31.1 / BepInEx be.788
 - 前置：**硬依赖 DSHCore**（`UiSkin` / `UiHost` / `UiClone` / `UiTooltip` 都在它里面）
 - 设计论证：`DSHCore/UI_RESEARCH.md`
 

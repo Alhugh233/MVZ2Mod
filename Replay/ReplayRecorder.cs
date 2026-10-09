@@ -101,6 +101,11 @@ namespace Replay
         private static float hScreenH;
 
         private static string lastWrittenPath;
+
+        /// <summary>
+        /// <c>.mrep</c> 头里 <c>game</c> 字段的缓存（见 <see cref="GameVersion"/>）。
+        /// </summary>
+        private static string gameVersion;
         #endregion
 
         #region 对外状态
@@ -1050,13 +1055,34 @@ namespace Replay
             return sb.Length > 0 ? sb.ToString() : "replay";
         }
 
+        /// <summary>
+        /// 游戏自己的版本串（<c>UnityEngine.Application.version</c>，就是标题界面显示的那个），
+        /// 用于 <c>.mrep</c> 头的 <c>game</c> 字段。
+        ///
+        /// <para><b>刻意不写死。</b>这一栏的全部意义就是「这份回放是在哪个游戏版本上录的」——
+        /// 写死就得每次游戏更新手动改一遍，漏改的新回放会顶着旧版本号，比不写更误导。
+        /// 直接问游戏则永远跟着走。</para>
+        ///
+        /// <para>取到就缓存：<see cref="BuildHeader"/> 也会在 <c>application-quit</c> 路径上被调用，
+        /// 那时 il2cpp 正在拆除，不该再去发起原生调用。</para>
+        /// </summary>
+        private static string GameVersion()
+        {
+            if (gameVersion != null)
+                return gameVersion;
+            string v = null;
+            try { v = Application.version; }
+            catch (Exception) { }
+            return gameVersion = string.IsNullOrEmpty(v) ? "unknown" : v;
+        }
+
         private static string BuildHeader(string endReason)
         {
             var sb = new StringBuilder(384);
             sb.Append("{\"magic\":\"mrep\"");
             sb.Append(",\"ver\":").Append(Json.Num(FormatVersion));
             sb.Append(",\"mod\":").Append(Json.Str(Plugin.VERSION));
-            sb.Append(",\"game\":\"0.7.0 test-10\"");
+            sb.Append(",\"game\":").Append(Json.Str(GameVersion()));
             sb.Append(",\"tps\":30");
             sb.Append(",\"created\":").Append(Json.Str(DateTime.Now.ToString("s", CultureInfo.InvariantCulture)));
             sb.Append(",\"end\":").Append(Json.Str(endReason ?? reason));

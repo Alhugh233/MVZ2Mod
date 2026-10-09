@@ -30,7 +30,7 @@ namespace DSHCore
         /// 动了（或改了命名空间）会让玩家已有的本 mod 关卡存档被判「版本不匹配」而读不进去。
         ///
         /// 它**不需要**等于 vanilla 的 <c>LevelManager.CURRENT_DATA_VERSION</c>
-        /// （0.7.0 test-9 / test-10 均为 5；本库一直用 4，两者并存没有问题）。
+        /// （0.7.0 test-9 / test-10 / test-11 均为 5；本库一直用 4，两者并存没有问题）。
         /// </summary>
         public const int LevelDataVersion = 4;
 

@@ -1,7 +1,7 @@
 # MVZ2 原版 UI 体系调研 · 与 DSHCore 的 UI 支持设计
 
 > **状态**：调研 + 设计稿（尚未实现）。本文是后续实现 `DSHCore.Ui` 与《子 mod UI 开发指南》的依据。
-> **适配**：MVZ2 0.7.0 test-10 / Windows x86 / IL2CPP metadata v31.1 / BepInEx be.788
+> **适配**：MVZ2 0.7.0 test-11 / Windows x86 / IL2CPP metadata v31.1 / BepInEx be.788
 > **源码基准**：仓库内 `_Scripts/0.7.0 in developing/`（下文简写为 `_Scripts/`）。
 > 凡标注「**实测**」的条目来自本仓库已跑通并记录的运行时验证，不是源码推断。
 

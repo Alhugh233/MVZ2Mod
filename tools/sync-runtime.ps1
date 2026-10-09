@@ -22,7 +22,7 @@ $ErrorActionPreference = 'Stop'
 $repo    = Get-RepoRoot
 $runtime = Join-Path $repo 'runtime'
 
-$GameDir = Normalize-GameDir $GameDir 'E:\Game\PVZ\MVZ2\MVZ2 0.7.0 test-10'
+$GameDir = Normalize-GameDir $GameDir 'E:\Game\PVZ\MVZ2\MVZ2 0.7.0 test-11'
 if (-not (Test-GameDir $GameDir)) {
     throw ("游戏目录无效（找不到 MinecraftVSZombies2.exe）：" + $GameDir)
 }
@@ -54,17 +54,43 @@ foreach ($rel in $items) {
 
 Write-Step "[3/3] 清理运行时垃圾"
 $bep = Join-Path $runtime 'BepInEx'
-foreach ($junk in @('cache', 'LogOutput.log', 'ErrorLog.log')) {
+
+# 目录：都是运行期产生的状态，不该进 runtime\（更不该跟着分发包出去）
+foreach ($junk in @('cache', '_rp_export', 'replays', 'MVZ2ModManager')) {
     $p = Join-Path $bep $junk
-    if (Test-Path $p) { Remove-Item $p -Recurse -Force -ErrorAction SilentlyContinue; Write-Info ("删除 " + $junk) }
+    if (Test-Path $p) { Remove-Item $p -Recurse -Force -ErrorAction SilentlyContinue; Write-Info ("删除 " + $junk + "/") }
 }
+
+# 文件：日志 + 自测产物（自测脚本统一往 BepInEx\ 根写 '_' 前缀的 txt/截图）
+foreach ($junk in @('LogOutput.log', 'ErrorLog.log')) {
+    $p = Join-Path $bep $junk
+    if (Test-Path $p) { Remove-Item $p -Force -ErrorAction SilentlyContinue; Write-Info ("删除 " + $junk) }
+}
+$stray = @(Get-ChildItem $bep -File -Filter '_*' -ErrorAction SilentlyContinue)
+if ($stray.Count -gt 0) {
+    $stray | Remove-Item -Force -ErrorAction SilentlyContinue
+    Write-Info ("删除自测产物 " + $stray.Count + " 个（_*.txt / _*.png）")
+}
+
+# 插件本体：由构建生成
 $rp = Join-Path $bep 'plugins'
 if (Test-Path $rp) {
     Get-ChildItem $rp -File | Remove-Item -Force -ErrorAction SilentlyContinue
     Write-Info "清空 BepInEx/plugins/（插件 DLL 由构建生成，不入 runtime）"
 }
-Get-ChildItem (Join-Path $bep 'config') -Recurse -Filter '*.log' -ErrorAction SilentlyContinue |
-    Remove-Item -Force -ErrorAction SilentlyContinue
+
+# 配置：只留框架自己的 BepInEx.cfg。
+# 插件配置是「在这台机器上跑过一次」才生成的用户状态（含路径、开关），
+# 跟着包发出去会把别人的设置带给新装的玩家。
+$cfgDir = Join-Path $bep 'config'
+if (Test-Path $cfgDir) {
+    $cfgJunk = @(Get-ChildItem $cfgDir -Recurse -File -ErrorAction SilentlyContinue |
+        Where-Object { $_.Name -ne 'BepInEx.cfg' })
+    if ($cfgJunk.Count -gt 0) {
+        $cfgJunk | Remove-Item -Force -ErrorAction SilentlyContinue
+        Write-Info ("删除插件配置 " + $cfgJunk.Count + " 个（只保留 BepInEx.cfg）")
+    }
+}
 
 # 校验
 $coreCount = (Get-ChildItem (Join-Path $bep 'core') -Filter '*.dll' -ErrorAction SilentlyContinue).Count

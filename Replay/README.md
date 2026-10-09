@@ -6,7 +6,7 @@
 
 - 插件 GUID：`qoznos.mvz2.replay`
 - 当前版本：**0.1.0**
-- 适配：MVZ2 **0.7.0 test-10**（Windows **x86** / IL2CPP / Unity 2022.3.62f3）
+- 适配：MVZ2 **0.7.0 test-11**（Windows **x86** / IL2CPP / Unity 2022.3.62f3）
 
 ---
 
@@ -16,7 +16,7 @@
 因为游戏的加速/慢动作只改变「一帧跑几个 tick」，不改变每个 tick 的内容，
 所以按 tick 记录天然就是「**不记录暂停/加速**」的。
 
-`0.7.0 test-10` 的玩家输入汇聚成 5 个调用点，全部被挂钩（参数已被 test-10
+`0.7.0 test-11` 的玩家输入汇聚成 5 个调用点，全部被挂钩（参数已被 test-11
 统一成 `MVZ2.Level.Inputing.PointerInteractionArgs` 结构体，里面带 pointerId / button / interaction）：
 
 | 调用点 | 对应操作 |

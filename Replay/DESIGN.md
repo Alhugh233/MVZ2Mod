@@ -991,8 +991,8 @@ string type, varint priority（或存 NamespaceID）
 ## 8. 实施计划（分阶段）
 
 **阶段 0：环境**
-- [ ] 把 BepInEx（be.788 x86 IL2CPP）装进 `test-10`，`UpdateInteropAssemblies=true` 启动一次生成 interop。
-- [ ] `.\tools\sync-runtime.ps1 -GameDir "E:\Game\PVZ\MVZ2\MVZ2 0.7.0 test-10"` 刷新仓库 `runtime/`。
+- [ ] 把 BepInEx（be.788 x86 IL2CPP）装进 `test-11`，`UpdateInteropAssemblies=true` 启动一次生成 interop。
+- [ ] `.\tools\sync-runtime.ps1 -GameDir "E:\Game\PVZ\MVZ2\MVZ2 0.7.0 test-11"` 刷新仓库 `runtime/`。
 - [ ] 用 `tools/dump-interop-signature.ps1` 核对关键类型/方法是否齐全（见第 10 节）。
 
 **阶段 1：脚手架**
@@ -1026,8 +1026,8 @@ string type, varint priority（或存 NamespaceID）
 | Hold/Streak 计数 | 推车蓄力等依赖按住 tick 数 | 按 tick 记录 + RLE；回放逐 tick 展开 |
 | 起始确定性 | 预敌人/开场对话可能消耗关卡 RNG | **优先用完整起始关键帧**（取法 1） |
 | Dictionary 顺序 | 迭代顺序理论可变 | 指纹校验点兜底；偏差时记录重同步关键帧 |
-| 版本漂移 | 游戏更新后 tick 语义/序列化变化 | `.mrep` header 写 `game` 版本 + mod 版本；不匹配拒绝播放 |
-| interop 过期 | test-10 尚未生成 interop | 阶段 0 必做（否则 native AV） |
+| 版本漂移 | 游戏更新后 tick 语义/序列化变化 | `.mrep` header 写 `game` 版本（取 `Application.version`，不写死）+ mod 版本；不匹配拒绝播放 |
+| interop 过期 | test-11 尚未生成 interop | 阶段 0 必做（否则 native AV） |
 
 ---
 
@@ -1042,7 +1042,7 @@ string type, varint priority（或存 NamespaceID）
 4. 起始关键帧在不同关卡下的体积（是否可接受）。
 5. `level.FindEntityByID` 能否在回放时稳定还原所有 `HeldItemTargetEntity`（实体 ID 一致性）。
 6. 播放时 `LoadGame` 的副作用（`PauseGame` / 「载入完成」弹窗 / `levelLoaded=true`）如何优雅跳过。
-7. 用 `tools/dump-interop-signature.ps1` 确认以下类型/方法在 test-10 interop 中可用：
+7. 用 `tools/dump-interop-signature.ps1` 确认以下类型/方法在 test-11 interop 中可用：
    `MVZ2Logic.Level.LogicLevelExt`（扩展方法）、`MVZ2.Level.HeldItems.HeldItemComponent`、
    `MVZ2.Level.LevelController`（`StartGame`/`UpdateInput`/`SaveGame`/`LoadGame`）、
    `PVZEngine.Level.LevelEngine`（`Update`/`GetLevelTime`/`FindEntityByID`）、

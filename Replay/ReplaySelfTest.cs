@@ -61,6 +61,15 @@ namespace Replay
         private static readonly List<string> report = new List<string>();
         private static Phase phase = Phase.WaitMenu;
         private static int frames;
+
+        /// <summary>
+        /// 「本阶段开始那一刻的关卡逻辑 tick」。
+        ///
+        /// <para><see cref="Phase.Actions"/> 与 <see cref="Phase.CoolDown"/> 的间隔一律按它算，
+        /// 也就是配置里 <c>ActionGapTicks</c> / <c>CooldownTicks</c> 名字里写的那个 tick
+        /// —— 不是帧（见 <see cref="EnterPhase"/>）。</para>
+        /// </summary>
+        private static int phaseTick;
         private static bool started;
         private static bool finished;
         private static string failReason;
@@ -179,8 +188,10 @@ namespace Replay
                                 EnterPhase(Phase.CoolDown);
                                 break;
                             }
+                            // 按 tick 计间隔：第 k 个动作落在 phaseTick + (k+1)*gap。
+                            // 用帧会让录制长度随帧率飘（低帧率下一帧顶好几 tick）。
                             var gap = Math.Max(CfgInt(ReplayConfig.SelfTestActionGapTicks, 30), 1);
-                            if (frames % gap != 0)
+                            if (Ticks(ctrl) - phaseTick < (actionsDone + 1) * gap)
                                 break;
 
                             var item = items[actionsDone].Trim();
@@ -207,11 +218,11 @@ namespace Replay
                     case Phase.CoolDown:
                         {
                             var ctrl = GetController();
-                            if (ctrl != null && IsRunning(ctrl))
-                                frames++;
-                            else if (ctrl != null)
-                                TryUnpause(ctrl);       // 暂停时 tick 不前进，不能干等
-                            if (frames >= CfgInt(ReplayConfig.SelfTestCooldownTicks, 90))
+                            if (ctrl == null) { Fail("关卡中途消失"); break; }
+                            if (!IsRunning(ctrl)) { TryUnpause(ctrl); return; }   // 暂停时 tick 不前进，不能干等
+                            // 按 tick 计：默认总长（热身 60 + 动作 5×30 + 冷却 90 = 300 tick）
+                            // 才能盖过默认 150 的指纹采样间隔，采到指纹。
+                            if (Ticks(ctrl) - phaseTick >= CfgInt(ReplayConfig.SelfTestCooldownTicks, 90))
                                 phase = Phase.StopAndVerify;
                             break;
                         }
@@ -1365,6 +1376,14 @@ namespace Replay
             phaseStart = DateTime.Now;
             frames = 0;
             lastHeartbeatAt = DateTime.MinValue;
+
+            // Actions / CoolDown 的间隔按**逻辑 tick** 计（不是帧）。
+            // 帧率一变，同样一个「30」在低帧率下能顶几百 tick、在高帧率下只顶几十 tick，
+            // 录制长度就跟着飘 —— 曾因此在快机器上录不到指纹间隔（150 tick）而误报失败。
+            // tick 只跟游戏里的时间走，与帧率无关。
+            if (next == Phase.Actions || next == Phase.CoolDown)
+                phaseTick = Ticks(GetController());
+
             if (next == Phase.VerifyPlayback)
             {
                 // 重置「回放停滞」检测，否则会带着上一个阶段的旧时间戳。
@@ -1667,18 +1686,37 @@ namespace Replay
             catch (Exception) { return -1; }
         }
 
+        /// <summary>
+        /// 把 <see cref="MainScenePageType"/> 的原始值翻成名字，只用于日志与报告文本。
+        ///
+        /// <para><b>必须走枚举，不能写数字字面量。</b>游戏往 <c>MainScenePageType</c> 里插新页时
+        /// 会把它后面的成员整体顶掉一位 —— 0.7.0 test-11 插了 <c>HealthWarning = 1</c>，
+        /// 于是 <c>Splash</c> 1→2、<c>Mainmenu</c> 3→4 …… 全表 +1。
+        /// 硬编码 <c>case 1: return "Splash"</c> 这种写法不会报错，只会**静默地整体错位一位**，
+        /// 让日志看起来"对得上"（顺序合理）却把每个页面都叫错名字。
+        /// 用枚举成员名则要么编译期就对不上（改了名会直接编译失败），要么跟着游戏自动正确。</para>
+        ///
+        /// <para>新增页面会落到 <c>default</c>，打成 <c>Page&lt;N&gt;</c> —— 只是标签朴素，不会误导。</para>
+        /// </summary>
         private static string DescribePage(int page)
         {
-            switch (page)
+            switch ((MainScenePageType)page)
             {
-                case -1: return "?";
-                case 0: return "None";
-                case 1: return "Splash";
-                case 2: return "Titlescreen";
-                case 3: return "Mainmenu";
-                case 4: return "Note";
-                case 5: return "Map";
-                default: return "Page" + page;
+                case MainScenePageType.None: return "None";
+                case MainScenePageType.HealthWarning: return "HealthWarning";
+                case MainScenePageType.Splash: return "Splash";
+                case MainScenePageType.Titlescreen: return "Titlescreen";
+                case MainScenePageType.Mainmenu: return "Mainmenu";
+                case MainScenePageType.Note: return "Note";
+                case MainScenePageType.Map: return "Map";
+                case MainScenePageType.Almanac: return "Almanac";
+                case MainScenePageType.Store: return "Store";
+                case MainScenePageType.Archive: return "Archive";
+                case MainScenePageType.Addons: return "Addons";
+                case MainScenePageType.Customize: return "Customize";
+                case MainScenePageType.MusicRoom: return "MusicRoom";
+                case MainScenePageType.Arcade: return "Arcade";
+                default: return page < 0 ? "?" : "Page" + page;
             }
         }
 

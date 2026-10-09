@@ -7,7 +7,7 @@
 - 游戏内命名空间：`mvz2_lab`
 - 当前版本：**0.2.0**
 - 前置：**DSHCore**（`qoznos.mvz2.core`，必需）
-- 适配：MVZ2 **0.7.0 test-10**（Windows **x86** / IL2CPP / Unity 2022.3.62f3）
+- 适配：MVZ2 **0.7.0 test-11**（Windows **x86** / IL2CPP / Unity 2022.3.62f3）
 
 > ⚠️ 社区制作的**非官方**内容，与游戏原作者无关。
 
@@ -39,7 +39,7 @@ cd LaboratoryMod
 
 | 参数 | 作用 |
 | ---- | ---- |
-| `-GameDir <dir>` | 部署目标。默认 `E:\Game\PVZ\MVZ2\MVZ2 0.7.0 test-10`；不存在则**只构建不部署** |
+| `-GameDir <dir>` | 部署目标。默认 `E:\Game\PVZ\MVZ2\MVZ2 0.7.0 test-11`；不存在则**只构建不部署** |
 | `-SkipBuild` | 跳过构建，直接用已有产物 |
 | `-Clean` | 先删除 `bin/` `obj/` |
 | `-KeepGame` | 不结束正在运行的游戏（会锁住 DLL，一般不要用） |
@@ -188,7 +188,7 @@ flowchart TD
 
 ## 已知限制
 
-- 仅适配 0.7.0 test-10（Windows x86 IL2CPP）
+- 仅适配 0.7.0 test-11（Windows x86 IL2CPP）
 - 存档沿用原版 `mvz2:` 命名空间写入，**卸载本 mod 后**相关关卡记录可能报错
 - 关卡图标复用原版资源
 - `unknow_palace` 的 UFO 落点简化为「指定 lane 最右列网格」（与官方兜底一致）

@@ -4,7 +4,7 @@
 > **目标**：让一次对话就能写出**能跑起来**的注入类 mod，而不是靠反复崩溃试出来。
 >
 > 本文档记录的是「必须踩过一遍才知道」的东西。凡是写在这里的结论，都是在
-> **MVZ2 0.7.0 test-10 / Windows x86 / IL2CPP metadata v31.1** 上实测过的，
+> **MVZ2 0.7.0 test-11 / Windows x86 / IL2CPP metadata v31.1** 上实测过的，
 > 不是推测。遇到与本文冲突的直觉，信本文。
 
 ---
@@ -14,7 +14,7 @@
 
 | 项        | 值                                                                       |
 | --------- | ------------------------------------------------------------------------ |
-| 游戏      | Minecraft vs Zombies 2（MVZ2）**0.7.0 test-10**，Windows **x86**                  |
+| 游戏      | Minecraft vs Zombies 2（MVZ2）**0.7.0 test-11**，Windows **x86**                  |
 | 运行时    | Unity 2022.3.62f3 / IL2CPP**metadata v31.1**                             |
 | BepInEx   | **be.788**（x86 IL2CPP），内含 Il2CppInterop **1.5.3**                   |
 | 编译      | .NET 6 SDK（`net6.0`），`LangVersion 9.0`                                |
@@ -769,7 +769,7 @@ virtual 槽被重置则 override **静默失效**（不报错，就是没生效�
 本 mod 关卡存档被判「版本不匹配」而读不进去。
 
 它**不需要**等于 `LevelManager.CURRENT_DATA_VERSION`（vanilla 自己用的那个值；
-0.7.0 test-9 / test-10 均为 **5**）。`ModInfos.Create` 已经给了一个稳定常量（4），
+0.7.0 test-9 / test-10 / test-11 均为 **5**）。`ModInfos.Create` 已经给了一个稳定常量（4），
 两者并存没有问题，一般不用管。
 
 ---

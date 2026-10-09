@@ -7,7 +7,7 @@
 #   .\build.ps1 -Launch           构建完启动游戏
 #
 # 说明：
-#   - 编译引用来自 runtime\（仓库内那份 test-10 的 BepInEx core + interop）。
+#   - 编译引用来自 runtime\（仓库内那份 test-11 的 BepInEx core + interop）。
 #   - DSHCore 前置的引用方式由 ..\Directory.Build.props 决定。
 #   - 本 mod 没有需要部署的资源（没有 assets\），只有插件 DLL。
 # =====================================================================

@@ -634,7 +634,7 @@ entity.SpawnerReference == null   // 自然生成
 ## 四、构建与部署
 
 ```powershell
-.\build.ps1                    # 构建 + 自动部署到测试游戏目录（默认 E:\Game\PVZ\MVZ2\MVZ2 0.7.0 test-10）
+.\build.ps1                    # 构建 + 自动部署到测试游戏目录（默认 E:\Game\PVZ\MVZ2\MVZ2 0.7.0 test-11）
 .\build.ps1 -Pack              # 构建 + 部署 + 打包 dist\ModularCurse_v0.2.1_0.7.0.zip
 .\build.ps1 -Pack -Launch
 .\build.ps1 -KeepGame          # 不结束正在运行的游戏（DLL 会被锁，仅建议调试脚本时用）
@@ -647,7 +647,7 @@ entity.SpawnerReference == null   // 自然生成
 
 | 参数 | 作用 |
 | ---- | ---- |
-| `-GameDir <dir>` | 部署目标（默认 `E:\Game\PVZ\MVZ2\MVZ2 0.7.0 test-10`） |
+| `-GameDir <dir>` | 部署目标（默认 `E:\Game\PVZ\MVZ2\MVZ2 0.7.0 test-11`） |
 | `-SkipBuild` | 跳过编译，只做部署校验 / 打包 / 启动 |
 | `-Clean` | 编译前先删掉 `bin/`、`obj/` |
 | `-KeepGame` | 不结束运行中的游戏进程（**会因 DLL 被占用而部署失败**） |
@@ -664,8 +664,8 @@ entity.SpawnerReference == null   // 自然生成
 dotnet build ModularCurse/ModularCurse.csproj -c Debug
 ```
 
-- 引用来自仓库 `runtime/`（BepInEx core + 0.7.0 test-10 的 interop）。
-- `GameDir` 默认 `E:\Game\PVZ\MVZ2\MVZ2 0.7.0 test-10\`，
+- 引用来自仓库 `runtime/`（BepInEx core + 0.7.0 test-11 的 interop）。
+- `GameDir` 默认 `E:\Game\PVZ\MVZ2\MVZ2 0.7.0 test-11\`，
   构建后自动拷贝 `ModularCurse.dll` 到 `BepInEx\plugins\`，
   并把 `ModularCurse\assets\**` 部署到 `StreamingAssets\Mods\modular_curse\`。
 - ⚠️ 游戏重建后必须重新生成 interop（`BepInEx/config/BepInEx.cfg` 的
@@ -735,7 +735,7 @@ MinecraftVSZombies2_Data/StreamingAssets/Mods/modular_curse/Content/sprites/{cur
   `winhttp.dll` / `dotnet/` / `BepInEx\{core,interop,unity-libs,patchers,config}`）、
   `DSHCore.dll` 与本 mod 的插件+资源 —— 解压到游戏根目录即可，不需要先装前置包。
   只要插件本体（不给新环境）时用 `-NoRuntime` 打包，体积降到几十 KB。
-- 运行时里的 interop 只对应 **0.7.0 test-10**。其他版本需删掉 `BepInEx/interop` 并把
+- 运行时里的 interop 只对应 **0.7.0 test-11**。其他版本需删掉 `BepInEx/interop` 并把
   `BepInEx/config/BepInEx.cfg` 的 `UpdateInteropAssemblies` 置 true 后启动一次重新生成。
 - `LaboratoryMod.dll` 不打包（与诅咒无关的测试内容）。
 - 打包必须用「拷内容」而不是「拷目录」（`Copy-Item <assets>\* <dst>`），否则会出现

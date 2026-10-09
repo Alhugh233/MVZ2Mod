@@ -4,7 +4,7 @@
 > 三个相互独立的 mod 共用一个 BepInEx / IL2CPP 构建环境与工具链。
 
 > ⚠️ 本项目为社区制作的**非官方**内容，与游戏原作者无关。
-> ⚠️ 全部仅适配 **0.7.0 test-10**（Windows **x86** / IL2CPP / Unity 2022.3.62f3）。
+> ⚠️ 全部仅适配 **0.7.0 test-11**（Windows **x86** / IL2CPP / Unity 2022.3.62f3）。
 
 ---
 
@@ -189,7 +189,7 @@ MVZ2 Loadout = Graphical Console
 | 操作系统 | Windows                                                        |
 | 脚本环境 | PowerShell 5.1+                                                |
 | 构建     | [.NET 6 SDK](https://dotnet.microsoft.com/download/dotnet/6.0) |
-| 游戏     | MVZ2**0.7.0 test-10**，Windows x86 版                           |
+| 游戏     | MVZ2**0.7.0 test-11**，Windows x86 版                           |
 | 编译引用 | `runtime\`（可选）**或游戏目录本身**，见下                     |
 
 ### 告诉构建你的游戏装在哪
@@ -202,7 +202,7 @@ Copy-Item Directory.Build.local.props.example Directory.Build.local.props
 notepad Directory.Build.local.props        # 把 <GameDir> 改成你的游戏目录
 
 # 方式 B：环境变量
-setx MVZ2_GAME_DIR "E:\Game\PVZ\MVZ2\MVZ2 0.7.0 test-10\"
+setx MVZ2_GAME_DIR "E:\Game\PVZ\MVZ2\MVZ2 0.7.0 test-11\"
 ```
 
 > 结尾的反斜杠不能少。没配置也能构建，只是**不会自动部署**到游戏。

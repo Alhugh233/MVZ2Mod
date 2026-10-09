@@ -21,7 +21,7 @@ using Mono.Cecil.Rocks;
 //    所以那是本工具的差异，不是游戏版本差异。
 //    ⇒ 正式 interop 一律用 BepInEx 在目标游戏目录里生成（UpdateInteropAssemblies=true 启动一次）；
 //      本工具只当「快速签名查询 / 应急」用。
-var gameDir = args.Length > 0 ? args[0] : @"E:\Game\PVZ\MVZ2\MVZ2 0.7.0 test-10";
+var gameDir = args.Length > 0 ? args[0] : @"E:\Game\PVZ\MVZ2\MVZ2 0.7.0 test-11";
 
 // 调试模式：打印指定 dll 中某类型的所有构造器
 if (args.Length >= 3 && args[0] == "check")

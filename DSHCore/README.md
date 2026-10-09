@@ -8,7 +8,7 @@
 - 插件 GUID：`qoznos.mvz2.core`
 - 显示名：`DSHCore`
 - 当前版本：**0.4.0**
-- 适配：MVZ2 **0.7.0 test-10**（Windows **x86** / IL2CPP metadata v31.1 / Unity 2022.3.62f3）
+- 适配：MVZ2 **0.7.0 test-11**（Windows **x86** / IL2CPP metadata v31.1 / Unity 2022.3.62f3）
 - 运行时要求：BepInEx **be.788**（x86 IL2CPP）
 
 > ⚠️ 社区制作的**非官方**作品，与游戏原作者无关。
