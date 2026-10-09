@@ -589,3 +589,240 @@ function New-DevKitPackage {
     Write-Info ("大小: " + $sizeMb + " MB   文件数: " + $fileCount)
     return $zip
 }
+
+# --- MVZ2 模组包（MVZ2ModManager 的 .mvz2pack）-------------------------
+
+function New-Mvz2Pack {
+    <#
+      把「本仓库这套 mod」打成一个 MVZ2ModManager 能直接导入的 .mvz2pack。
+
+      包内布局（严格对着 MVZ2ModManager\Core\ModpackManager.cs 写）：
+
+        mvz2pack.json                 清单（文件名固定，管理器只认它）
+        BepInEx/plugins/*.dll         插件本体
+        StreamingAssets/Mods/<nsp>/…  内容模组的资源（按命名空间分目录）
+
+      三条硬约束 —— 违反了都表现为「导入后什么都没发生，而且一句错都不报」：
+
+        1. 条目名一律用**正斜杠**。管理器靠 entry.FullName.StartsWith("BepInEx/plugins/")
+           判断「这份包覆盖了哪些根」，一旦写成反斜杠就一条都匹配不上：于是既不清理
+           也不解压，静默失败。（这也是这里手拼 ZipArchive 而不用 CreateFromDirectory
+           的原因 —— .NET Framework 那条路在 Windows 上会写出反斜杠。）
+        2. 清单里每个字段的名字/大小写都要对得上（System.Text.Json 默认按名字精确匹配）。
+        3. 清单必须是**无 BOM 的 UTF-8**（带 BOM 时 JsonSerializer.Deserialize(Stream) 解析失败）。
+
+      与 New-ModPackage 的分工：那个打的是「解压到游戏根目录」的自包含 zip（含 BepInEx
+      运行环境），给手工安装用；这个打的是**只含模组本体**的 .mvz2pack，给管理器用 ——
+      运行环境由管理器 / 游戏自己负责。
+
+      ⚠ 还原这份包会先清空 BepInEx\plugins\ 与 StreamingAssets\Mods\ 两个根
+      （这是格式本身的语义：一份包 = 一套 setup 的完整快照），所以别往那两个目录塞私货。
+    #>
+    param(
+        [Parameter(Mandatory)][string]$OutDir,
+
+        # 每项：@{ Name='DSHCore'; Dll='<插件 dll 绝对路径>'; AssetsDir='<可空>'; Namespace='<可空>' }
+        [Parameter(Mandatory)][hashtable[]]$Items,
+
+        [string]$PackageName = 'MVZ2Mods',
+        [string]$DisplayName = '',
+        [string]$Author = '',
+        [string]$GameSlug = 'mvz2'
+    )
+
+    if ([string]::IsNullOrWhiteSpace($DisplayName)) { $DisplayName = $PackageName }
+
+    # ---------- 1. 收集文件 → 包内条目名 ----------
+
+    $entries = New-Object System.Collections.Generic.List[hashtable]
+    $modNames = New-Object System.Collections.Generic.List[string]
+    $assetNotes = New-Object System.Collections.Generic.List[string]
+
+    foreach ($it in $Items) {
+        $name = [string]$it['Name']
+        $dll = [string]$it['Dll']
+        $ns = [string]$it['Namespace']
+        $assets = [string]$it['AssetsDir']
+
+        if ([string]::IsNullOrWhiteSpace($name)) { throw "New-Mvz2Pack：有一项没写 Name。" }
+        if ([string]::IsNullOrWhiteSpace($dll)) { throw ("New-Mvz2Pack：" + $name + " 没写 Dll。") }
+        if (-not (Test-Path -LiteralPath $dll)) {
+            throw ("插件产物不存在：" + $dll + "`n先在仓库根构建：.\build.ps1")
+        }
+
+        $dllAbs = (Resolve-Path -LiteralPath $dll).Path
+        $entries.Add(@{ Source = $dllAbs; Entry = ('BepInEx/plugins/' + (Split-Path -Leaf $dllAbs)) })
+        $modNames.Add($name)
+
+        if ([string]::IsNullOrWhiteSpace($ns)) { continue }
+
+        if ([string]::IsNullOrWhiteSpace($assets) -or -not (Test-Path -LiteralPath $assets)) {
+            Write-Warn2 ($name + "：声明了命名空间 " + $ns + " 但没有资源目录（" + $assets + "），只打插件")
+            continue
+        }
+
+        $assetsRoot = (Resolve-Path -LiteralPath $assets).Path
+        $files = @(Get-ChildItem -LiteralPath $assetsRoot -Recurse -File -Force)
+        if ($files.Count -eq 0) {
+            Write-Warn2 ($name + "：资源目录是空的（" + $assetsRoot + "），跳过")
+            continue
+        }
+        foreach ($f in $files) {
+            $rel = $f.FullName.Substring($assetsRoot.Length).TrimStart('\', '/').Replace('\', '/')
+            $entries.Add(@{ Source = $f.FullName; Entry = ('StreamingAssets/Mods/' + $ns + '/' + $rel) })
+        }
+        $assetNotes.Add($ns + "（" + $files.Count + " 个文件）")
+    }
+
+    if ($entries.Count -eq 0) { throw "New-Mvz2Pack：一个文件都没收进来，不打空包。" }
+
+    # 条目不许重名：两个 mod 产出同一个路径的话，解压时后者会静默盖掉前者
+    $seen = @{}
+    foreach ($e in $entries) {
+        if ($seen.ContainsKey($e['Entry'])) {
+            throw ("包内条目重名：" + $e['Entry'] + "（两个 mod 产出了同一个路径）")
+        }
+        $seen[$e['Entry']] = $true
+    }
+
+    # ---------- 2. 清单 ----------
+    #
+    # 手拼 JSON，不用 ConvertTo-Json：PS 5.1 对「单元素数组」会退化成裸字符串，
+    # 而 Mods 一旦不是数组，管理器那边反序列化直接抛异常 → 整份包被判成「清单读不出来」。
+    # 字符串值逐个用 ConvertTo-Json 转义（引号 / 反斜杠 / 控制字符都照顾到了）。
+
+    $sortedMods = @($modNames | Sort-Object -Unique)
+    $createdUtc = [DateTime]::UtcNow.ToString('o', [System.Globalization.CultureInfo]::InvariantCulture)
+
+    $nameLit   = ($DisplayName | ConvertTo-Json).Trim()
+    $authorLit = ($Author | ConvertTo-Json).Trim()
+    $slugLit   = ($GameSlug | ConvertTo-Json).Trim()
+    $modsBlock = (@($sortedMods | ForEach-Object { '    ' + ($_ | ConvertTo-Json).Trim() }) -join (",`n"))
+
+    $json = @"
+{
+  "FormatVersion": 1,
+  "Name": $nameLit,
+  "Author": $authorLit,
+  "GameSlug": $slugLit,
+  "CreatedUtc": "$createdUtc",
+  "Mods": [
+$modsBlock
+  ]
+}
+"@
+
+    # ---------- 3. 写包 ----------
+
+    if (-not (Test-Path -LiteralPath $OutDir)) {
+        New-Item -ItemType Directory -Force -Path $OutDir | Out-Null
+    }
+    $packPath = Join-Path $OutDir ($PackageName + '.mvz2pack')
+    if (Test-Path -LiteralPath $packPath) { Remove-Item -LiteralPath $packPath -Force }
+
+    Add-Type -AssemblyName System.IO.Compression
+    Add-Type -AssemblyName System.IO.Compression.FileSystem
+
+    $utf8NoBom = New-Object System.Text.UTF8Encoding($false)
+    $level = [System.IO.Compression.CompressionLevel]::Optimal
+
+    $zip = [System.IO.Compression.ZipFile]::Open($packPath, [System.IO.Compression.ZipArchiveMode]::Create)
+    try {
+        # 清单先写（顺序无所谓，只是看着顺眼）
+        $manifest = $zip.CreateEntry('mvz2pack.json', $level)
+        $stream = $manifest.Open()
+        try {
+            $bytes = $utf8NoBom.GetBytes($json)
+            $stream.Write($bytes, 0, $bytes.Length)
+            $stream.Flush()
+        } finally {
+            $stream.Dispose()
+        }
+
+        foreach ($e in $entries) {
+            [void][System.IO.Compression.ZipFileExtensions]::CreateEntryFromFile(
+                $zip, $e['Source'], $e['Entry'], $level)
+        }
+    } finally {
+        $zip.Dispose()
+    }
+
+    # ---------- 4. 自检（读回来验一遍，防的是「静默失败」这条）----------
+    #
+    # 管理器读包的每一步都在这里复刻一遍：清单在第一层、字段名对得上、Mods 是数组、
+    # 每个条目都落在它认识的某个前缀下。任何一条不过就直接 throw —— 宁可构建失败，
+    # 也不要交出去一份"导入后什么都没发生"的包。
+
+    $problems = New-Object System.Collections.Generic.List[string]
+    $itemCount = 0
+    $probe = [System.IO.Compression.ZipFile]::OpenRead($packPath)
+    try {
+        $manifestEntry = $probe.GetEntry('mvz2pack.json')
+        if ($null -eq $manifestEntry) {
+            $problems.Add("包里找不到 mvz2pack.json")
+        } else {
+            # 先按字节读出来：BOM 检查必须在解码之前做 —— StreamReader 会偷偷跳过 BOM，
+            # 用它会「看起来一切正常」但管理器那边照样解析失败。
+            $buffer = New-Object System.IO.MemoryStream
+            $entryStream = $manifestEntry.Open()
+            try { $entryStream.CopyTo($buffer) } finally { $entryStream.Dispose() }
+            $mbytes = $buffer.ToArray()
+            $buffer.Dispose()
+
+            if ($mbytes.Length -ge 3 -and $mbytes[0] -eq 0xEF -and $mbytes[1] -eq 0xBB -and $mbytes[2] -eq 0xBF) {
+                $problems.Add("清单带了 UTF-8 BOM（管理器会读不出来）")
+            }
+
+            $readBack = $utf8NoBom.GetString($mbytes)
+
+            $obj = $null
+            try { $obj = $readBack | ConvertFrom-Json } catch { $problems.Add("清单不是合法 JSON：" + $_.Exception.Message) }
+
+            if ($null -ne $obj) {
+                if ($obj.FormatVersion -ne 1) { $problems.Add("FormatVersion 应为 1，实际 " + $obj.FormatVersion) }
+                if ([string]::IsNullOrWhiteSpace([string]$obj.Name)) { $problems.Add("Name 是空的") }
+                if ([string]$obj.GameSlug -ne $GameSlug) { $problems.Add("GameSlug 应为 " + $GameSlug) }
+                if (-not $readBack.Contains('"Mods": [')) { $problems.Add("Mods 不是数组（单元素时最容易写错）") }
+                if (@($obj.Mods).Count -ne $sortedMods.Count) {
+                    $problems.Add("Mods 条数 " + @($obj.Mods).Count + " ≠ " + $sortedMods.Count)
+                }
+            }
+        }
+
+        foreach ($entry in $probe.Entries) {
+            if ($entry.Name.Length -eq 0) { continue }
+            if ($entry.FullName -eq 'mvz2pack.json') { continue }
+            $itemCount++
+            if ($entry.FullName.IndexOf('\') -ge 0) {
+                $problems.Add("条目用了反斜杠：" + $entry.FullName)
+            } elseif (-not ($entry.FullName.StartsWith('BepInEx/plugins/') -or
+                            $entry.FullName.StartsWith('StreamingAssets/Mods/'))) {
+                $problems.Add("条目不在管理器认识的根里：" + $entry.FullName)
+            }
+        }
+
+        if ($itemCount -ne $entries.Count) {
+            $problems.Add("条目数 " + $itemCount + " ≠ " + $entries.Count)
+        }
+    } finally {
+        $probe.Dispose()
+    }
+
+    if ($problems.Count -gt 0) {
+        Remove-Item -LiteralPath $packPath -Force -ErrorAction SilentlyContinue
+        throw ("模组包自检没过（已删掉这个包）：`n  - " + ($problems -join "`n  - "))
+    }
+
+    # ---------- 5. 报告 ----------
+
+    $sizeKb = [math]::Round((Get-Item -LiteralPath $packPath).Length / 1KB, 1)
+    Write-Ok ("模组包: " + $packPath)
+    Write-Info ("大小: " + $sizeKb + " KB   条目: " + ($itemCount + 1) + "（含清单）   自检: 通过")
+    Write-Info ("插件 " + $sortedMods.Count + " 个: " + ($sortedMods -join '、'))
+    if ($assetNotes.Count -gt 0) {
+        Write-Info ("资源 " + $assetNotes.Count + " 套: " + ($assetNotes -join '、'))
+    }
+    Write-Info "覆盖的根: BepInEx/plugins/ 、StreamingAssets/Mods/（还原时会先清空这两处）"
+    Write-Info "导入: MVZ2ModManager 双击这个文件，或丢进「模组包」页"
+    return $packPath
+}

@@ -279,6 +279,9 @@ namespace Loadout
                         Plugin.Log?.LogInfo("[SelfTest] ===== 选中槽1 后 =====\n"
                             + BlueprintPage.DebugSelect(1));
                         Plugin.Log?.LogInfo("[SelfTest] " + BlueprintPage.DebugSelect(-1));
+                        // 逆阵营放置的观感：镜像框里这张卡应该**左右翻转**（sx=-1），不是染红。
+                        Plugin.Log?.LogInfo("[SelfTest] ===== 逆阵营 = 图标左右镜像 =====\n"
+                            + BlueprintPage.DebugMirror());
                         // 「兼容性等级」那一行设置项到底会不会出现在设置界面里。
                         Plugin.Log?.LogInfo("[SelfTest] ===== 兼容性等级设置项 =====\n"
                             + CompatOptions.Report());
@@ -292,6 +295,12 @@ namespace Loadout
                             + BlueprintToggleButton.DebugForceShow());
                         Plugin.Log?.LogInfo("[SelfTest] " + BlueprintToggleButton.DebugToggle());
                         Plugin.Log?.LogInfo("[SelfTest] " + BlueprintToggleButton.DebugToggle());
+                        // 这个按钮的 onClick 收不到点击 —— 用真射线看是谁挡在上面。
+                        Plugin.Log?.LogInfo("[SelfTest] ===== 切换按钮射线 =====\n"
+                            + BlueprintToggleButton.DebugRaycast());
+                        // 真正要紧的：点落在按钮矩形里会不会切换（与 Frame 同一个函数）。
+                        Plugin.Log?.LogInfo("[SelfTest] ===== 切换按钮点击通路 =====\n"
+                            + BlueprintToggleButton.DebugClick());
                         // 点选走的是哪条通路（Frame 每帧 / Tick 30 帧一次）。
                         Plugin.Log?.LogInfo("[SelfTest] " + BlueprintPage.DebugClickPath());
                         // 镜像框里的卡也要有悬停提示。
@@ -417,8 +426,12 @@ namespace Loadout
                             + Phase3Probe.Refill());
                         Plugin.Log?.LogInfo("[SelfTest] ===== 出怪点数/倍数/幂数（填的就是生效的）=====\n"
                             + Phase3Probe.SpawnPoints());
-                        Plugin.Log?.LogInfo("[SelfTest] ===== 禁用冷却（开→备份→换回）=====\n"
+                        Plugin.Log?.LogInfo("[SelfTest] ===== 禁用冷却（原版 NO_RECHARGE）=====\n"
                             + Phase3Probe.NoRechargeRound());
+                        Plugin.Log?.LogInfo("[SelfTest] ===== 无条件放置（真门口：放行 + 真的生成）=====\n"
+                            + Phase3Probe.UnconditionalPlaceRound());
+                        Plugin.Log?.LogInfo("[SelfTest] ===== 模仿者 → 原版显示重画 =====\n"
+                            + Phase3Probe.VanillaSyncRound());
                         Plugin.Log?.LogInfo("[SelfTest] ===== 选卡切换按钮图标 =====\n"
                             + BlueprintToggleButton.DebugIcon());
                         // 基础页的置灰状态必须**在本页是当前页**时读（页一换，上行控件就被清了）。

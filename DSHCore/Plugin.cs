@@ -93,6 +93,18 @@ namespace DSHCore
             // 8) 内建 mod（游戏本体）在「模组设置」页里的介绍。
             //    它没有声明任何设置项，名字/作者靠这一句来；不声明的话列表里显示裸命名空间 mvz2。
             UiOptions.DeclareMod("mvz2", "Vanilla", "游戏本体（内置内容）", "Cuerzor", "原版");
+            UiLocale.Add("游戏本体（内置内容）", "The game itself (built-in content)", UiLocale.English);
+            // 本库自己那几句话的英文在 Ui/ModSettingsPage.cs 的 DeclareTexts() 里。
+
+            // 9) 关卡 HUD 的 Animator 守卫（安全网）。
+            //    原版 LevelUIPreset 的 ShowHugeWaveText / ShowFinalWaveText / ShowReadySetBuild
+            //    直接 animator.SetTrigger 而**没有** activeInHierarchy 守卫（同类其它地方都有）。
+            //    那个 Animator 在 prefab 里就是 disabled 的，只靠游戏每帧手动 Update 养着 ——
+            //    一旦那条链路断掉（HUD 被反激活 / UpdateFrame 被异常截断），它就没有内部实例，
+            //    这三处会把 NullReferenceException 抛进关卡行为里（玩家侧看到「关卡行为
+            //    WaveStageBehaviour ... NullReferenceException」）。这里只挡报错，
+            //    真正的原因归修 UI 克隆的那几处（UiClone / UiSkin 的 Mask 纪律）。
+            LevelUiAnimatorGuard.Apply();
 
             Log.LogInfo(NAME + " v" + VERSION + " loaded (infrastructure ready)");
         }

@@ -331,9 +331,9 @@ namespace Loadout
                 BlueprintToggleButton.Tick();
                 // 传送带行为也要与面板开没开无关：面板关着的时候它得继续抽卡。
                 ConveyorRig.Tick();
-                // 「禁用冷却」要自愈：buff 是关卡级的、会跟着 .lvl 存下来，
-                // 所以「上次开着就退出关卡、再进来」时不会有任何按钮点击，只能靠这里发现。
-                NoRecharge.Tick();
+                // 选卡界面的切换按钮：**每帧**做矩形命中（不能节流 ——
+                // Input.GetMouseButtonDown 只在一帧为真）。
+                BlueprintToggleButton.Frame();
                 // 星之碎片那条补丁必须**进关卡之后**才挂（提前反射 LogicLevelProps 会把游戏打坏，
                 // 见 CheatRefill 的类注释）；这里每帧试一次，挂上就再也不做。
                 CheatRefill.Tick();
@@ -775,13 +775,16 @@ namespace Loadout
             catch (Exception) { }
         }
         /// <summary>给内容行挂**原版**悬停提示（<c>UiTooltip</c> 会把它锚在目标上方）。</summary>
+        /// <remarks>标题与正文都过一遍取词 —— 本 mod 的一切提示都从这两个入口走，
+        /// 所以译文只要登记在 <see cref="LoadoutLocale"/> 里就行，不必逐个调用点写。</remarks>
         public static void AddTooltip(GameObject node, string title, string text)
         {
             if (!UiFinder.IsAlive(node) || string.IsNullOrEmpty(text))
                 return;
             try
             {
-                UiTooltip.Attach(node, title ?? string.Empty, text);
+                UiTooltip.Attach(node, DSHCore.Ui.UiLocale.Get(title) ?? string.Empty,
+                    DSHCore.Ui.UiLocale.Get(text));
             }
             catch (Exception e)
             {
@@ -797,10 +800,12 @@ namespace Loadout
         {
             if (!UiFinder.IsAlive(node) || string.IsNullOrEmpty(text))
                 return;
+            var t = DSHCore.Ui.UiLocale.Get(title) ?? string.Empty;
+            var d = DSHCore.Ui.UiLocale.Get(text);
             try
             {
-                if (!UiTooltip.SetText(node, title ?? string.Empty, text))
-                    UiTooltip.Attach(node, title ?? string.Empty, text);
+                if (!UiTooltip.SetText(node, t, d))
+                    UiTooltip.Attach(node, t, d);
             }
             catch (Exception) { }
         }
@@ -850,10 +855,11 @@ namespace Loadout
             {
                 var labels = new string[_pages.Length];
                 for (var i = 0; i < _pages.Length; i++)
-                    labels[i] = _pages[i].Name;
+                    labels[i] = DSHCore.Ui.UiLocale.Get(_pages[i].Name);
                 _tabs.UpdateButtons(ToIl2Cpp(labels));
+                // 日志里打**原始**页名（Name 是稳定标识，见 IPanelPage 注释）
                 Plugin.Log?.LogInfo("[Panel] 页集合 = " + (inLevel ? "关卡内" : "关卡外")
-                    + "：" + string.Join(" / ", labels));
+                    + "：" + string.Join(" / ", System.Array.ConvertAll(_pages, p => p.Name)));
             }
             catch (Exception e)
             {

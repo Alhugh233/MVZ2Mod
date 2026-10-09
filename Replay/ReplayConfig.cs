@@ -70,6 +70,32 @@ namespace Replay
         /// <summary>找不到游戏内置命名空间时的兜底（原版就是 mvz2）。</summary>
         private const string FallbackSpaceName = "mvz2";
 
+        // ------------------------------------------------------------------
+        // 配置说明的构造小工具
+        //
+        // 为什么要显式给「取值范围」：BepInEx 会把它写成 cfg 里的
+        //   # Acceptable value range: From a to b
+        //   # Acceptable values: a, b, c
+        // 两行注释，而 MVZ2ModManager 就是读这两行决定画**滑条 / 下拉框**的；
+        // 只给字符串说明的话它只能画一个文本框。
+        //
+        // 越界时的行为（已反编译确认，BepInEx 6 be.788）：范围 → 夹到边界；
+        // 列表 → **换成列表第一项**；两者都**不抛异常**，所以玩家手改坏值也不会让插件加载失败。
+        //
+        // ⚠ 有意**不**给「关键字或路径」类配置项（例如 OutputDir）加列表：
+        //   它们既能填那 4 个关键字、也能填任意路径，一旦列成下拉框，自定义路径就填不了。
+        // ------------------------------------------------------------------
+
+        private static ConfigDescription D(string text, AcceptableValueBase values)
+        {
+            return values == null ? new ConfigDescription(text) : new ConfigDescription(text, values);
+        }
+
+        private static AcceptableValueRange<int> R(int min, int max)
+        {
+            return new AcceptableValueRange<int>(min, max);
+        }
+
         public static void Init(ConfigFile cfg)
         {
             if (cfg == null)
@@ -78,7 +104,6 @@ namespace Replay
             AutoRecord = cfg.Bind(
                 "General", "AutoRecord", true,
                 "进入关卡时自动开始录制，离开关卡 / 退出游戏时写出 .mrep。\n"
-                + "**默认关着** —— 平时玩关卡不会产生任何回放文件。\n"
                 + "要录回放就把它打开（或者把 Commands 打开后用 /replay rec 手动开始）。");
 
             AutoSave = cfg.Bind(
@@ -101,8 +126,8 @@ namespace Replay
 
             FingerprintInterval = cfg.Bind(
                 "General", "FingerprintInterval", 150,
-                "每多少逻辑 tick（30 tick = 1 秒）采样一条状态指纹，用于校验回放一致性。\n"
-                + "设为 0 关闭采样。");
+                D("每多少逻辑 tick（30 tick = 1 秒）采样一条状态指纹，用于校验回放一致性。\n"
+                + "设为 0 关闭采样。", R(0, 3000)));
 
             FullFingerprint = cfg.Bind(
                 "General", "FullFingerprint", true,
@@ -131,7 +156,7 @@ namespace Replay
 
             ProbeMaxLines = cfg.Bind(
                 "General", "ProbeMaxLines", 600,
-                "探针最多写多少行日志（防止刷爆）。");
+                D("探针最多写多少行日志（防止刷爆）。", R(1, 100000)));
 
             PointerAction = cfg.Bind(
                 "General", "PointerAction", true,
@@ -143,9 +168,9 @@ namespace Replay
 
             MaxReplays = cfg.Bind(
                 "General", "MaxReplays", 50,
-                "最多保留多少个回放（超出后自动删掉**最旧的**）。\n"
+                D("最多保留多少个回放（超出后自动删掉**最旧的**）。\n"
                 + "每写出一份回放就会清一次；回放页面里也会显示当前数量。\n"
-                + "设为 0 = 不限制。统计范围是 OutputDir（默认 save）指定的位置。");
+                + "设为 0 = 不限制。统计范围是 OutputDir（默认 save）指定的位置。", R(0, 100000)));
 
             Commands = cfg.Bind(
                 "General", "Commands", false,
@@ -167,24 +192,27 @@ namespace Replay
 
             FakeMouseTicks = cfg.Bind(
                 "Visual", "FakeMouseTicks", 0,
-                "鼠标走完「上一个路点 → 下一个路点」这段距离用多少 tick（30 tick = 1 秒）。\n"
+                D("鼠标走完「上一个路点 → 下一个路点」这段距离用多少 tick（30 tick = 1 秒）。\n"
                 + "**0（默认）= 占满整个区间**：上一个动作刚做完就开始往下一个位置走，全程不停。\n"
                 + "填正数（例如 12）就变成「先停着、最后 N 个 tick 一口气冲过去」的旧行为 ——\n"
-                + "两下之间间隔很长时会有一大段时间鼠标完全不动，一般不需要。");
+                + "两下之间间隔很长时会有一大段时间鼠标完全不动，一般不需要。", R(0, 3000)));
 
             FakeMouseEase = cfg.Bind(
                 "Visual", "FakeMouseEase", "quadinout",
-                "缓动曲线。\n"
-                + "linear = 匀速（**最符合「全程不静止」**，默认）；\n"
-                + "quadout = 二次缓出（起步快、到站减速，最像人手，但区间末尾会几乎停下来）；\n"
-                + "quadinout = 二次缓入缓出；cubicout = 三次缓出（更夸张）。");
+                D("缓动曲线。\n"
+                + "linear    = 匀速（**最符合「全程不静止」**）；\n"
+                + "quadout   = 二次缓出（起步快、到站减速，最像人手，但区间末尾会几乎停下来）；\n"
+                + "quadinout = 二次缓入缓出（**默认**）；\n"
+                + "cubicout  = 三次缓出（更夸张）。",
+                    new AcceptableValueList<string>("linear", "quadout", "quadinout", "cubicout")));
 
             FakeMouseScale = cfg.Bind(
                 "Visual", "FakeMouseScale", 1.0f,
-                "假鼠标那张贴图的显示大小倍率。\n"
+                D("假鼠标那张贴图的显示大小倍率。\n"
                 + "1.0 = 和游戏原生的硬件光标一样大（贴图原尺寸）。\n"
                 + "机器 DPI / 分辨率不同时，游戏光标本来就会显得偏小或偏大，\n"
-                + "这里可以单独把「回放里画出来的那个鼠标」调到你看着舒服的尺寸。");
+                + "这里可以单独把「回放里画出来的那个鼠标」调到你看着舒服的尺寸。",
+                    new AcceptableValueRange<float>(0.1f, 10f)));
 
             FakeMouseGameCursor = cfg.Bind(
                 "Visual", "FakeMouseGameCursor", true,

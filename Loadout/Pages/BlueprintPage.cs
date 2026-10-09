@@ -197,6 +197,50 @@ namespace Loadout
             return sb.ToString();
         }
 
+        /// <summary>
+        /// 自测用：把某一格的「逆阵营放置」打开，看镜像框里那张卡**是不是左右翻转**
+        /// （<c>Icon</c> 的 <c>localScale.x = -1</c>）而不是被染红。验完还原。
+        /// </summary>
+        public static string DebugMirror()
+        {
+            if (_last == null || !_last._built || _last._strip == null)
+                return "（蓝图页未装配）";
+            var level = LevelFacade.Current;
+            if (level == null)
+                return "（不在关卡内）";
+            var count = BlueprintOps.GetSlotCount(level);
+            var slot = -1;
+            for (var i = 0; i < count; i++)
+            {
+                if (BlueprintOps.GetPackAt(level, i) != null)
+                {
+                    slot = i;
+                    break;
+                }
+            }
+            if (slot < 0)
+                return "（卡槽是空的）";
+            var key = BlueprintKeys.Slot(slot);
+            var before = BlueprintOps.GetReverseFaction(level, key);
+            var sb = new System.Text.StringBuilder(400);
+            try
+            {
+                BlueprintOps.SetReverseFaction(level, key, true);
+                _last.Refresh();
+                sb.Append("逆阵营=开（").Append(key).Append("）→ 镜像框第 ")
+                  .Append(slot).Append(" 格：\n      ")
+                  .Append(_last._strip.MirrorStateAt(slot));
+                BlueprintOps.SetReverseFaction(level, key, before);
+                _last.Refresh();
+                sb.Append("\n     判据 已还原=").Append(before ? "开" : "关");
+            }
+            catch (Exception e)
+            {
+                sb.Append("失败：").Append(e.GetType().Name).Append(": ").Append(e.Message);
+            }
+            return sb.ToString();
+        }
+
         /// <summary>自测用：网格当前页的卡都挂上提示了吗。</summary>
         public static string DebugTooltips()
         {
@@ -556,6 +600,7 @@ namespace Loadout
                 return;
             }
             ForEachPack(pack => BlueprintOps.SetCost(pack, value));
+            SyncVanilla(TargetSlot());
             Refresh();
         }
 
@@ -575,6 +620,7 @@ namespace Loadout
                 return;
             }
             ForEachPack(pack => BlueprintOps.SetCooldownSeconds(level, pack, value));
+            SyncVanilla(TargetSlot());
             Refresh();
         }
 
@@ -613,6 +659,7 @@ namespace Loadout
                 return;
             }
             BlueprintOps.ResetCooldown(level, pack);
+            SyncVanilla(TargetSlot());
             Refresh();
         }
 
@@ -624,6 +671,7 @@ namespace Loadout
                 return;
             _selected = -1;
             BlueprintOps.ClearSlots(level);
+            SyncVanilla(-1);
             LoadoutPanel.Invalidate();
         }
 
@@ -676,18 +724,40 @@ namespace Loadout
                 var pack = DisplayTarget();
                 if (pack != null)
                     BlueprintOps.SetCommandBlock(pack, value);
-                // ★ 选卡阶段原版用的是每个已选卡自己的 CommandBlock 字段（不是 SeedPack 属性），
-                //   只改 pack 会出现「镜像框里白了、原版选卡处还是原样」。
-                //   这里顺带把原版那几个控制器也改掉并重画。
+                // ★ 原版那两处显示都要重画（选卡阶段的字段 + 关卡 HUD 的卡），详见 VanillaChooseBridge。
                 int slot;
                 if (BlueprintKeys.TrySlot(key, out slot))
-                    VanillaChooseBridge.SyncCommandBlock(slot, pack == null ? null : pack.GetDefinitionID(), value);
+                    VanillaChooseBridge.RefreshAll(level, slot);
             }
             else
             {
                 BlueprintOps.SetReverseFaction(level, key, value);
+                SyncVanilla(TargetSlot());
             }
             Refresh();
+        }
+
+        /// <summary>
+        /// 面板改完之后让**原版那几处显示**跟着重画（详见 <see cref="VanillaChooseBridge"/>）。
+        /// <paramref name="slot"/> &lt; 0 = 全部刷。
+        /// </summary>
+        private static void SyncVanilla(int slot)
+        {
+            try
+            {
+                var level = LevelFacade.Current;
+                if (level != null)
+                    VanillaChooseBridge.RefreshAll(level, slot);
+            }
+            catch (Exception) { }
+        }
+
+        /// <summary>当前选中的卡槽（没选中 / 不是槽位键 → -1）。</summary>
+        private int TargetSlot()
+        {
+            int slot;
+            var key = TargetKey();
+            return key != null && BlueprintKeys.TrySlot(key, out slot) ? slot : -1;
         }
 
         private void ForEachPack(Action<SeedPack> act)
@@ -727,6 +797,7 @@ namespace Loadout
                 }
             }
             ForEachPack(p => BlueprintOps.ApplyRechargePreset(level, p, BlueprintOps.Presets[index % BlueprintOps.Presets.Length]));
+            SyncVanilla(TargetSlot());
             Refresh();
         }
 
@@ -758,10 +829,9 @@ namespace Loadout
             if (level == null)
                 return;
             BlueprintOps.ApplySlots(level, picked);
-            // 换过卡之后，原版选卡界面上那些已选蓝图的模仿者状态也要重新对一遍
-            // （换掉的那一格标记已经被清掉，显示必须跟着回到不白的状态）。
-            VanillaChooseBridge.SyncAll((slot, id) =>
-                BlueprintOps.GetCommandFlag(level, BlueprintKeys.Slot(slot)));
+            // 换过卡之后：原版那两处（选卡阶段的已选卡 + 关卡 HUD）都要重新对一遍
+            // （换掉的那一格标记已被清掉，显示必须跟着回去）。
+            SyncVanilla(-1);
             _selected = -1;
             LoadoutPanel.Invalidate();
         }
@@ -898,7 +968,7 @@ namespace Loadout
                     !reverseOk ? CompatConfig.DisabledHint(GcFeature.ReverseFaction)
                     : !scoped ? ScopeHint
                     : "这一张卡放出来的器械属于右阵营（敌我互调）。\n"
-                      + "开了之后镜像框里这张卡会染红，一眼能看出哪张动过。");
+                      + "开了之后镜像框里这张卡的图标会**左右翻转**，一眼能看出哪张动过。");
                 LoadoutPanel.SetTooltip(_daySleepRow == null ? null : _daySleepRow.Root, "白天不睡觉",
                     !overrideOk ? CompatConfig.DisabledHint(GcFeature.BlueprintOverrides)
                     : !scoped ? ScopeHint
@@ -945,10 +1015,10 @@ namespace Loadout
                 var pack = i < count ? BlueprintOps.GetPackAt(level, i) : null;
                 var id = pack == null ? null : pack.GetDefinitionID();
                 _strip.SetCard(i, id, pack != null && BlueprintOps.GetCommandBlock(pack), i);
-                // 逆阵营标记 → 镜像框里这张卡染红（空槽 / 没标记就还原）。
+                // 逆阵营标记 → 镜像框里这张卡的**图标左右翻转**（空槽 / 没标记就还原）。
                 var key = BlueprintKeys.Slot(i);
                 var reverse = pack != null && level != null && BlueprintOps.GetReverseFaction(level, key);
-                _strip.SetTint(i, reverse ? BlueprintStrip.ReverseTint : Color.white);
+                _strip.SetMirror(i, reverse);
                 _strip.SetMark(i, IsPicked(i));
             }
         }

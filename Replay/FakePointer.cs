@@ -56,11 +56,11 @@ namespace Replay
         // 轨迹状态
         // ------------------------------------------------------------------
         /// <summary>
-        /// 路点表（屏幕坐标）与它们各自的 tick。
+        /// 路点表。
         ///
-        /// <para>刻意从 <c>ReplayEvent</c> 里**抽出来单独存**，而不是每次现算：
-        /// 因为建表时要做一次**过滤**（见 <see cref="IsUsable"/>），
-        /// 过滤后的下标与事件下标不再一一对应。</para>
+        /// <para>⚠️ 存的是**录制时**的屏幕像素（和文件里的 <c>sx/sy</c> 同制），
+        /// 不是当前窗口的像素。换算放到**每次取值**时做（见 <see cref="ScreenPos"/>）——
+        /// 如果在这里就把换算结果烘进去，玩家在**播放中途**改窗口尺寸时就又对不上了。</para>
         /// </summary>
         private static Vector2[] pts;
         private static int[] ptTicks;
@@ -70,6 +70,13 @@ namespace Replay
         private static int prevIdx;
         private static bool hasPrev;
         private static Vector2 current;
+        /// <summary>
+        /// 没有任何可用路点（纯热键回放 / 坐标全是哨兵值）时为真。
+        ///
+        /// <para>此时 <see cref="current"/> 不是「录制坐标」而是「屏幕正中」这种几何量，
+        /// 不能再拿去换算（换算会把它当成录制坐标而偏掉），所以单独标记。</para>
+        /// </summary>
+        private static bool stationary;
 
         // 统计（写进播放小结）
         private static int movedTicks;
@@ -86,6 +93,15 @@ namespace Replay
         private static Image image;
         private static Sprite cursorSprite;
         private static Texture2D arrowTex;
+        /// <summary>
+        /// 光标热点，单位 = 贴图像素，**原点在贴图左上角**。
+        ///
+        /// <para>为什么是左上角：游戏自己把它交给 <c>Cursor.SetCursor(texture, hotspot, mode)</c>，
+        /// 而 Unity 那个重载的热点就是**从左上角量**的（实测游戏的箭头就是 <c>(0,0)</c>）。
+        /// 而 <c>RectTransform.pivot</c> / <c>Sprite.Create</c> 的枢轴用的是**左下角原点** ——
+        /// 两者差一个上下翻转，混用就会把光标画到指针的另一侧
+        /// （实测：看起来像「锚点在贴图正中」，因为它整整偏了一个贴图高度）。</para>
+        /// </summary>
         private static Vector2 arrowHotspot;
         private static string spriteSource = "-";
         private static string texInfo = "-";
@@ -101,15 +117,172 @@ namespace Replay
         private static int shownState = -1;   // -1 未定 / 0 隐 / 1 显
         private static string diag = "-";
 
+        // 上一次真正摆放时的屏幕点与世界坐标（自测要验它，见 SelfCheckPlacement）。
+        // 为什么不在需要时现算：手上有物品时我们不摆放（游戏用物品模型当指针），
+        // 那时「当前该在哪」和「上一次摆在哪」是两回事。
+        private static Vector2 lastPlaceScreen;
+        private static Vector3 lastPlaceWorld;
+        private static bool hasPlaced;
+
+        // 贴图原尺寸 + 上一次算尺寸时的窗口大小。
+        // 假鼠标的 sizeDelta 要按「画布 UI 单位 ↔ 屏幕像素」换算，
+        // 而这个比值会跟着窗口尺寸变 —— 只算一次的话，改过窗口后光标大小就不对了。
+        private static float texW = 32f;
+        private static float texH = 32f;
+        private static int sizedScreenW;
+        private static int sizedScreenH;
+
         // ------------------------------------------------------------------
         // 对外
         // ------------------------------------------------------------------
 
-        /// <summary>假鼠标当前所在的**屏幕坐标**（左下角为原点，与 <c>Input.mousePosition</c> 同制）。</summary>
-        public static Vector2 ScreenPos => current;
+        /// <summary>
+        /// 假鼠标当前所在的**屏幕坐标**（左下角为原点，与 <c>Input.mousePosition</c> 同制）。
+        ///
+        /// <para>已经换算到**当前**窗口：玩家在播放中途改窗口尺寸也一样跟着走。
+        /// 换算公式见 <see cref="ReplayViewport"/>（这同时也是游戏自己把像素变成
+        /// 世界坐标那一步的逆运算 —— 换窗口后指针仍指向同一个格子，而不是同一个像素）。</para>
+        /// </summary>
+        public static Vector2 ScreenPos
+        {
+            get
+            {
+                if (stationary)
+                    return new Vector2(Screen.width * 0.5f, Screen.height * 0.5f);
+                return ReplayViewport.ToCurrent(current);
+            }
+        }
+
+        /// <summary>
+        /// **未换算**的假鼠标位置（录制坐标系）。
+        ///
+        /// <para>只给「临时换上假鼠标位置」那条通道用（<c>HeldItemPosPrefix</c>）：
+        /// 那边两边都得是同一个坐标系，混着用会在重复换算中越偏越多。</para>
+        /// </summary>
+        public static Vector2 RawScreenPos => current;
 
         /// <summary>本类是否应该接管指针位置（回放中 + 开关开着 + 有轨迹可用）。</summary>
         public static bool Active => running;
+
+        /// <summary>画出来的那个节点是不是已经建好了（自测要用它验锚点/尺寸）。</summary>
+        public static bool NodeReady => rect != null && rect.Pointer != IntPtr.Zero;
+
+        /// <summary>路点表里有没有东西（自测据此决定要不要塞假路点）。</summary>
+        public static bool HasTrack => ptCount > 0;
+
+        /// <summary>是不是「没有任何可用坐标」那个静止模式（自测的报告里会标出来）。</summary>
+        public static bool StationaryOnly => stationary;
+
+        /// <summary>
+        /// 自测专用：塞一条**假路点表**（坐标必须是录制坐标系的）。
+        ///
+        /// <para>为什么需要：自测注入的那几个动作（数字键选卡 / 工具按钮）**一个坐标都没有**，
+        /// 所以「假鼠标位置随窗口尺寸换算」这条路径在自测里根本不会被执行 ——
+        /// 而它恰恰是用户报的那个 bug 所在。塞一条假表就能把
+        /// <see cref="ScreenPos"/> / <see cref="RawScreenPos"/> / <see cref="PlaceAt"/> / 
+        /// <see cref="ApplySize"/> 这条链完整跑一遍（用的是与 <see cref="Begin"/> 完全相同的取值方式）。</para>
+        ///
+        /// <para>用完必须调 <see cref="SelfTestClearTrack"/> 还原成「无路点」状态。</para>
+        /// </summary>
+        public static void SelfTestSetTrack(Vector2[] recordPoints)
+        {
+            if (recordPoints == null || recordPoints.Length == 0)
+            {
+                SelfTestClearTrack();
+                return;
+            }
+            pts = (Vector2[])recordPoints.Clone();
+            int n = pts.Length;
+            // tick 取 {0,1,...}：第一个 tick 之后就会稳定停在最后一个路点上，
+            // 不会因为插值而让「原始坐标」变成别的值。
+            ptTicks = new int[n];
+            for (int i = 0; i < n; i++)
+                ptTicks[i] = i;
+            ptCount = n;
+            prevIdx = n - 1;
+            nextIdx = n;
+            hasPrev = true;
+            stationary = false;
+            current = pts[n - 1];
+        }
+
+        /// <summary>自测专用：把假路点表去掉，回到「无路点（静止）」状态。</summary>
+        public static void SelfTestClearTrack()
+        {
+            pts = null;
+            ptTicks = null;
+            ptCount = 0;
+            prevIdx = 0;
+            nextIdx = 0;
+            hasPrev = false;
+            stationary = true;
+            current = Vector2.zero;
+        }
+
+        /// <summary>
+        /// 自测用：验证**上一次真正摆放**的落点。
+        ///
+        /// <para>为什么不能用「当前位置」当判据：手上有物品时游戏用**物品模型当指针**，
+        /// <c>UpdateVisual</c> 会直接跳过摆放（假鼠标节点是隐藏的），
+        /// 那时 <c>rect.position</c> 还停在上一次摆放的位置上。
+        /// 所以只能验「上一次摆放时算出来的世界坐标对不对」。</para>
+        ///
+        /// <para>两段判据：</para>
+        /// <list type="number">
+        /// <item>那次摆放的世界坐标 == 那个屏幕点经相机反投影的结果（验 <see cref="PlaceAt"/> 的数学）；</item>
+        /// <item>若节点当前可见，则那次摆放用的屏幕点 == <see cref="ScreenPos"/>（验节点真的在跟当前换算后的位置）。</item>
+        /// </list>
+        /// </summary>
+        public static bool SelfCheckPlacement(out string detail)
+        {
+            if (!hasPlaced)
+            {
+                detail = "还没有摆放过";
+                return false;
+            }
+            try
+            {
+                var have = lastPlaceWorld;
+                var want = ProjectToWorld(lastPlaceScreen, have.z);
+                float dProj = (have - want).magnitude;
+                bool projOk = dProj < 0.05f;
+
+                bool visible = shownState == 1;
+                float dTrack = (lastPlaceScreen - ScreenPos).magnitude;
+                bool trackOk = !visible || dTrack < 0.5f;
+
+                detail = "上次摆放屏=" + lastPlaceScreen.x.ToString("0.#") + "," + lastPlaceScreen.y.ToString("0.#")
+                    + " 世界=(" + have.x.ToString("0.###") + "," + have.y.ToString("0.###") + ")"
+                    + " 反投影应为=(" + want.x.ToString("0.###") + "," + want.y.ToString("0.###")
+                    + ") 偏差=" + dProj.ToString("0.####") + "=" + (projOk ? "OK" : "失败")
+                    + "；节点" + (visible ? "可见" : "隐藏（手持物品时游戏用物品模型当指针）")
+                    + (visible ? "，与当前 ScreenPos 差=" + dTrack.ToString("0.###") + "=" + (trackOk ? "OK" : "失败") : "");
+                return projOk && trackOk;
+            }
+            catch (Exception e)
+            {
+                detail = "回读出错：" + e.GetType().Name + ": " + e.Message;
+                return false;
+            }
+        }
+
+        /// <summary>把一个屏幕点投到画布平面上（只用一套实现，保证「摆放」与「校验」同源）。</summary>
+        private static Vector3 ProjectToWorld(Vector2 screen, float fallbackZ)
+        {
+            if (canvas == null || canvasRect == null)
+                return new Vector3(screen.x, screen.y, fallbackZ);
+            if (canvas.renderMode == RenderMode.ScreenSpaceOverlay)
+            {
+                float sf = canvas.scaleFactor <= 0.0001f ? 1f : canvas.scaleFactor;
+                return new Vector3(screen.x / sf, screen.y / sf, fallbackZ);
+            }
+            var cam = canvas.worldCamera;
+            if (cam == null)
+                return new Vector3(screen.x, screen.y, fallbackZ);
+            var w = cam.ScreenToWorldPoint(new Vector3(screen.x, screen.y, canvas.planeDistance));
+            w.z = canvasRect.position.z;
+            return w;
+        }
 
         public static string Diag => diag;
 
@@ -143,6 +316,7 @@ namespace Replay
 
             spriteResets = 0;
             fadeResets = 0;
+            stationary = false;
 
             // ---- 建路点表 ----
             var pos = new List<Vector2>(events.Count / 4 + 8);
@@ -153,12 +327,16 @@ namespace Replay
                 var e = events[i];
                 if (e == null || !e.HasPos)
                     continue;
-                var p = new Vector2(e.Sx, e.Sy);
-                if (!IsUsable(p))
+                var raw = new Vector2(e.Sx, e.Sy);
+                if (!IsUsable(raw))
                 {
                     droppedPoints++;
                     continue;
                 }
+                // ⚠️ 先过滤再**存原值**：过滤看的是**原始**像素（哨兵值就是 (0,0)），
+                // 而且换算必须留到取值时做 —— 播放中途改窗口尺寸也得跟着变
+                //（见 ScreenPos 与 ReplayViewport）。
+                var p = raw;
                 // 同一 tick 的多个路点只留最后一个（否则 span = 0，那一跳会瞬间完成）。
                 if (tks.Count > 0 && tks[tks.Count - 1] == e.Tick)
                 {
@@ -172,9 +350,10 @@ namespace Replay
             if (pos.Count == 0)
             {
                 // 整条回放一条可用坐标都没有（纯热键 / 坐标全是哨兵）。
-                // 仍然画一个静止的鼠标，位置用屏幕正中 —— 总比让它停在左下角好。
+                // 仍然画一个静止的鼠标，位置用**当前**屏幕正中 —— 总比让它停在左下角好。
                 diag = "无可用坐标（静止）";
-                current = new Vector2(Screen.width * 0.5f, Screen.height * 0.5f);
+                stationary = true;
+                current = Vector2.zero;
                 pts = null;
                 ptTicks = null;
                 ptCount = 0;
@@ -230,6 +409,7 @@ namespace Replay
             nextIdx = 0;
             prevIdx = 0;
             hasPrev = false;
+            stationary = false;
             SetShown(false);
         }
 
@@ -350,7 +530,9 @@ namespace Replay
                 return;
             }
 
-            PlaceAt(current);
+            ApplySize();
+            // 每次都用**当前**窗口换算 —— 播放中途改尺寸也能立即跟上。
+            PlaceAt(ScreenPos);
             SetShown(true);
             ForceWhite();
         }
@@ -398,6 +580,40 @@ namespace Replay
                         fadeResets++;
                     }
                 }
+            }
+            catch (Exception) { }
+        }
+
+        /// <summary>
+        /// 按**当前**窗口尺寸重新算一次假鼠标的显示大小。
+        ///
+        /// <para>画布是「屏幕空间-相机」+ <c>CanvasScaler.ScaleWithScreenSize</c>：
+        /// 画布矩形（UI 单位）与屏幕像素的比值跟着窗口尺寸 / 宽高比变。
+        /// 只在建节点时算一次的话，之后改过窗口大小光标就会明显偏大或偏小
+        /// ——「假鼠标位置与窗口分辨率强相关」的另一半就是它。</para>
+        ///
+        /// <para>比较过才写，所以稳态下零开销（每 tick 调用也没关系）。</para>
+        /// </summary>
+        private static void ApplySize()
+        {
+            if (rect == null || rect.Pointer == IntPtr.Zero)
+                return;
+            if (Screen.width == sizedScreenW && Screen.height == sizedScreenH)
+                return;
+            try
+            {
+                if (canvasRect == null || canvasRect.Pointer == IntPtr.Zero)
+                    return;
+                // 画布矩形 v.s. 屏幕像素：要画 N 像素就得写 N * rect.width/Screen.width（是乘不是除）。
+                float sf = canvasRect.rect.width / Mathf.Max(1f, Screen.width);
+                if (sf <= 0.0001f)
+                    sf = 1f;
+                float scale = ReplayConfig.GetFakeMouseScale();
+                rect.sizeDelta = new Vector2(texW, texH) * (sf * scale);
+                usedSf = sf;
+                usedScale = scale;
+                sizedScreenW = Screen.width;
+                sizedScreenH = Screen.height;
             }
             catch (Exception) { }
         }
@@ -531,20 +747,18 @@ namespace Replay
                 float h = tex != null ? tex.height : 32f;
                 if (w < 1f) w = 32f;
                 if (h < 1f) h = 32f;
-                rect.pivot = new Vector2(arrowHotspot.x / w, arrowHotspot.y / h);
+                texW = w;
+                texH = h;
+                rect.pivot = HotspotToPivot(arrowHotspot, w, h);
 
                 // 画布是「屏幕空间-相机」模式，UI 单位 ≠ 屏幕像素。
                 // 画布矩形 800x598 对应屏幕 1024x766，即 1 UI 单位 = Screen/rect 个像素，
                 // 所以「要画 N 像素」就得写 N * rect.width/Screen.width —— 是**乘**不是除
                 // （实测画布矩形恰好是可视区域，枢轴（0.5,0.5））。
                 // 再乘一个玩家可配的倍率（FakeMouseScale）给「觉得光标偏小/偏大」时用。
-                float sf = canvasRect.rect.width / Mathf.Max(1f, Screen.width);
-                if (sf <= 0.0001f)
-                    sf = 1f;
-                float scale = ReplayConfig.GetFakeMouseScale();
-                rect.sizeDelta = new Vector2(w, h) * (sf * scale);
-                usedSf = sf;
-                usedScale = scale;
+                sizedScreenW = 0;      // 强制下面那次 ApplySize 真算一遍
+                sizedScreenH = 0;
+                ApplySize();
 
                 try { rect.SetAsLastSibling(); } catch (Exception) { }
 
@@ -562,7 +776,7 @@ namespace Replay
 
                 node = go;
                 diag = "就绪";
-                nodeInfo = DescribeNode(s, tex, w, h, sf, extra);
+                nodeInfo = DescribeNode(s, tex, w, h, usedSf, extra);
                 return true;
             }
             catch (Exception e)
@@ -590,7 +804,11 @@ namespace Replay
             {
                 sb.Append("贴图=").Append(spriteSource).Append(' ').Append(texInfo)
                     .Append(" 精灵rect=").Append(s != null ? s.rect.width.ToString("0") + "x" + s.rect.height.ToString("0") : "null")
+                    // 枢轴是「左下角为原点」的归一化值：(0,1) 才是贴图左上角。
                     .Append(" 枢轴=").Append(rect != null ? rect.pivot.x.ToString("0.##") + "," + rect.pivot.y.ToString("0.##") : "?")
+                    .Append("（左下角为原点；0,1 = 贴图左上角）")
+                    .Append(" 热点=").Append(arrowHotspot.x.ToString("0.#")).Append(',').Append(arrowHotspot.y.ToString("0.#"))
+                    .Append("（左上角为原点，与 Cursor.SetCursor 同制）")
                     .Append(" 尺寸=").Append((w * sf).ToString("0.#") + "x" + (h * sf).ToString("0.#"))
                     .Append(" 画布比=").Append(sf.ToString("0.###"));
                 sb.Append("\n  节点 : sprite=");
@@ -633,10 +851,7 @@ namespace Replay
                 var here = rect.position;
                 if (canvas.renderMode == RenderMode.ScreenSpaceOverlay)
                 {
-                    float sf = canvas.scaleFactor;
-                    if (sf <= 0.0001f)
-                        sf = 1f;
-                    rect.position = new Vector3(screen.x / sf, screen.y / sf, here.z);
+                    rect.position = ProjectToWorld(screen, here.z);
                 }
                 else
                 {
@@ -648,10 +863,12 @@ namespace Replay
                     }
                     // planeDistance 就是画布平面到相机的距离，用它反投影得到的
                     // 正好是画布平面上的那一点。
-                    var world = cam.ScreenToWorldPoint(new Vector3(screen.x, screen.y, canvas.planeDistance));
-                    world.z = canvasRect.position.z;
-                    rect.position = world;
+                    rect.position = ProjectToWorld(screen, here.z);
                 }
+
+                lastPlaceScreen = screen;
+                lastPlaceWorld = rect.position;
+                hasPlaced = true;
 
                 var ap = rect.anchoredPosition;
                 var lp = rect.localPosition;
@@ -729,14 +946,15 @@ namespace Replay
                 {
                     spriteSource = "内置箭头（游戏贴图不可用）";
                     arrowTex = BuildFallbackArrow();
-                    arrowHotspot = new Vector2(0f, 31f);
+                    arrowHotspot = new Vector2(0f, 0f);
                 }
             }
             else
             {
                 spriteSource = ReplayConfig.GetFakeMouseGameCursor() ? "内置箭头" : "内置箭头（配置指定）";
                 arrowTex = BuildFallbackArrow();
-                arrowHotspot = new Vector2(0f, 31f);
+                // 自绘箭头的尖端就在左上角第一个像素 ↦ 热点 (0,0)（**左上角为原点**）。
+                arrowHotspot = new Vector2(0f, 0f);
             }
 
             if (arrowTex == null)
@@ -750,7 +968,7 @@ namespace Replay
                 // 用 FullRect：Tight 网格需要读像素，而光标贴图未必可读。
                 cursorSprite = Sprite.Create(arrowTex,
                     new Rect(0f, 0f, arrowTex.width, arrowTex.height),
-                    new Vector2(arrowHotspot.x / arrowTex.width, arrowHotspot.y / arrowTex.height),
+                    HotspotToPivot(arrowHotspot, arrowTex.width, arrowTex.height),
                     100f, 0u, SpriteMeshType.FullRect);
             }
             catch (Exception e)
@@ -874,6 +1092,62 @@ namespace Replay
         }
 
         /// <summary>
+        /// 热点（**贴图左上角为原点**的像素）→ <c>RectTransform.pivot</c> / <c>Sprite</c> 枢轴
+        ///（**左下角为原点**的归一化坐标）。
+        ///
+        /// <para>只差一个上下翻转，但这一个翻转就是「光标画在指针上方一整个贴图高度」
+        /// 那个 bug（看起来像锚点跑到贴图中间）的原因。</para>
+        /// </summary>
+        private static Vector2 HotspotToPivot(Vector2 hotspot, float w, float h)
+        {
+            if (w < 1f) w = 1f;
+            if (h < 1f) h = 1f;
+            float px = hotspot.x / w;
+            float py = 1f - hotspot.y / h;
+            if (px < 0f) px = 0f;
+            else if (px > 1f) px = 1f;
+            if (py < 0f) py = 0f;
+            else if (py > 1f) py = 1f;
+            return new Vector2(px, py);
+        }
+
+        /// <summary>
+        /// 自测用：验证画出来的光标**锚点在贴图左上角**（不是正中、也不是左下角）。
+        ///
+        /// <para>判据有两条，缺一不可：</para>
+        /// <list type="number">
+        /// <item>枢轴等于「热点（左上角为原点）换算成枢轴（左下角为原点）」的那个点
+        /// —— 说明我们没算错；</item>
+        /// <item>当热点是 (0,0)（游戏箭头就是这样，<c>Cursor.SetCursor</c> 的左上角原点）
+        /// 时，枢轴必须落在 <c>(0,1)</c> 附近 —— 说明「左上角」真的是左上角，
+        /// 而不是因为公式里漏了 <c>1 - y/h</c> 而变成左下角。</item>
+        /// </list>
+        /// </summary>
+        public static bool SelfCheckAnchor(out string detail)
+        {
+            var sb = new StringBuilder(160);
+            if (rect == null || rect.Pointer == IntPtr.Zero)
+            {
+                detail = "假鼠标节点不存在（" + diag + "）";
+                return false;
+            }
+            var p = rect.pivot;
+            var want = HotspotToPivot(arrowHotspot, texW, texH);
+            bool formulaOk = Math.Abs(p.x - want.x) < 0.001f && Math.Abs(p.y - want.y) < 0.001f;
+            bool cornerOk = !(Math.Abs(arrowHotspot.x) < 0.001f && Math.Abs(arrowHotspot.y) < 0.001f)
+                || (p.y > 0.99f && p.x < 0.01f);
+            sb.Append("枢轴=(").Append(p.x.ToString("0.###")).Append(',').Append(p.y.ToString("0.###"))
+              .Append(") 期望=(").Append(want.x.ToString("0.###")).Append(',').Append(want.y.ToString("0.###"))
+              .Append(") 与公式一致=").Append(formulaOk ? "OK" : "失败")
+              .Append("；热点=").Append(arrowHotspot.x.ToString("0.#")).Append(',').Append(arrowHotspot.y.ToString("0.#"))
+              .Append("（左上角为原点）⇒ 左上角锚定=").Append(cornerOk ? "OK" : "失败")
+              .Append("；贴图=").Append(texW.ToString("0")).Append('x').Append(texH.ToString("0"))
+              .Append(' ').Append(spriteSource);
+            detail = sb.ToString();
+            return formulaOk && cornerOk;
+        }
+
+        /// <summary>
         /// 从 <c>CursorManager</c> 的 <c>cursorDatas</c> 里取「箭头」那张贴图。
         ///
         /// <para>这是**硬件光标**用的贴图（游戏用 <c>Cursor.SetCursor</c> 把系统光标换成它），
@@ -965,6 +1239,9 @@ namespace Replay
             sb.Append("  假鼠标定位: ").Append(placeInfo).Append('\n');
             sb.Append("  画布换算  : 1 UI 单位 = ").Append((usedSf > 0.0001f ? 1f / usedSf : 1f).ToString("0.###")).Append(" 像素")
                 .Append("，贴图倍率=").Append(usedScale.ToString("0.##")).Append('\n');
+            // 屏幕坐标换算是「假鼠标与操作对不上」的关键一环，必须写进小结：
+            // 没有这一段的话，出问题时根本看不出「文件里记的是别的窗口尺寸」。
+            sb.Append("  窗口换算  : ").Append(ReplayViewport.Describe()).Append('\n');
         }
     }
 }

@@ -184,11 +184,15 @@ namespace DSHCore.Ui
         ///
         /// <para>滑条是个例外：它的标签是「标签：值」，所以这里只记下标签，整句由
         /// <see cref="UpdateSliderText"/> 拼 —— 否则下一次改值会把值那一半冲掉。</para>
+        ///
+        /// <para>标签会过一遍 <see cref="UiLocale.Get"/>（子 mod 的一切控件行文案
+        /// 因此只需登记译文，不用逐个调用点写取词）。</para>
         /// </summary>
         public UiOptionRow SetLabel(string text)
         {
             if (!IsValid)
                 return this;
+            text = UiLocale.Get(text);
             try
             {
                 switch (_kind)
@@ -250,6 +254,9 @@ namespace DSHCore.Ui
         ///
         /// <para>用的是本行**自带的** <c>TooltipHandler</c> 与它已接好的锚点
         /// （行顶边中点 + <c>pivot (0.5, 0)</c>），所以提示出现在行的上方，不会压住控件。</para>
+        ///
+        /// <para>标题与正文都会过一遍 <see cref="UiLocale.Get"/>（多行 tooltip 里的
+        /// <c>\n</c> 不受影响）。</para>
         /// </summary>
         public UiOptionRow SetTooltip(string title, string text)
         {
@@ -257,7 +264,7 @@ namespace DSHCore.Ui
                 return this;
             try
             {
-                UiTooltip.AttachExisting(_root, title, text);
+                UiTooltip.AttachExisting(_root, UiLocale.Get(title), UiLocale.Get(text));
             }
             catch (Exception e)
             {

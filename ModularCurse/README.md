@@ -146,6 +146,27 @@ ModularCurse/
 
 ---
 
+## 多语言
+
+`CurseLocale.cs` 把 **44 个诅咒名 + 44 条说明**和诅咒池界面的文字全部登记进了 DSHCore 的 `UiLocale`，
+游戏切到英文时自动显示英文 —— 不需要给每个诅咒单独做语言包。
+
+诅咒名和说明属于**游戏内容名**，在游戏内部是按 `curse.name` / `curse.tooltip` 上下文查的，
+所以登记时必须带上下文：
+
+```csharp
+T.EnAllWith(LogicStrings.CONTEXT_CURSE_NAME, "<color=#FF4040>灼热</color>", "<color=#FF4040>Scorching</color>");
+T.EnAllWith(LogicStrings.CONTEXT_CURSE_TOOLTIP, …, …);
+```
+
+> 带富文本标记的键要**原样**写（包括 `<color=#FF4040>`），因为游戏传给查找链的就是带标记的原文。
+
+玩家也可以在 `<游戏>\BepInEx\config\DSHCore\lang\<语言码>.ini` 里覆盖，
+内容名那一行写成 `[curse.name] 原文 = 译文`（`/dshtrans write en-US` 生成的模板已带前缀）。
+详见 `DSHCore/UI_GUIDE.md` §11（尤其 §11.2.1、§11.6）。
+
+---
+
 ## 已知限制
 
 - 仅适配 0.7.0 test-10（Windows x86 IL2CPP）

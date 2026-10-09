@@ -70,7 +70,7 @@ namespace Replay
             get
             {
                 if (Created == DateTime.MinValue)
-                    return "时间未知";
+                    return DSHCore.Ui.UiLocale.Get("时间未知");
                 // 当年的存档不写年份：行里横向要摆 5 个单元格，时间列宽是硬约束。
                 return Created.Year == DateTime.Now.Year
                     ? Created.ToString("MM-dd HH:mm", CultureInfo.InvariantCulture)
@@ -91,7 +91,7 @@ namespace Replay
         public static string PrettyStage(string stage)
         {
             if (string.IsNullOrEmpty(stage))
-                return "（未知关卡）";
+                return DSHCore.Ui.UiLocale.Get("（未知关卡）");
             try
             {
                 var main = MainManager.Instance;

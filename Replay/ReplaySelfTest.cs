@@ -187,8 +187,18 @@ namespace Replay
                             var before = ReplayRecorder.EventCount;
                             Inject(ctrl, item);
                             var after = ReplayRecorder.EventCount;
+                            // 选卡类动作额外报一下「手上到底有没有拿到蓝图」：
+                            // 拿不到就不会写 itg/evk，而那是「录制内容如此」而不是「功能失效」。
+                            var held = "";
+                            if (item.StartsWith("bpkey", StringComparison.Ordinal))
+                            {
+                                held = "  手持=" + (ReplayHeldFlags.LastType ?? "?")
+                                    + (ReplayHeldFlags.LastSkipReason == null
+                                        ? "（已记录 itg/evk）"
+                                        : "（没记 itg/evk：" + ReplayHeldFlags.LastSkipReason + "）");
+                            }
                             actionLog.Add("  " + item.PadRight(12) + " 记录事件 +" + (after - before)
-                                + (after - before > 0 ? "" : "   (无变化)"));
+                                + (after - before > 0 ? "" : "   (无变化)") + held);
                             actionsDone++;
                             WriteReport();
                             break;
@@ -243,6 +253,7 @@ namespace Replay
 
                                 PlayShotCheck();
                                 PlayMenuAudit();
+                                ResizeProbe();
 
                                 // 关卡在播放途中结束（失败/通关）时游戏会弹对话框并 PauseGame()，
                                 // 而**暂停时逻辑 tick 不前进** → 播放一直卡到超时。
@@ -293,6 +304,9 @@ namespace Replay
                                 Check(ReplayPlayer.VerifiedMismatches == 0,
                                     "回放状态与录制时完全一致（指纹不一致 " + ReplayPlayer.VerifiedMismatches + " 条）");
                             }
+                            SaveGuardCheck();
+                            FakeMouseCheck();
+                            HeldFlagCheck();
                             WriteReport();
                             EnterPhase(Phase.EndPanel);
                             break;
@@ -345,6 +359,290 @@ namespace Replay
         /// 这种只属于自测的假象（真人点击不会）。</para>
         /// </summary>
         private const int EndPanelStepFrames = 90;
+
+        /// <summary>
+        /// 实测「回放改不了存档」：金币（走影子）与统计数据（直接拦）两条路都验一遍。
+        ///
+        /// <para><b>为什么偏偏挑在**这里**测：</b>此刻 <c>FinishPlayback</c> 已经跑过、
+        /// 结束面板正开着、关卡还在后面继续跑 —— 也就是护栏**必须还开着**的那个状态
+        /// （再往后一步点「退出」就交还给游戏了，那时验不出来）。</para>
+        ///
+        /// <para>这条从游戏表现上完全看不出来：回放里的钱照样涨跌、统计照样累加，
+        /// 只是那些变化全进了 mod 自己的副本。所以只能这样直接对着存档读一遍。</para>
+        /// </summary>
+        private static void SaveGuardCheck()
+        {
+            report.Add("");
+            report.Add("--- 存档护栏（回放不许改动存档）---");
+            report.Add("  补丁安装  : " + ReplayHooks.SaveGuardStatus);
+            report.Add("  护栏状态  : " + ReplaySaveGuard.Describe());
+            Check(ReplaySaveGuard.Active, "播放结束后护栏还开着（结束面板期间关卡仍在跑）");
+
+            var ctrl = GetController();
+            var engine = ctrl != null ? ctrl.GetEngine() : null;
+
+            // ① 金币：回放里加减钱只进影子，真存档一个字节不动。
+            if (engine != null)
+            {
+                try
+                {
+                    int real0 = ReplaySaveGuard.WithoutGuard(() => MVZ2Logic.Level.LogicLevelExt.GetMoney(engine));
+                    int shadow0 = MVZ2Logic.Level.LogicLevelExt.GetMoney(engine);
+                    MVZ2Logic.Level.LogicLevelExt.AddMoney(engine, 1234);
+                    int shadow1 = MVZ2Logic.Level.LogicLevelExt.GetMoney(engine);
+                    int real1 = ReplaySaveGuard.WithoutGuard(() => MVZ2Logic.Level.LogicLevelExt.GetMoney(engine));
+                    report.Add("  金币      : 真=" + real0 + " 影子=" + shadow0
+                        + " → 影子上 +1234 = " + shadow1 + "，真值仍=" + real1);
+                    Check(shadow1 == shadow0 + 1234, "回放里挣/花的钱只加在影子上（界面照样看得见变化）");
+                    Check(real1 == real0, "回放里改的钱没有漏进真存档");
+                }
+                catch (Exception e)
+                {
+                    report.Add("  金币      : 取值失败 " + Short(e));
+                    Check(false, "金币影子能取值");
+                }
+            }
+            else
+            {
+                report.Add("  金币      : 关卡引擎不在，跳过");
+            }
+
+            // ② 统计数据：写入被直接拦下。
+            try
+            {
+                var main = MainManager.Instance;
+                var sm = main != null ? main.SaveManager : null;
+                if (sm == null)
+                {
+                    report.Add("  统计      : 拿不到 SaveManager，跳过");
+                }
+                else
+                {
+                    var cat = PVZEngine.NamespaceID.Parse("replay_selftest", "mvz2");
+                    var ent = PVZEngine.NamespaceID.Parse("probe", "mvz2");
+                    long s0 = sm.GetStat(cat, ent);
+                    sm.SetStat(cat, ent, s0 + 7);
+                    long s1 = sm.GetStat(cat, ent);
+                    report.Add("  统计      : replay_selftest/probe = " + s0
+                        + " → 写入 +7 之后 = " + s1);
+                    Check(s1 == s0, "回放里的统计数据写入被拦下（不会漏进存档）");
+                }
+            }
+            catch (Exception e)
+            {
+                report.Add("  统计      : 取值失败 " + Short(e));
+                Check(false, "统计拦截能取值");
+            }
+
+            // ③ 屏幕坐标换算：换个窗口尺寸也要指向同一个世界点。
+            bool vpOk = ReplayViewport.SelfCheck(out var vpDetail);
+            report.Add("  窗口换算  : " + vpDetail);
+            Check(vpOk, "屏幕坐标换算在世界维度上无损（换窗口尺寸也能对上操作位置）");
+        }
+
+        /// <summary>
+        /// 实测「蓝图上的即时触发标记」这条链。
+        ///
+        /// <para>为什么要单独测属性读写：那个标记是**注册过的属性键**才有意义的。键没注册时
+        /// <c>SetProperty</c> 只会默默失败，于是「回放时把标记按回去」就成了**静默无效**，
+        /// 而它从游戏表现上完全看不出来（要等某个器械行为不一样了才会发现）。</para>
+        ///
+        /// <para>自测注入的那几个动作不一定会真的拿起蓝图（能量 / 卡是否有效由游戏决定），
+        /// 所以这里如实把「手上是什么」也报出来：拿不到蓝图就不会写 itg/evk，
+        /// 那是**录制内容如此**，不是功能失效。</para>
+        /// </summary>
+        private static void HeldFlagCheck()
+        {
+            report.Add("");
+            report.Add("--- 蓝图即时触发标记（与「交换触发」选项解耦）---");
+            bool plumb = ReplayHeldFlags.SelfCheck(out var detail);
+            report.Add("  属性读写 : " + detail);
+            Check(plumb, "蓝图即时触发属性真的能写进去、读回来（键已注册）");
+            report.Add("  录制时   : 自测最后一个选卡动作之后手持=" + (ReplayHeldFlags.LastType ?? "没读到")
+                + (ReplayHeldFlags.LastSkipReason == null
+                    ? "  → 事件里已带上 itg/evk"
+                    : "  → 事件里没有 itg/evk（" + ReplayHeldFlags.LastSkipReason + "）"));
+        }
+
+        /// <summary>
+        /// 实测「假鼠标的锚点在贴图左上角」。
+        ///
+        /// <para>背景：游戏箭头的光点存在 <c>CursorData.hotspot</c>，而那是交给
+        /// <c>Cursor.SetCursor</c> 的 —— 那个重载的热点**以贴图左上角为原点**。
+        /// 而 <c>RectTransform.pivot</c> 用的是**左下角**原点，两者差一个上下翻转。
+        /// 漏了那一步的话，光标会整整偏出一个贴图高度（看起来就像「锚点在贴图正中」）。</para>
+        /// </summary>
+        private static void FakeMouseCheck()
+        {
+            report.Add("");
+            report.Add("--- 假鼠标锚点 ---");
+            bool anchorOk = FakePointer.SelfCheckAnchor(out var anchorDetail);
+            report.Add("  " + anchorDetail);
+            Check(anchorOk, "假鼠标的锚点在贴图左上角（与系统光标热点同制）");
+        }
+
+        // ── 播放中途改窗口尺寸（回归验证「假鼠标与分辨率无关」）──
+        //
+        // 用户报的 bug：改窗口大小之后假鼠标与操作位置对不上。成因有两个：
+        //   ① 把换算结果在播放开始时**烘**进了路点表 / 缓存的指针位置；
+        //   ② 锚点算错（热点左上角原点 vs 枢轴左下角原点）。
+        // 这里真的改一次分辨率再验算 —— 不这么做的话，「看起来修好了」和「真的修好了」
+        // 从报告上分不出来。改完立刻还原（后续还有截图与布局检定）。
+        private static int resizeStage;
+        private static int resizeAtFrame;
+        private static int resizeOrigW, resizeOrigH;
+        /// <summary>这一轮是不是塞了假路点（见 <see cref="FakePointer.SelfTestSetTrack"/>），用完要还原。</summary>
+        private static bool resizeSynthetic;
+        private const int ResizeProbeW = 800;
+        private const int ResizeProbeH = 480;
+
+        private static void ResizeProbe()
+        {
+            try
+            {
+                if (resizeStage == 0)
+                {
+                    // 等假鼠标真的在动再动手：路点表在 Start 里就建好了，但节点
+                    // 要等关卡场景 LoadGame 完 + 第一个 tick 才会创建（那时才有 rect 可验）。
+                    if (!ReplayPlayer.IsPlaying || !FakePointer.Active)
+                        return;
+                    if (ReplayPlayer.CurrentTick < 30 || frames < 60)
+                        return;
+                    if (!FakePointer.NodeReady)
+                        return;
+                    resizeOrigW = Screen.width;
+                    resizeOrigH = Screen.height;
+                    report.Add("");
+                    report.Add("--- 窗口尺寸换算（播放中途改大小）---");
+                    report.Add("  请求 : " + resizeOrigW + "x" + resizeOrigH + " -> " + ResizeProbeW + "x" + ResizeProbeH);
+                    resizeAtFrame = frames;
+                    resizeStage = 1;
+                    WriteReport();
+                    Screen.SetResolution(ResizeProbeW, ResizeProbeH, Screen.fullScreenMode);
+                    return;
+                }
+
+                if (resizeStage == 1)
+                {
+                    if (frames - resizeAtFrame < 45)
+                        return;
+
+                    bool took = Math.Abs(Screen.width - ResizeProbeW) <= 2 && Math.Abs(Screen.height - ResizeProbeH) <= 2;
+
+                    // ⚠️ 自测注入的动作（数字键选卡 / 工具按钮）**一个坐标都没有**，
+                    // 所以「带坐标的路点表」在这种回放里是空的，换算路径根本不会被执行。
+                    // 临时塞一条假路点（坐标是录制坐标系的）把那条路走通 —— 用完立刻还原。
+                    // 有真路点时当然优先用真的。
+                    bool synthetic = false;
+                    if (!FakePointer.HasTrack)
+                    {
+                        float rw = ReplayViewport.RecordWidth;
+                        float rh = ReplayViewport.RecordHeight;
+                        if (rw <= 1f || rh <= 1f)
+                        {
+                            // 旧格式文件没有窗口尺寸，没法验 —— 如实报出来。
+                            report.Add("  跳过：这个回放文件没记窗口尺寸（ver < 7）");
+                            resizeStage = 3;
+                            resizeAtFrame = frames;
+                            WriteReport();
+                            Screen.SetResolution(resizeOrigW, resizeOrigH, Screen.fullScreenMode);
+                            return;
+                        }
+                        FakePointer.SelfTestSetTrack(new[]
+                        {
+                            new Vector2(rw * 0.35f, rh * 0.62f),
+                            new Vector2(rw * 0.70f, rh * 0.35f),
+                        });
+                        synthetic = true;
+                    }
+
+                    var raw = FakePointer.RawScreenPos;
+                    var now = FakePointer.ScreenPos;
+                    var expectLive = ReplayViewport.ToSize(raw, Screen.width, Screen.height);
+                    var expectBaked = ReplayViewport.ToSize(raw, resizeOrigW, resizeOrigH);
+
+                    report.Add("  现在窗口 : " + Screen.width + "x" + Screen.height
+                        + "（分辨率真的改了=" + took + "）");
+                    report.Add("  原始坐标 : " + FmtPoint(raw) + "（录制坐标系" 
+                        + (synthetic ? "，**自测塞的假路点**：这条回放的事件没有坐标" : "") + "）");
+                    report.Add("  假鼠标   : " + FmtPoint(now));
+                    report.Add("  应为（按**当前**尺寸换算）: " + FmtPoint(expectLive));
+                    report.Add("  若烘死（按录制时尺寸）    : " + FmtPoint(expectBaked));
+
+                    // 第一条是最关键的：换成当前尺寸的结果必须和实际用的一致。
+                    // 旧实现（把换算烘进路点表）在这里会直接对不上。
+                    Check(PointDistance(now, expectLive) < 1f,
+                        "假鼠标位置按**当前**窗口尺寸换算（不是播放开始时烘好的）");
+                    if (took)
+                    {
+                        Check(PointDistance(now, expectBaked) > 1f,
+                            "没有沿用录制时尺寸的结果（窗口一改，像素就变 —— 但它指的仍是同一格）");
+                    }
+                    else
+                    {
+                        report.Add("  （分辨率没改成功，跳过「没有沿用旧尺寸」那条 —— 换算公式本身仍已验过）");
+                    }
+
+                    // 节点落点的检定要**再等几个逻辑 tick** 才做：摆放发生在 tick 上
+                    // （FakePointer.Tick → UpdateVisual → PlaceAt），
+                    // 刚换完路点表就去看，看到的还是上一次摆放的位置。
+                    resizeSynthetic = synthetic;
+                    resizeAtFrame = frames;
+                    resizeStage = 2;
+                    WriteReport();
+                    return;
+                }
+
+                if (resizeStage == 2)
+                {
+                    if (frames - resizeAtFrame < 15)
+                        return;
+
+                    // 完整链路：录制坐标 → 当前窗口像素 → 相机反投影 → 节点世界坐标。
+                    bool placed = FakePointer.SelfCheckPlacement(out var placeDetail);
+                    report.Add("  节点落点 : " + placeDetail);
+                    Check(placed, "假鼠标节点的落点与「换算后的像素」一致");
+
+                    if (resizeSynthetic)
+                        FakePointer.SelfTestClearTrack();
+
+                    resizeAtFrame = frames;
+                    resizeStage = 3;
+                    WriteReport();
+                    Screen.SetResolution(resizeOrigW, resizeOrigH, Screen.fullScreenMode);
+                    return;
+                }
+
+                if (resizeStage == 3)
+                {
+                    if (frames - resizeAtFrame < 25)
+                        return;
+                    bool back = Math.Abs(Screen.width - resizeOrigW) <= 2 && Math.Abs(Screen.height - resizeOrigH) <= 2;
+                    report.Add("  已还原到 " + Screen.width + "x" + Screen.height + "（成功=" + back + "）");
+                    Check(back, "窗口尺寸已还原（后面的截图与布局检定不受影响）");
+                    resizeStage = 4;
+                    WriteReport();
+                }
+            }
+            catch (Exception e)
+            {
+                resizeStage = 4;
+                report.Add("  窗口尺寸测试出错：" + Short(e));
+                try { Screen.SetResolution(resizeOrigW, resizeOrigH, Screen.fullScreenMode); } catch (Exception) { }
+            }
+        }
+
+        private static string FmtPoint(Vector2 p)
+        {
+            return "(" + p.x.ToString("0.#") + ", " + p.y.ToString("0.#") + ")";
+        }
+
+        private static float PointDistance(Vector2 a, Vector2 b)
+        {
+            float dx = a.x - b.x;
+            float dy = a.y - b.y;
+            return Mathf.Sqrt(dx * dx + dy * dy);
+        }
 
         private static void StepEndPanel()
         {

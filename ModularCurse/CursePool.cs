@@ -91,6 +91,20 @@ namespace ModularCurse
             }
         }
 
+        /// <summary>
+        /// 池的**本地化**名称/描述（给界面用；日志请继续用 <see cref="Name"/> / <see cref="Description"/>，
+        /// 免得排查问题时要先猜当时是哪种语言）。
+        /// </summary>
+        public static string NameText(CursePool pool)
+        {
+            return DSHCore.Ui.UiLocale.Get(Name(pool));
+        }
+
+        public static string DescriptionText(CursePool pool)
+        {
+            return DSHCore.Ui.UiLocale.Get(Description(pool));
+        }
+
         /// <summary>该诅咒是否属于这个池。</summary>
         public static bool Matches(CursePool pool, NamespaceID id)
         {

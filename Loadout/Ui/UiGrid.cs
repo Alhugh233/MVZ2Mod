@@ -552,7 +552,7 @@ namespace Loadout
             var label = Label;
             if (label == null)
                 return;
-            try { label.text = text ?? string.Empty; }
+            try { label.text = DSHCore.Ui.UiLocale.Get(text) ?? string.Empty; }
             catch (Exception) { }
         }
 

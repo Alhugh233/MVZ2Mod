@@ -32,6 +32,10 @@ namespace Replay
                 ReplayConfig.Init(Config);
                 ReplayHooks.Apply();
 
+                // 全部用户可见文案（入口/标题/列表/对话框/HUD/菜单改写）——
+                // 必须早于任何界面取词。
+                ReplayLocale.Register();
+
                 // 把「回放」子页面登记进 DSHCore 的插件页设施（纯托管的登记，不碰游戏）。
                 // 心跳由 DSHCore 驱动（它挂在 MainSceneController.Update 上），这里只是初始化一次。
                 ReplayPage.EnsureRegistered();

@@ -169,11 +169,15 @@ namespace Loadout
                         var viewport = sr.viewport;
                         if (viewport != null)
                         {
-                            var mask = viewport.GetComponent<Mask>();
-                            if (mask != null)
-                                UnityEngine.Object.DestroyImmediate(mask);
-                            if (viewport.GetComponent<RectMask2D>() == null)
-                                viewport.gameObject.AddComponent<RectMask2D>();
+                            // 统一走 DSHCore 那套（**先禁用再销毁** + 补 RectMask2D，见 UiKit.ReplaceMask）。
+                            // 自己写 DestroyImmediate 会留下「Mask 仍 enabled」的窗口：克隆体里的 TMP
+                            // 子网格会与游戏自己的节点共用同一份**全局共享** Stencil 材质实例，
+                            // 之后销毁任一边都会把游戏自己关卡 HUD 的 TMP 打爆
+                            // （每帧 TMP_SubMeshUI / Material.GetFloat 抛 NullReferenceException，
+                            // 连带让 LevelUIPreset 的 Animator 再也不被驱动 → 第一大波那条报错）。
+                            //
+                            // ⚠️ 必须写全名：本 mod 自己在 UiGrid.cs 里也有一个 UiKit（Loadout 命名空间内会遮蔽 DSHCore 的）。
+                            DSHCore.Ui.UiKit.ReplaceMask(viewport.gameObject);
                             // ⚠️ 视口上那张图原本是 Mask 的遮罩素材（showMaskGraphic=false 时靠改材质画成透明）。
                             // 换成 RectMask2D 之后它变回**普通 Image**，会画成一块纯白矩形（实测就是这样）。
                             Neutralize(viewport.gameObject, "视口遮罩素材");

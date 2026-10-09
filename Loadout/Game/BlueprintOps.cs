@@ -74,39 +74,6 @@ namespace Loadout
             catch (Exception) { return null; }
         }
 
-        /// <summary>这张卡**自己写的**基础冷却速度（不含任何修饰器；「禁用冷却」备份的就是它）。</summary>
-        public static float GetBaseRechargeSpeed(SeedPack pack)
-        {
-            if (pack == null)
-                return 1f;
-            try { return pack.GetProperty<float>(EngineSeedProps.RECHARGE_SPEED, ignoreBuffs: true); }
-            catch (Exception) { return 1f; }
-        }
-
-        /// <summary>把冷却定义与基础速度直接写回卡上（「禁用冷却」还原时用）。</summary>
-        public static bool SetRecharge(SeedPack pack, string rechargeIdText, float speed)
-        {
-            if (pack == null || string.IsNullOrEmpty(rechargeIdText))
-                return false;
-            var colon = rechargeIdText.IndexOf(':');
-            if (colon <= 0 || colon >= rechargeIdText.Length - 1)
-                return false;
-            try
-            {
-                var id = new NamespaceID(rechargeIdText.Substring(0, colon), rechargeIdText.Substring(colon + 1));
-                if (!NamespaceID.IsValid(id))
-                    return false;
-                pack.SetProperty(EngineSeedProps.RECHARGE_ID, id);
-                pack.SetProperty(EngineSeedProps.RECHARGE_SPEED, speed);
-                return true;
-            }
-            catch (Exception e)
-            {
-                LogOnce("setrecharge", "还原冷却失败：" + e.Message);
-                return false;
-            }
-        }
-
         /// <summary>这张卡会放出哪个实体（拿不到返回 null）。</summary>
         public static EntityDefinition GetSeedEntity(SeedPack pack)
         {

@@ -293,7 +293,8 @@ namespace Replay
                     return;
                 try
                 {
-                    _countText.text = "共 " + shown + " 个";
+                    // 用格式串而不是拼接：整句才是可翻译的键（"共 {0} 个" → "{0} replays"）。
+                    _countText.text = UiLocale.Format("共 {0} 个", shown);
                 }
                 catch (Exception) { }
             }
@@ -349,7 +350,7 @@ namespace Replay
                     UiKit.Fit(row, -1f, UiKit.RowHeight, 1f);
 
                     UiKit.Label(row.transform, "Stage",
-                        info.IsBroken ? info.Name + "（读不出来）" : info.StageText,
+                        info.IsBroken ? info.Name + UiLocale.Get("（读不出来）") : info.StageText,
                         UiKit.LabelFontSize, 0f, 1.8f);
                     UiKit.Label(row.transform, "Time", info.CreatedText,
                         UiKit.LabelFontSize, 0f, 1.3f);
@@ -394,7 +395,7 @@ namespace Replay
                     return;
                 if (info.IsBroken)
                 {
-                    ShowNotice("无法播放", "这个回放读不出来：\n" + info.Error);
+                    ShowNotice("无法播放", UiLocale.Get("这个回放读不出来：") + "\n" + info.Error);
                     return;
                 }
 
@@ -426,7 +427,8 @@ namespace Replay
                 }
                 catch (Exception e)
                 {
-                    ShowNotice("导入", "打开文件对话框失败：\n" + e.GetType().Name + "：" + e.Message);
+                    ShowNotice("导入", UiLocale.Get("打开文件对话框失败：")
+                        + "\n" + e.GetType().Name + "：" + e.Message);
                     return;
                 }
 
@@ -439,8 +441,8 @@ namespace Replay
                 if (ok)
                     Refresh();
                 ShowNotice("导入", ok
-                    ? "已导入到回放目录：\n" + ReplayLibrary.ImportedName(path)
-                    : "导入失败：\n" + (err ?? "未知原因。"));
+                    ? UiLocale.Get("已导入到回放目录：") + "\n" + ReplayLibrary.ImportedName(path)
+                    : UiLocale.Get("导入失败：") + "\n" + (err ?? UiLocale.Get("未知原因。")));
             }
 
             private void AskDelete(ReplayInfo info)
@@ -448,8 +450,8 @@ namespace Replay
                 if (info == null)
                     return;
                 Confirm("删除回放",
-                    info.StageText + "\n" + info.CreatedText + "　时长 " + info.DurationText
-                    + "\n\n删掉之后无法恢复，确定吗？",
+                    info.StageText + "\n" + info.CreatedText + UiLocale.Get("　时长 ") + info.DurationText
+                    + "\n\n" + UiLocale.Get("删掉之后无法恢复，确定吗？"),
                     "删除", "取消",
                     index => { if (index == 0) DoDelete(info); });
             }
@@ -460,7 +462,7 @@ namespace Replay
                 var ok = ReplayLibrary.Delete(info, out err);
                 if (!ok)
                 {
-                    ShowNotice("删除失败", err ?? "未知原因。");
+                    ShowNotice("删除失败", err ?? UiLocale.Get("未知原因。"));
                     return;
                 }
                 for (var i = 0; i < _items.Count; i++)
@@ -516,7 +518,12 @@ namespace Replay
 
                 try
                 {
-                    dlg.SetDialog(title, desc, options, _confirmIl2Cpp);
+                    // 标题 / 正文 / 按钮文案都过一遍取词：走游戏自己的 CustomDialog，
+                    // 那个不会自动翻（官方各处传进去的都是已经取过词的文本）。
+                    // 正文常常是拼出来的（前缀 + 动态内容），拼的部分在调用点已经取过词，
+                    // 这里整句查不到就原样返回 —— 两段都对。
+                    dlg.SetDialog(UiLocale.Get(title), UiLocale.Get(desc),
+                        UiLocale.GetAll(options), _confirmIl2Cpp);
                 }
                 catch (Exception e)
                 {

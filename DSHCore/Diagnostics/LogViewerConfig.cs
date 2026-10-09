@@ -32,7 +32,6 @@ namespace DSHCore.Diagnostics
         public static LogViewerConfig Bind(ConfigFile config)
         {
             var result = new LogViewerConfig();
-
             if (config == null)
             {
                 // 没有配置文件时（理论上不会发生）也要能跑：生成一个临时令牌
@@ -56,11 +55,13 @@ namespace DSHCore.Diagnostics
 
             result.Port = Clamp(config.Bind(
                 Section, "Port", DefaultPort,
-                "HTTP 监听端口。被占用时会依次尝试后面 " + 10 + " 个端口（见 PortFallbackCount）。").Value, 1, 65535);
+                Desc("HTTP 监听端口。被占用时会依次尝试后面 " + 10 + " 个端口（见 PortFallbackCount）。",
+                    new AcceptableValueRange<int>(1, 65535))).Value, 1, 65535);
 
             result.PortFallbackCount = Clamp(config.Bind(
                 Section, "PortFallbackCount", 10,
-                "端口被占用时最多往后顺延几个端口。").Value, 0, 200);
+                Desc("端口被占用时最多往后顺延几个端口。",
+                    new AcceptableValueRange<int>(0, 200))).Value, 0, 200);
 
             result.LanAccess = config.Bind(
                 Section, "LanAccess", false,
@@ -69,12 +70,14 @@ namespace DSHCore.Diagnostics
 
             result.RingBufferCapacity = Clamp(config.Bind(
                 Section, "RingBufferCapacity", 5000,
-                "内存里保留多少条历史日志。这段缓冲**始终**在记（不管网页开没开），" +
-                "所以开启网页时能立刻看到从游戏启动开始的日志。").Value, 256, 200000);
+                Desc("内存里保留多少条历史日志。这段缓冲**始终**在记（不管网页开没开），" +
+                    "所以开启网页时能立刻看到从游戏启动开始的日志。",
+                    new AcceptableValueRange<int>(256, 200000))).Value, 256, 200000);
 
             result.QueueCapacity = Clamp(config.Bind(
                 Section, "QueueCapacity", 20000,
-                "待处理日志队列上限。写日志过快时超出部分会被丢弃并计数，以免拖慢游戏。").Value, 256, 200000);
+                Desc("待处理日志队列上限。写日志过快时超出部分会被丢弃并计数，以免拖慢游戏。",
+                    new AcceptableValueRange<int>(256, 200000))).Value, 256, 200000);
 
             result.HideConsoleWindow = config.Bind(
                 Section, "HideConsoleWindow", false,
@@ -111,6 +114,23 @@ namespace DSHCore.Diagnostics
 
         private static string NewToken() =>
             Convert.ToHexString(RandomNumberGenerator.GetBytes(16)).ToLowerInvariant();
+
+        /// <summary>
+        /// 造一个配置说明。
+        ///
+        /// <para><b>为什么要带 <paramref name="values"/></b>：BepInEx 会把它写成 cfg 里的
+        /// <c># Acceptable value range: From a to b</c> / <c># Acceptable values: a, b, c</c> 两行注释，
+        /// 而 MVZ2ModManager 就是读这两行来决定画**滑条**还是**下拉框**的
+        /// （只给字符串说明的话它只能画一个文本框）。</para>
+        ///
+        /// <para>越界时的行为（已反编译确认，BepInEx 6 be.788）：<c>AcceptableValueRange.Clamp</c>
+        /// 夹到区间上，<c>AcceptableValueList.Clamp</c> **换成列表第一项** —— 两者都**不抛异常**，
+        /// 所以即使玩家手改了一个非法值，插件也能正常加载。</para>
+        /// </summary>
+        private static ConfigDescription Desc(string text, AcceptableValueBase values)
+        {
+            return values == null ? new ConfigDescription(text) : new ConfigDescription(text, values);
+        }
 
         private static int Clamp(int value, int min, int max)
         {

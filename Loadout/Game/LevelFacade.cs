@@ -102,7 +102,6 @@ namespace Loadout
         public static NamespaceID BuffGodMode { get { return VanillaBuffID.Level.debugGodmode; } }
         public static NamespaceID BuffEnergy { get { return VanillaBuffID.Level.debugEnergy; } }
         public static NamespaceID BuffStarshard { get { return VanillaBuffID.Level.debugStarshard; } }
-        public static NamespaceID BuffNoRecharge { get { return VanillaBuffID.Level.debugNoRecharge; } }
 
         /// <summary>
         /// interop 的代理类不声明它实现的接口，所以不能把 LevelEngine 直接传给参数类型是

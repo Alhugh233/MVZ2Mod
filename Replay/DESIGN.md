@@ -634,11 +634,19 @@ if (IsActive) return "[replay] 已经在播放了…";
 实测出现「面板的逻辑已经换到第三个了、屏幕上挂着的还是第一个」。
 现在整条链上始终**只有一个**对话框：导出结果直接拼进面板正文的最后一行再重弹同一个面板。
 
-### 4.4.9 假鼠标的尺寸，以及为什么去掉了「接管系统光标」
+### 4.4.9 假鼠标的尺寸、锚点，以及为什么去掉了「接管系统光标」
 
 - **尺寸**：`[Visual] FakeMouseScale`。画布是「屏幕空间-相机」，`sizeDelta` 最终要写
   `贴图尺寸 × (canvasRect.width / Screen.width) × scale`（前一段是 UI 单位↔像素换算，
-  后一段是给玩家的手感微调）。
+  后一段是给玩家的手感微调）。这个比值**跟着窗口尺寸变**，所以每次比较 `Screen.*` 变了就重算
+  （`FakePointer.ApplySize`）—— 只在建节点时算一次的话，改过窗口后光标会明显偏大/偏小。
+- **锚点**：游戏把箭头的光点存在 `CursorData.hotspot`，而它是交给
+  `Cursor.SetCursor(texture, hotspot, mode)` 的 —— **那个重载的热点以贴图左上角为原点**
+  （实测游戏的箭头就是 `(0,0)`）。而 `RectTransform.pivot` 用的是**左下角**原点。
+  两者差一个上下翻转：直接 `pivot = hotspot / texSize` 会把热点 `(0,0)` 变成**左下角**，
+  于是光标被画到指针**上方**一整个贴图高度（看起来像「锚点在贴图正中」）。
+  正确换算：`pivot = (hotspot.x / w, 1 - hotspot.y / h)`（`FakePointer.HotspotToPivot`）。
+  自测会把热点与枢轴都打出来：**箭头热点 = `0,0` ⇒ 枢轴必须 = `0,1`**。
 - **去掉了 `FakeMouseSystemCursor`**：那套代码是在 `CursorManager.UpdateCursor` 后面
   强制 `Cursor.visible = true` + `SetCursor(null, ...)`，把游戏的光标决定当场撤销。
   实际用起来没有价值（假鼠标是**画在画布上**的，和硬件光标互不影响），
@@ -668,6 +676,151 @@ if (IsActive) return "[replay] 已经在播放了…";
 
 > 结论：默认配置下「关卡里不会自己冒出回放文件」。这条有硬性验收 ——
 > 自测跑完只允许出现 **1 条** `[Replay] 已写出回放` 日志（就是手动停止那一次）。
+
+### 4.4.11 回放不许改动存档（金币走影子，其它一律拦）
+
+**现象**：放一次回放，玩家的金币变了、统计数据（击杀/放置/通关次数）也涨了。
+
+**根因**：MVZ2 的金币**不是关卡内货币**，而是全局存档里的钱：
+
+```csharp
+// MVZ2/Level/Components/MoneyComponent.cs
+public void SetMoney(int value) => Global.Saves.SetMoney(value);
+public int  GetMoney()          => Global.Saves.GetMoney();
+```
+
+而 `LevelController.ExitScene()` 里还有一句 `Saves.SaveToFile()`（退出关卡时保存游戏）。
+统计那一批则是 `StatsGlobalCallbacks` 挂在 `POST_ENEMY_SPAWNED` / `POST_CONTRACTION_*` /
+`POST_ENTITY_DEATH` / `POST_GAME_OVER` / `POST_LEVEL_CLEAR` / `POST_LEVEL_RESTART` 上的，
+回放重演一局就一条条 `Global.Saves.AddStat(...)` 累加进存档。
+
+> 通关那一条我们早就拦了（4.4.5 的 `EngineClearPrefix`），但那只拦住
+> `LevelController.OnEngineClearCallback` 这**一个**入口；引擎层的
+> `Triggers.RunCallback(POST_LEVEL_CLEAR, …)` 和整局里的每一次击杀照样在跑。
+
+**做法**（`ReplaySaveGuard`）：
+
+| 类别 | 处理 | 为什么 |
+| --- | --- | --- |
+| 金币 | **影子值**：`GetMoney` 返回影子的值，`SetMoney`/`AddMoney` 只改影子；第一次读时用真值播种 | 关卡要**读**钱来决定买不买得起 —— 只拦写入的话，花掉的钱不会减少 → 能买得起本买不起的东西 → 回放本身就跑偏了 |
+| 统计 / 解锁 / 难度记录 / 上次选卡 / 上次地图 / 地图对话 / 关卡进度标记 | 前缀直接 `return false` | 这些在回放里没有任何「读回去」的需求，写进去只会污染存档 |
+
+- 「上次选卡」（`LogicSaveExt.SetLastSelection`）值得单独点出来：它在**选卡阶段**就会被写
+  （`LevelBlueprintChooseController`），也就是只要放一次回放，玩家自己存的选卡就被换掉了。
+- 金币挂**两层**：`LogicSaveExt`（`Global.Saves.*` 的公开面）与 `LogicSaveData`（直接摸数据对象）。
+  两者都很短，IL2CPP 有可能把里层内联进外层 —— 只挂一层的话，真被内联了那一层永远不生效，
+  **而且不报任何错**。多前缀同时命中是安全的：金币每次都是「整体赋值给同一个影子」，
+  外层拦下后里层根本不会跑。
+- ⚠️ **Harmony 的前缀形参是按名字绑到原方法参数上的**。第一版把前缀写成
+  `ExtSetMoneyPrefix(IGlobalSaveData save, int value)`，而原方法叫 `money` → 这两个补丁
+  静默地没挂上（`GetMoney` 因为第一个参数恰好叫 `save` 所以过了）。现在失败会**点名**
+  写进播放小结：`存档护栏 : 补丁 已挂 12 个，❌ 失败 2 个（LogicSaveExt.SetMoney、…）`。
+- 补丁**延迟到第一次播放才装**（`ReplayHooks.EnsureSaveGuardHooks`）：金币那两处在
+  `MVZ2Logic.*`，本仓库踩过「在 `Plugin.Load()` 阶段反射 `MVZ2Logic` 的类型会提前触发
+  它的 `.cctor` → NRE → 被运行时永久缓存」的坑；等到真播放时游戏早已初始化完。
+
+**验收**（自测 `SaveGuardCheck`，在「播放已结束、结束面板开着」那一刻做）：
+直接对着存档读一遍 —— 影子 +1234 而真值不变；`SaveManager.SetStat` 写 +7 之后读回来还是原值。
+
+### 4.4.12 换成别的窗口尺寸后，假鼠标必须还能对上操作
+
+**现象**：调整窗口大小再放回放，假鼠标画的位置和实际操作的位置完全对不上（分辨率越偏离越明显）。
+
+**根因**：`.mrep` 里的 `sx/sy` 是**录制时的屏幕像素**，而游戏把像素变世界坐标的公式是
+
+```
+LevelCamera（正交）: 世界偏移 = (像素 - 屏幕中心) × 2 × orthographicSize / 屏幕高
+```
+
+注意分母只有**屏幕高**：纵向可视范围恒为 `2*orthographicSize`，横向才是「纵向 × 宽高比」。
+于是同一个像素在不同窗口尺寸下指向**不同的格子**。
+
+而回放的操作本身是**语义化重演**（记的是 `lane`/`col`、实体 ID、卡槽号），跟像素无关 ——
+所以「操作落在哪个格子」不随分辨率变，只有**跟着像素走的那两样**（假鼠标的位置、以及
+`UpdateHeldItemPosition` 里给手持物用的指针位置）会跑掉。这也解释了为什么只有它们对不上。
+
+**做法**（`ReplayViewport`）：header 记下录制时的窗口尺寸（`sw`/`sh`，ver 7），播放时换算：
+
+```
+k  = 现在屏幕高 / 录制时屏幕高
+新 = 现在屏幕中心 + (旧 - 录制时屏幕中心) × k
+```
+
+- 两个分量用**同一个 `k`**：横向可视范围随宽高比一起变，所以横向不能用「新宽/旧宽」
+  （代进去就知道：`世界X偏移 = (像素x - 屏宽/2) × 2 × ortho / 屏高`，只跟屏高有关）。
+- 尺寸没变时 `k = 1`、中心相同 → **恒等**，所以旧行为一个比特都没变；旧文件（没有 `sw`/`sh`）
+  同样恒等返回。
+- 同一个换算用在四处：假鼠标路点、`args.position`、`raycast.screenPosition` / `eventData.position`、
+  以及 `Global.Input` 的指针位置改写。
+- 窗口在**播放中途**改了也照样有效；假鼠标的**大小**也要跟着重算
+  （画布 UI 单位 ↔ 像素的比值同样依赖窗口尺寸，见 4.4.9），否则光标会明显偏大/偏小。
+- ⚠️ **换算必须在「取值时」做，不能烘进路点表或缓存。** 第一版在 `FakePointer.Begin` 里
+  就把路点换算好了（那时窗口尺寸已经知道），结果「开始播放**之后**再改窗口尺寸」依旧对不上 ——
+  表里的值定死了。现在路点表里存的是**录制坐标系**的原值，读取时才换算。
+  代价是每个「几何量」都有两个访问器：`ScreenPos`/`PointerScreen`（已换算）与
+  `RawScreenPos`/`RawPointerScreen`（原值）—— **「临时换上假鼠标位置」那条通道两边必须同坐标系**，
+  混着用就会重复换算、越偏越多。
+- ⚠️ 推算时假设 `orthographicSize` 不变。这里可以放心：`LevelCamera.cameraSize` 随宽高比变，
+  但代进去会发现相机位置里那个项**恰好抵消**（`camPos = ((0.5-anchorX)*leftspace, 0)`），
+  所以窗口尺寸剩下的影响就只有 `2*ortho/屏高` 这一项。
+
+**验收**（自测）：
+
+1. `ReplayViewport.SelfCheck`（纯函数）：① 同尺寸恒等；② `1024x766 → 1920x1080` 下
+   `(900,600) → (1507.1,846)`，且换算前后「相对屏幕中心 / 屏幕高」完全一致（= 指向同一个世界点）；
+   ③ 屏幕中心恒映射到屏幕中心。
+2. `ResizeProbe`（**真改分辨率**）：播放中途 `Screen.SetResolution` 到 800x480、等 45 帧，
+   验证「假鼠标位置 == 按**当前**尺寸换算的结果」且「≠ 按录制时尺寸换算的结果」，
+   然后还原。这是「烘焙 bug」的回归判定。
+   > 自测注入的动作（数字键 / 工具按钮）**一个坐标都没有**，所以那条路径本来跑不到；
+   > 自测会临时塞一条**假路点表**（`FakePointer.SelfTestSetTrack`，坐标是录制坐标系的）
+   > 把换算链走通，报告里会标出来。用完立刻还原。
+3. `FakePointer.SelfCheckPlacement`：节点上一次**真正摆放**时算出的世界坐标 == 那个屏幕点
+   经相机反投影的结果（验 `PlaceAt` 的数学），且节点可见时那次摆放的屏幕点 == 当前 `ScreenPos`。
+   > 为什么检「上一次摆放」而不是「当前位置」：手上有物品时游戏用**物品模型当指针**，
+   > `UpdateVisual` 会跳过摆放（节点是隐藏的），那时 `rect.position` 还停在上一次的位置上。
+   > 而且摆放发生在**逻辑 tick** 上，改完路点表得再等几个 tick 才能看到。
+
+### 4.4.13 回放不受「交换触发」选项影响（蓝图上的即时触发标记）
+
+**现象**：同一个回放，在「交换触发」开着/关着时效果不一样。
+
+**根因**：那个开关是玩家选项（`swap_trigger`）、**关卡内随时可改**、**不在关卡关键帧里**，
+而它参与决定手持蓝图上的 `instant_trigger`：
+
+```csharp
+// SelectBlueprintHeldItemBehaviour（拿卡槽 / 捡地上的卡 两条路都有）
+bool swapped = Global.Saves.IsTriggerUnlocked() && Global.Options.IsTriggerSwapped();
+bool triggerValue = canInstantTrigger && (holdingTrigger != swapped);
+builder.SetInstantTrigger(pickData.triggerValue);   // 存进手持物
+```
+
+放下时 `BlueprintGlobalCallbacks` 读 `heldData.IsInstantTrigger()` 决定行为 ——
+也就是说这个值直接进入仿真。
+
+**做法**：录制时把**拿起蓝图那一刻**的 `instantTrigger` / `instantEvoke` 跟着事件一起记
+（`itg` / `evk`，`ReplayRecorder.AppendHeldFlags`），回放时在同一个位置
+**按回去**（`ReplayPlayer.ApplyHeldFlags` → `ReplayHeldFlags.Apply`）。
+
+- 只有 `instantTrigger` 受该选项影响（`instantEvoke` 只看星之碎片）—— 两个都记只是为了完整性。
+- 录制侧只对「手上确实是蓝图」的事件写这两个字段，类型白名单比对的是
+  `NamespaceID.Path`（`blueprint` / `conveyor` / `blueprint_pickup`）——
+  **不直接用 `LogicHeldTypes` / `VanillaHeldTypes`**：它们的静态字段初始化依赖
+  `Global.BuiltinNamespace` / `VanillaMod.spaceName`，属于本仓库反复踩过的「碰一下就提前跑 cctor」那类。
+- 两个字段**要么都在要么都不在**：只写一个就分不出「另一个是 false」与「这个事件没这个信息」。
+- 写回用的是游戏自己的属性扩展（`LogicHeldItemProps.SetInstantTrigger`）。
+  `IHeldItemData` 在 interop 里**不声明** `IHeldItemPropertyContainer` 的成员，
+  所以要用指针手工包一层壳：`new IHeldItemPropertyContainer(data.Pointer)`。
+
+**验收**：
+
+1. `ReplayHeldFlags.SelfCheck`：现造一个 `HeldItemData`，验证 `SetInstantTrigger(true)` 之后
+   `IsInstantTrigger()` 读回为 true、写 false 读回为 false、`instantEvoke` 同样能读写。
+   > 为什么要单独验这个：属性是**注册过的键**才有意义的。键没注册时 `SetProperty` 只会默默失败，
+   > 于是「把标记按回去」就成了**静默无效** —— 而它从游戏表现上完全看不出来。
+2. 自测的动作日志会直接报「选卡之后手持是什么」：拿不到蓝图就不写 `itg`/`evk`，
+   那是**录制内容如此**（能量不够 / 卡无效），不是功能失效。实测自测那条链
+   （强制开局 + `ApplyChoose` + 数字键选卡）拿到的是 `mvz2:none`，所以那条文件里就没有这两个字段。
 
 ### 4.5 一致性保障：指纹校验（这是「必须确保一致」的抓手）
 

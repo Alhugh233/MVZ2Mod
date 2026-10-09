@@ -116,6 +116,10 @@ UiSkin.Clone(Dialog)                       ← 面板壳 = 官方"标题+正文+
 
 配置在 `BepInEx/config/qoznos.mvz2.loadout.cfg`：
 
+> `CompatLevel` 与 9 个 `Compat.Features.*` 都声明了 `# Acceptable values: …`，
+> 所以在 MVZ2ModManager 的配置页里它们是**下拉框**（实测 10 个 `RDropdown`），不用手打字符串。
+> 在游戏里改（模组设置页）或直接编辑 cfg 都照旧。
+
 | 等级 | 含义 |
 | --- | --- |
 | `Safe` | 只用原版已有的属性与接口，**不挂任何会改行为的补丁**。面板照常能用，但打开时关卡不暂停、选卡列表保持原样、图标不接管。**和别的 mod 冲突时先降到这一档。** |
@@ -451,15 +455,30 @@ finalizer 清掉），生成漏斗只在这个作用域里认账：
                                   [x]失效      {清空}
 ```
 
-- 列表**克隆关卡 HUD 的制品条目**（`LevelUIPreset` 下的 `ArtifactItemUI`），
-  所以图标 / 计数 / 灰化 / 发光都是原版那一套。**不限制数量**：槽位是数组，排不下不归本面板管。
+- 列表**克隆选卡面板里的空制品框**（`ArtifactSlot`），**不是**关卡 HUD 的 `ArtifactItemUI`：
+  后者带 `Animator`，**图标的尺寸是动画给的**（模板里 `Icon.sizeDelta = 0×0`），
+  关掉动画图标就隐形、不关动画图标就溢出格子 —— 两难。`ArtifactSlot` 没有动画，
+  图标就是一张固定尺寸的 `Image`（`UpdateView(new ArtifactViewData{ sprite })`），
+  正是「一行 4 个固定格」要的东西。计数文字没有现成的，自己贴一个 `Num`（`count > 1` 才显示），
+  灰化也自己给（遍历格子里的 `Image` 上色）。
+- **一行的排布要显式归一化**：行容器是从原版设置面板那个「滑条行」克隆来的，
+  它带那边的排版习惯（间距 20、不控宽、可能还有 `ContentSizeFitter`），
+  在纵向列表里会让格子被算成 0 宽 / 溢出视口（症状：列表区一片空白）。
+  `Normalize(row)` 显式重设：间距 4、控宽控高、不强制铺满、内距清零、缩放归 1、关掉尺寸适配器。
+- **格子尺寸用固定值**（`Cell = 64`）+ `FixedSize()`（`min/preferred` 都给上、`flexible = 0`）。
+  ⚠️ **不要用 `UiContainer.FitCell`**：它给的是 `flexibleWidth = 1`（等分格子），
+  同一行里只有 2 格时每格就会被摊到 138 宽 —— 右侧那个「制品框」也会被摊成 196×56 的长条。
+- **右列那几行只能挂进列容器**（`IntoColumn`），**绝不能再调 `LoadoutPanel.AddRow`** ——
+  那个方法会把节点搬回面板根（= 整行 732 宽），两列布局当场没了。
 - ⚠️ **不要用 `LevelUIPreset.GetArtifactAt` / `LevelUIBlueprintChoose.GetArtifactSlotAt`**：
   它们内部是 il2cpp 泛型方法 `getElement<T>`，interop 上走 `MethodInfoStoreGeneric`，实测返回 null。
-  改成 `GetComponentsInChildren<ArtifactItemUI>(true)` / `GetComponentsInChildren<ArtifactSlot>(true)`。
-- 制品框（右侧那个「点一下挑制品」的框）同样克隆原版：优先选卡面板里的**空制品框**
-  （`ArtifactSlot`），拿不到就退化成 HUD 的 `ArtifactItemUI`。
+  改成 `GetComponentsInChildren<ArtifactSlot>(true)`。
+- 制品框（右侧那个「点一下挑制品」的框）同样克隆原版：选卡面板里的**空制品框**（`ArtifactSlot`）。
   ⚠️ `ArtifactSlot.OnClick` 在 interop 里是 `Il2CppSystem.Action<T>`，C# 不允许 `+=` 一个 lambda，
   所以点击不看那个事件，由 `ArtifactPage.Tick` 自己做矩形命中。
+- ⚠️ **自测填制品要先清槽**：读档会把「槽位数量」带进来（开局就有 3 格空位），
+  不清零就直接加，制品会落到 3/4/5，而面板显示 0..count-1 —— 看起来「一个图标都没有」。
+  `ArtifactOps.DebugFill` 现在先 `Clear` + `SetArtifactSlotCount(0)`。
 - 「添加」会**按需扩槽**（一次一个，槽位数组跟着长）；「删除」会释放光环
   （`aura.PostRemove()`）再 `SetArtifact(null)` 并把后面的整体左移、末尾收缩。
   官方代码在删除时并**不**调 `PostRemove`，我们补上了，否则光环会残留在场上。
@@ -521,6 +540,29 @@ finalizer 清掉），生成漏斗只在这个作用域里认账：
 - **档案页的列表行高是原版设计值（25）**，没有跟着面板尺寸缩放；行内文字字号用原版自己的 16。
   若中文输入法在游戏里表现异常，改用克隆控制台自己的 `DebugConsoleInputField`
   （它激活时强制 `imeCompositionMode = On`）：`UiKit.Input` 里换素材即可。
+
+---
+
+## 多语言
+
+`LoadoutLocale.cs` 把面板上的页签名、按钮名、字段标签与三段长说明全部登记进 DSHCore 的 `UiLocale`，
+游戏切到英文时自动显示英文（无需语言包）。登记的是**界面文字**，走普通链：
+
+```csharp
+T.EnAll("基础", "蓝图", "制品", "进度");
+T.En("关闭", "Close");
+```
+
+取词是**自动**的：`UiField.SetLabel` / `UiOptionRow.SetLabel` / `UiKit.Label` 内部已经过 `UiLocale.Get`，
+所以面板代码基本不用手写 `Get`。
+
+> ⚠️ **哪些东西仍然是中文（有意为之）**：作为「键」或分支条件使用的字符串 ——
+> 例如网格里「出怪点数」这类既显示又参与逻辑、以及从游戏内容库取来的实体名。
+> 把它们翻译了会把键本身改掉。实体名/关卡名要翻应该带上下文登记（见 `UI_GUIDE.md` §11.6）。
+> 另外 `CompatLevel` 的下拉框值（`Safe` / `Standard` / `Full`）是配置枚举，不翻译。
+
+玩家可以在 `<游戏>\BepInEx\config\DSHCore\lang\<语言码>.ini` 里覆盖任何一条
+（指令 `/dshtrans write en-US` 生成模板）。详见 `DSHCore/UI_GUIDE.md` §11。
 
 ---
 
@@ -791,6 +833,19 @@ powershell -File tools\run-loadout-selftest.ps1
     模板的子孙可能带着会在激活时 `Awake` 的组件）。
 11. **`LayoutGroup` 忽略未激活的子节点** → 补齐弹窗"隐藏"就是 `SetActive(false)`，
     既参与布局又不占高度，不需要自己算位置。
+12. **克隆原版节点时必须处理 `Mask`**（否则会把游戏自己的 UI 打爆，终局表现是「第一大波报错」）：
+    `Mask` 会让子树里的 TMP 子网格去向 TMP 的材质管理器申请一份**全局共享**的 Stencil 材质实例 ——
+    克隆体与模板共用同一份，之后**任何一边被销毁**（`ClearChildren` 的 `DestroyImmediate`、
+    换视口遮罩、切场景）都会把那份材质一起销毁，另一边下一次 Update/Disable 就在
+    `Material.GetFloat` 里抛空指针。实测链路（2026-10-07 定位）：游戏自己**关卡 HUD** 的 TMP 被这样打爆
+    → `LevelController.UpdateFrameUI` 每帧在 `uiPreset.UpdateFrame` **之前**抛 NRE →
+    `LevelUIPreset` 那个「prefab 里就是 `m_Enabled = 0`、只靠每帧手动 `animator.Update(dt)` 养着」的
+    Animator 永远建不出来 → 第一大波 `ShowHugeWaveText()` 第一次写它时 `Animator.SetTrigger` 抛
+    `NullReferenceException`（显示成「关卡行为 `WaveStageBehaviour` 在执行 `Update` 时出现错误」）。
+    所以：**不要自己写裸 `Destroy/DestroyImmediate(mask)`** —— 走 `DSHCore.Ui.UiKit.ReplaceMask`
+    （先 `enabled = false` 再销毁，再补 `RectMask2D`）；`UiClone.Instantiate` 现在已默认对每个克隆体做掉这一条。
+    ⚠️ 本 mod 自己在 `Ui/UiGrid.cs` 里也有一个 `UiKit`，在 `Loadout` 命名空间内会**遮蔽** DSHCore 的那个 ——
+    这种地方必须写全名 `DSHCore.Ui.UiKit`。
 
 ### 本轮（第三批需求：补满 / 禁用冷却 / 幂数 / 无条件放置 / 传送带卡槽化 / tooltip）
 
@@ -847,24 +902,19 @@ powershell -File tools\run-loadout-selftest.ps1
   `PropertyKey`/`PropertyRegions` 所在的命名空间）。写错就是 `CS0234`。
 - 原版属性名有个拼写错误：`LogicLevelProps.SPAWN_POINTS_MUTLIPLIER`（少一个 `I`）。
 
-#### 「禁用冷却」不该依赖原版 buff
+#### 「禁用冷却」直接用原版机制（本轮改）
 
-原版 `mvz2:debug_no_recharge` 有两个问题：
+早先这里是**自持一套备份**（`nr:` 开关 + 每张卡备份 `RECHARGE_ID/SPEED`，自己换预设）。
+原作者后来把 `/cheat recharge` 实做成了**关卡属性**，于是我们改成同一个东西：
 
-1. 它**只在 debug 存档里注册** —— 普通存档 `AddBuff` 直接 `MissingDefinitionException`；
-2. 它是把**整关冷却速度**拉到 `1e8`，与需求要的「逐卡换成『无』」是两回事
-   （还会让蓝图页的「冷却(秒)」显示一个荒谬数字）。
-
-所以改成**自持一个关卡级开关**（`BlueprintFlags` 的 `nr:` 行），
-开关状态与每张卡的备份（`rc:槽号=冷却id|基础速度`）一起写进 `.loadoutflags`：
-
-- 开：先备份每张卡**当前**的 `RECHARGE_ID` / `RECHARGE_SPEED`（玩家改过的也算），再 `ApplyRechargePreset(none)`；
-- 关：按备份换回，并清掉备份；
-- 进关卡时由心跳（`NoRecharge.Tick`）做**边沿检测**自愈 ——
-  因为「上次开着就退出、再进来」不会有任何按钮点击事件。
-
-落盘受 `GcFeature.SaveCustomData`（Standard）管：Safe 档下开关与备份只在内存里
-（需求原话：「禁用冷却在存档里写自定义数据的功能仅在 Standard 下实现，Safe 模式只写到内存」）。
+- 原版：`EngineLevelProps.NO_RECHARGE`（`PropertyMeta<bool>`）+ 扩展方法
+  `LevelEngine.NoRecharge()` / `SetNoRecharge(bool)`；
+  `EngineSeedProps.IsCharged()` 在这个属性为真时**恒真**；debug buff 现在也只是
+  `BooleanModifier(NO_RECHARGE, true)`。
+- 所以面板的「禁用冷却」开关只做一件事：`level.SetNoRecharge(v)`。
+  **写的是关卡属性 → 跟着存档走**，不需要任何自持备份、不需要边沿检测自愈
+  （原来那套 `NoRecharge.cs` 已删除）。
+- 蓝图页的「冷却(秒)」仍然是**逐卡**改 `RECHARGE_ID` / `RECHARGE_SPEED`，两者互不影响。
 
 #### 传送带页：第一行就是**卡槽**
 
@@ -898,15 +948,35 @@ powershell -File tools\run-loadout-selftest.ps1
 
 #### 其它
 
-- **选卡界面那几个按钮点不动 = 叠上去的 TMP 吃了射线**：`DSH_Icon` 是 anchor 拉满盖住整个按钮的，
-  它是射线目标的话，下面的 `Button` 永远收不到点击 → 必须 `label.raycastTarget = false`。
+- **★ 屏幕坐标 / 命中测试必须按「节点自己所在的 Canvas」选相机**。
+  本 mod 的节点分布在**好几个画布**上：面板在 `GlobalUICanvas`（相机 = `UICamera`），
+  而选卡界面那套在 `Level/UI/Presets/.../Canvas`（`ScreenSpaceCamera`，相机 = `Camera`）。
+  一律用 `LoadoutPanel.CanvasCamera()`（= 场景 UI 相机）去算别的画布上的节点，
+  得到的屏幕坐标会**整个跑到屏外**（实测切换按钮算出来是 (1324,911)，而屏幕只有 995×741），
+  于是矩形命中永远失败 —— 症状就是「按钮看得见、点不了」，而且极难查。
+  现在统一走 `UiHitTest.CameraFor(node)`：
+  `Overlay → null`，其余 `canvas.worldCamera`（也就是 Unity 自己的规则）。
+  > 自测里把「本节点画布 / 场景相机 / 是否同一台」直接打出来（`UiHitTest.CanvasOf`），
+  > 再问一次「矩形命中能不能打到自己」—— 这条判据才是点击通路的真凭据，
+  > 而 `EventSystem.RaycastAll` 那个射线探针只说明「谁盖在上面」，**不能**说明点不点得动。
+- **点击通路装两条，按帧去重**：① 每帧的矩形命中（`Frame()`，不看 EventSystem，
+  有东西盖着也能点）；② 原版 `Button.onClick`（EventSystem 那条）。
+  两条都命中会**切两次 = 等于没切**，所以 `ClickOnce()` 用 `Time.frameCount` 去重。
+- **选卡界面按钮上叠的那层 TMP 不要吃射线**：`DSH_Icon` 是 anchor 拉满盖住整个按钮的，
+  它是射线目标的话下面的 `Button` 就收不到点击 → `label.raycastTarget = false`。
   同时把它**居中对齐 + 白色 + 字号 30 + 往右下偏 (1.5,-1.5)**（`-`/`+` 的字形 ink 中心偏上，
   不偏一点看着不居中）。自测把 `raycastTarget` / 颜色 / 字号 / 偏移都打出来当判据。
 - **模仿者要同时改"两处显示"**：战斗里那张卡（`RuntimeBlueprintController`）读的是
   `SeedPack` 的 `command_block` 属性，而**选卡阶段**用的是每个已选卡自己的
   `ChosenBlueprintController.CommandBlock` 字段（`CreateChosenBlueprint` 时从
-  `BlueprintChooseItem` 拷进去的）→ 只改 pack 就会「镜像框里白了、原版选卡处还是原样」。
+  `BlueprintChooseItem` 拷进去的）→ 只改 pack 就会「镜像框里白了、原版那排还是原样」。
   `VanillaChooseBridge` 按「卡槽下标 → 蓝图 id」匹配那些控制器，改完 `UpdateView()` 重画。
+  自测里用**同一张卡前后两次指纹**（`BlueprintStrip.CardState`）证明：
+  「只改属性不刷新 → 卡面不变」+「走一次 `RefreshAll` → 卡面变了」。
+- **逆阵营放置的观感是「左右翻转」，不是染红**：只翻 `Blueprint.iconImage` /
+  `iconImageCommandBlock` 的 `localScale.x`（`BlueprintStrip.SetMirror`），
+  不碰卡框与费用文字（整张卡翻的话费用数字会变成镜像，读不了）。
+  自测判据：`Icon.sx = -1` 且 `Icon.色` 仍是 `1/1/1`。
 - **`VanillaChooseBridge` 用字段不用反射**：`ChosenBlueprintController.CommandBlock` 是
   `public bool`、`Index` 是 `public int { get; set; }`，`UpdateView()` 是 `public` —— 直接改即可，
   不用 `Traverse`（也就避开了 interop 上反射字段的那些坑）。

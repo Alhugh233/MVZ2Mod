@@ -58,7 +58,6 @@ namespace Loadout
             // 名字/说明/作者都是**可翻译的源串**（第三个之后的参数里给的是译文）。
             UiOptions.DeclareMod(SpaceName, "MVZ2 Loadout",
                 "图形化控制台面板（调试工具，替代原版控制台输入窗）", "QoZnoS", "图形化控制台");
-
             UiOptions.DeclareChoice(
                 SpaceName, ChoiceId,
                 category: "gameplay",      // 只有「同时进原版设置界面」时才用得到

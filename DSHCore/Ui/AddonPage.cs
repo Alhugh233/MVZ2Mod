@@ -181,6 +181,18 @@ namespace DSHCore.Ui
         /// <summary>页面标题（页面壳 <c>Top/Title</c> 的文案）。</summary>
         public abstract string Title { get; }
 
+        /// <summary>
+        /// 入口按钮实际画出来的文案（= <see cref="EntryLabel"/> 取词）。
+        ///
+        /// <para>为什么要分两个：<see cref="EntryLabel"/> 还被用作**日志与诊断的稳定标识**
+        /// （<see cref="DescribeEntry"/> / 本库的互斥判定），跟着语言变的话排查起来就得先猜
+        /// 当时是哪种语言。所以显示走这个属性，逻辑走原属性。</para>
+        /// </summary>
+        public string EntryLabelText { get { return UiLocale.Get(EntryLabel); } }
+
+        /// <summary>页面标题实际画出来的文案（= <see cref="Title"/> 取词）。</summary>
+        public string TitleText { get { return UiLocale.Get(Title); } }
+
         /// <summary>页面壳从哪个原版页面克隆（默认插件页自己的索引 = 单栏版式）。</summary>
         protected virtual AddonShellSource ShellSource
         {
@@ -618,7 +630,7 @@ namespace DSHCore.Ui
             // 只改文字、**不动字号/自动缩放** —— 入口要和旁边的原版按钮长得一模一样。
             // 先把克隆体上的文本翻译器摘掉：不摘的话节点一启用它就把文字写回成原版那句。
             UiKit.StripTextTranslators(clone);
-            UiClone.SetLabel(clone, EntryLabel);
+            UiClone.SetLabel(clone, EntryLabelText);
             UiClone.OnClick(clone, OpenFromEntry);
 
             // 插到「最后一个己方入口」之后（没有就插在模板正后面）。
@@ -634,7 +646,7 @@ namespace DSHCore.Ui
 
             // 插进树里之后再写一次文案：克隆时对象还没有父节点，
             // 个别 TMP 在这种状态下的赋值会随后被它自己的布局/激活回调覆盖回去。
-            UiClone.SetLabel(clone, EntryLabel);
+            UiClone.SetLabel(clone, EntryLabelText);
 
             // 列表容器原本是**横向**布局（原版打算横排多个分类按钮），所以「插一个兄弟」
             // 只会并排、不会另起一行。改成纵向，条目就各占一行。
@@ -674,8 +686,8 @@ namespace DSHCore.Ui
                 return;
             try
             {
-                if (t.text != EntryLabel)
-                    t.text = EntryLabel;
+                if (t.text != EntryLabelText)
+                    t.text = EntryLabelText;
             }
             catch (Exception) { }
         }
@@ -740,7 +752,7 @@ namespace DSHCore.Ui
 
             // 标题
             if (UiFinder.IsAlive(shell.Title))
-                UiClone.SetLabel(shell.Title, Title);
+                UiClone.SetLabel(shell.Title, TitleText);
             else
                 UiLog.WarnOnce("addonpg-title-" + Id, "页面壳里找不到标题（Top/Title）。");
 

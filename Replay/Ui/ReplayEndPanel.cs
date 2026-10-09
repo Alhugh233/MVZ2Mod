@@ -1,6 +1,7 @@
 using System;
 using System.Globalization;
 using System.Text;
+using DSHCore.Ui;
 using MVZ2.Managers;
 using MVZ2.Scenes;
 
@@ -161,7 +162,8 @@ namespace Replay
             });
             _onSelect = onSelect;
 
-            scene.ShowDialog(Title, BuildDesc(reason), options, onSelect);
+            // 走游戏原生的 ShowDialog：标题与按钮文案得自己取词（它拿到什么就画什么）。
+            scene.ShowDialog(UiLocale.Get(Title), BuildDesc(reason), UiLocale.GetAll(options), onSelect);
         }
 
         /// <summary>
@@ -184,7 +186,7 @@ namespace Replay
             var path = ReplayPlayer.CurrentPath;
             if (string.IsNullOrEmpty(path))
             {
-                _note = "没有可导出的文件。";
+                _note = UiLocale.Get("没有可导出的文件。");
                 _info = _info + "；没有可导出的文件";
                 ShowMain(ReplayPlayer.StopReason);
                 return;
@@ -213,7 +215,7 @@ namespace Replay
             if (string.IsNullOrEmpty(dest))
             {
                 // 玩家点了「取消」：把面板弹回来，只多一行说明。
-                _note = "已取消导出。";
+                _note = UiLocale.Get("已取消导出。");
                 _info = _info + "；导出取消";
                 ShowMain(ReplayPlayer.StopReason);
                 return;
@@ -222,7 +224,7 @@ namespace Replay
             try { ok = ReplayLibrary.Export(path, dest, out err); }
             catch (Exception e) { ok = false; err = e.GetType().Name + "：" + e.Message; }
 
-            _note = ok ? "已导出到：" + dest : "导出失败：" + (err ?? "未知原因。");
+            _note = ok ? UiLocale.Get("已导出到：") + dest : UiLocale.Get("导出失败：") + (err ?? UiLocale.Get("未知原因。"));
             _info = _info + (ok ? "；导出成功 → " + dest : "；导出失败：" + (err ?? "?"));
             ShowMain(ReplayPlayer.StopReason);
         }
@@ -241,7 +243,7 @@ namespace Replay
             var path = ReplayPlayer.CurrentPath;
             string err;
             var ok = ReplayLibrary.Export(path, destPath, out err);
-            _note = ok ? "已导出到：" + destPath : "导出失败：" + (err ?? "未知原因。");
+            _note = ok ? UiLocale.Get("已导出到：") + destPath : UiLocale.Get("导出失败：") + (err ?? UiLocale.Get("未知原因。"));
             _info = _info + (ok ? "；导出成功 → " + destPath : "；导出失败：" + (err ?? "?"));
             ShowMain(ReplayPlayer.StopReason);
             return ok;
@@ -321,18 +323,18 @@ namespace Replay
                 sb.Append('\n');
             }
 
-            sb.Append("结果：").Append(ReasonText(reason));
+            sb.Append(UiLocale.Get("结果：")).Append(ReasonText(reason));
 
             var total = ReplayPlayer.TotalEventCount;
             if (total > 0)
-                sb.Append("　注入 ").Append(ReplayPlayer.InjectedEventCount).Append('/').Append(total);
+                sb.Append(UiLocale.Get("　注入 ")).Append(ReplayPlayer.InjectedEventCount).Append('/').Append(total);
 
             var compared = ReplayPlayer.VerifiedComparisons;
             if (compared > 0)
             {
                 var bad = ReplayPlayer.VerifiedMismatches;
-                sb.Append("　一致性 ").Append(compared - bad).Append('/').Append(compared)
-                  .Append(bad == 0 ? " ✅" : "（不一致 " + bad + "）❌");
+                sb.Append(UiLocale.Get("　一致性 ")).Append(compared - bad).Append('/').Append(compared)
+                  .Append(bad == 0 ? " ✅" : UiLocale.Format("（不一致 {0}）❌", bad));
             }
 
             // 上一次操作的反馈（导出结果）直接写在正文里 —— 见 DoExport 的说明：
@@ -359,20 +361,26 @@ namespace Replay
             }
         }
 
+        /// <summary>
+        /// 结束原因的人读文字（画在结束面板正文里，所以要取词）。
+        ///
+        /// <para>⚠ <c>case</c> 那些取值是 <see cref="ReplayPlayer.StopReason"/> 传出来的**协议串**，
+        /// 绝不能翻；只有 <c>return</c> 的中文才是显示文字。</para>
+        /// </summary>
         private static string ReasonText(string reason)
         {
             switch (reason)
             {
-                case "finished": return "播放完毕";
-                case "level-cleared": return "关卡通关";
-                case "game-over": return "关卡失败";
-                case "level-dispose": return "关卡已关闭";
-                case "manual-end": return "已结束播放";
-                case "tick-limit": return "到达调试 tick 上限";
-                case "selftest-stalled": return "自测：播放停滞，提前收尾";
-                case "selftest-timeout": return "自测：等待超时";
-                case "application-quit": return "游戏退出";
-                default: return string.IsNullOrEmpty(reason) ? "结束" : reason;
+                case "finished": return UiLocale.Get("播放完毕");
+                case "level-cleared": return UiLocale.Get("关卡通关");
+                case "game-over": return UiLocale.Get("关卡失败");
+                case "level-dispose": return UiLocale.Get("关卡已关闭");
+                case "manual-end": return UiLocale.Get("已结束播放");
+                case "tick-limit": return UiLocale.Get("到达调试 tick 上限");
+                case "selftest-stalled": return UiLocale.Get("自测：播放停滞，提前收尾");
+                case "selftest-timeout": return UiLocale.Get("自测：等待超时");
+                case "application-quit": return UiLocale.Get("游戏退出");
+                default: return string.IsNullOrEmpty(reason) ? UiLocale.Get("结束") : reason;
             }
         }
 

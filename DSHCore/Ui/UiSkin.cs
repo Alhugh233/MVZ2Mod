@@ -1170,7 +1170,16 @@ namespace DSHCore.Ui
 
                 var mask = viewport.GetComponent<Mask>();
                 if (mask != null)
-                    UnityEngine.Object.Destroy(mask);
+                {
+                    // ⚠️ 必须**先禁用再销毁**（与 UiKit.ReplaceMask 同一套纪律，论证见那里）：
+                    // 只要 Mask 还是 enabled，子树里的 TMP 子网格就会去 TMP_MaterialManager 申请
+                    // **全局共享**的 Stencil 材质实例 —— 销毁这个 Mask 会把那份实例一并销毁，
+                    // 于是游戏自己 UI 里同样用着它的 TMP（关卡 HUD 的蓝图/能量/进度文本都在遮罩里）
+                    // 下一次 Update/Disable 就抛 NullReferenceException。
+                    // 而 `Destroy` 要到帧末才生效，中间那一帧足够完成注册，所以不能用它。
+                    try { mask.enabled = false; } catch (Exception) { }
+                    UnityEngine.Object.DestroyImmediate(mask);
+                }
 
                 if (viewport.GetComponent<RectMask2D>() == null)
                     viewport.gameObject.AddComponent<RectMask2D>();

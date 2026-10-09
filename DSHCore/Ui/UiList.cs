@@ -356,6 +356,8 @@ namespace DSHCore.Ui
         /// <c>ButtonRow</c> 自己在运行时用 <c>UpdateButtons</c> 生成/复用出来的，
         /// 直接找子节点上的 TMP 改字**不生效**（拿到的往往是模板那一份）——
         /// 症状是「日志里改了，画面上还是老文案」。必须再调一次 <c>UpdateButtons</c>。</para>
+        ///
+        /// <para>文案会过一遍 <see cref="UiLocale.Get"/>（与 <see cref="UiKit.Label"/> 一致）。</para>
         /// </summary>
         public static bool SetButtonLabel(GameObject row, string label)
         {
@@ -366,7 +368,7 @@ namespace DSHCore.Ui
                 var br = row.GetComponent<MVZ2.UI.ButtonRow>();
                 if (br == null)
                     return false;
-                br.UpdateButtons(ToIl2Cpp(new[] { label ?? string.Empty }));
+                br.UpdateButtons(ToIl2Cpp(new[] { UiLocale.Get(label) ?? string.Empty }));
                 return true;
             }
             catch (Exception e)

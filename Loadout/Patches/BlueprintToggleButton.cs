@@ -40,6 +40,69 @@ namespace Loadout
             Update();
         }
 
+        /// <summary>
+        /// 每帧（**不节流**）的点击处理。
+        ///
+        /// <para><b>为什么不走 <c>Button.onClick</c></b>：实测这个克隆按钮上的
+        /// <c>onClick</c> 收不到点击（射线被别的东西吃了 —— 见 <see cref="DebugRaycast"/> 的探针），
+        /// 而本仓库对"自己造的按钮"一贯的做法就是**矩形命中 + 自己处理**
+        /// （<c>UiHitTest</c> 的注释里写了原因）。所以：按钮只留观感与悬停提示，
+        /// 点击一律走这里。鼠标按下的那一帧 <c>GetMouseButtonDown</c> 只在一帧为真，
+        /// 所以这个函数**不能节流**。</para>
+        /// </summary>
+        public static void Frame()
+        {
+            if (!UiFinder.IsAlive(node))
+                return;
+            try
+            {
+                if (!Input.GetMouseButtonDown(0))
+                    return;
+                var pos = (Vector2)Input.mousePosition;
+                // 面板盖在上面的时候点的是面板 —— 别顺手把按钮也切了。
+                var panel = LoadoutPanel.DialogRoot;
+                if (LoadoutPanel.IsOpen && panel != null && UiHitTest.Contains(panel.gameObject, pos))
+                    return;
+                TryClick(pos);
+            }
+            catch (Exception) { }
+        }
+
+        /// <summary>
+        /// 点击命中的**本体**：点落在按钮矩形里就切换蓝图范围并返回 <c>true</c>。
+        ///
+        /// <para>抽出来是为了自测能**真的走一遍这条路**（只不过点是我们喂进去的）——
+        /// 只剩「读鼠标」那一步没法自动验，其余（矩形命中 + 切换 + 改图标）全都验到。</para>
+        /// </summary>
+        public static bool TryClick(Vector2 screenPoint)
+        {
+            if (!UiFinder.IsAlive(node))
+                return false;
+            if (!UiHitTest.Contains(node, screenPoint))
+                return false;
+            ClickOnce();
+            return true;
+        }
+
+        /// <summary>
+        /// 切一次蓝图范围，**同一帧只算一次**。
+        ///
+        /// <para>为什么需要去重：这个按钮有意装了两条点击通路 ——
+        /// ① 每帧的矩形命中（<see cref="Frame"/>，不依赖 EventSystem，谁挡着都能点）；
+        /// ② 原版 <c>Button.onClick</c>（EventSystem 那条，位置对、没人挡时也有效）。
+        /// 两条都命中就会**切两次 = 等于没切**，所以用帧号去重。</para>
+        /// </summary>
+        private static void ClickOnce()
+        {
+            var f = Time.frameCount;
+            if (f == _lastClickFrame)
+                return;
+            _lastClickFrame = f;
+            OnClick();
+        }
+
+        private static int _lastClickFrame = -1;
+
         /// <summary>真正干活的那一步（节流在外面）。</summary>
         public static void Update()
         {
@@ -111,8 +174,11 @@ namespace Loadout
                     Plugin.LogOnce("bptoggle-btn", "[Blueprints] 切换按钮克隆体上没有 Button 组件");
                     return;
                 }
-                var managed = new System.Action(OnClick);
-                UiClone.OnClick(node, managed);
+                // 两条点击通路都装上（同一帧只生效一次，见 ClickOnce）：
+                //   ① onClick = EventSystem 那条（位置对、没人挡时有效）；
+                //   ② Frame() 的矩形命中 = 不依赖 EventSystem（有东西挡着也能点）。
+                // 只装一条都会在某种情形下点不动 —— 这个按钮已经因为这个被投诉过一次。
+                button.onClick.AddListener((UnityEngine.Events.UnityAction)ClickOnce);
 
                 // 位置与尺寸：与取消按钮**完全一致**（同锚点/同锚点位置偏移）。
                 try
@@ -296,6 +362,8 @@ namespace Loadout
                 sb.Append("  ").Append(go.activeSelf ? "" : "（已隐藏）")
                   .Append(" 尺寸=").Append(rt == null ? "?"
                         : (Mathf.RoundToInt(rt.rect.width) + "x" + Mathf.RoundToInt(rt.rect.height)));
+                if (rt != null)
+                    sb.Append(" 屏").Append(ScreenRect(rt));
                 var tmp = go.GetComponent<TMPro.TextMeshProUGUI>();
                 if (tmp != null)
                     sb.Append(" 文字「").Append(tmp.text).Append("」");
@@ -431,6 +499,14 @@ namespace Loadout
                     + " viewLawn=" + Name(choose.viewLawnButton)
                     + " cancel=" + Name(choose.cancelButton)
                     + " repick=" + Name(choose.repickButton));
+                // ★ 四个原版按钮 + 我们的克隆体各自的**屏幕矩形**：
+                //   这样就能一眼看出「是我们的按钮位置算错了」还是「整个面板这会儿就不在屏上」
+                //   （自测里的强制显示属于后者，是测试假象，不代表真·选卡界面的位置）。
+                sb.Append("\n  屏矩形 start=").Append(ScreenRectOf(choose.startButton))
+                  .Append("\n  屏矩形 viewLawn=").Append(ScreenRectOf(choose.viewLawnButton))
+                  .Append("\n  屏矩形 cancel=").Append(ScreenRectOf(choose.cancelButton))
+                  .Append("\n  屏矩形 repick=").Append(ScreenRectOf(choose.repickButton))
+                  .Append("\n  屏矩形 我们的=").Append(ScreenRectOf(node));
                 sb.Append('\n').Append(Dump(choose.cancelButton));
                 return sb.ToString();
             }
@@ -487,6 +563,145 @@ namespace Loadout
             {
                 return "读图标参数失败：" + e.GetType().Name;
             }
+        }
+
+        /// <summary>
+        /// 自测用：在按钮中心做一次**真正的 UI 射线**，看是谁在吃点击。
+        ///
+        /// <para>这个按钮的 <c>onClick</c> 收不到点击，而「看不见的挡板」靠肉眼是查不出来的 ——
+        /// 只能问 EventSystem：把命中的前几个节点打出来，谁挡在上面一目了然。
+        /// （这也是本轮把点击改成自己矩形命中的依据。）</para>
+        /// </summary>
+        public static string DebugRaycast()
+        {
+            if (!UiFinder.IsAlive(node))
+                return "（按钮不存在）";
+            try
+            {
+                var rt = node.transform.TryCast<RectTransform>();
+                if (rt == null)
+                    return "（按钮没有 RectTransform）";
+                var center = RectTransformUtility.WorldToScreenPoint(
+                    UiHitTest.CameraFor(node), rt.TransformPoint(rt.rect.center));
+                var es = UnityEngine.EventSystems.EventSystem.current;
+                if (es == null)
+                    return "（场景里没有 EventSystem）";
+
+                var data = new UnityEngine.EventSystems.PointerEventData(es);
+                data.position = center;
+                var list = new Il2CppSystem.Collections.Generic.List<UnityEngine.EventSystems.RaycastResult>();
+                es.RaycastAll(data, list);
+
+                var sb = new System.Text.StringBuilder(400);
+                sb.Append("按钮中心屏坐标=").Append(Mathf.RoundToInt(center.x)).Append(',')
+                  .Append(Mathf.RoundToInt(center.y))
+                  .Append("  命中 ").Append(list.Count).Append(" 个\n");                var self = false;
+                for (var i = 0; i < list.Count && i < 6; i++)
+                {
+                    var go = list[i].gameObject;
+                    if (go == null)
+                        continue;
+                    if (go == node || UiHost.IsOwn(go.transform))
+                        self = true;
+                    sb.Append("  ").Append(i).Append(": ").Append(UiFinder.PathOf(go.transform)).Append('\n');
+                }
+                sb.Append("  判据 射线能命中自己=").Append(self ? "能" : "不能（就是它在挡住点击）");
+
+                // ★ 真正要紧的是这一条：我们**不看 EventSystem**，点击走的是
+                //   「Input.GetMouseButtonDown → UiHitTest.Contains(矩形命中)」。
+                //   所以只要这一条为「能」，点按钮中心就一定会走到 OnClick。
+                var hit = UiHitTest.Contains(node, center);
+                sb.Append("\n  判据 矩形命中能打到自己=").Append(hit ? "能（点击通路成立）" : "不能（点击通路断了）");
+                sb.Append("\n  按钮屏矩形=").Append(ScreenRect(rt));
+                return sb.ToString();
+            }
+            catch (Exception e)
+            {
+                return "射线探测失败：" + e.GetType().Name + ": " + e.Message;
+            }
+        }
+
+        /// <summary>
+        /// 自测用：把「点在按钮中心」这条路**真的走一遍**（矩形命中 → 切换 → 改图标 → 再点还原）。
+        ///
+        /// <para>这个按钮的点击**不看 EventSystem**，所以「射线命中 0 个」不代表点不了；
+        /// 真正要证的是「点落在矩形里就会切换」。这里把点喂给 <see cref="TryClick"/>，
+        /// 与 <see cref="Frame"/> 走的是同一个函数 —— 只剩「读鼠标按键」那一步没法自动验。</para>
+        /// </summary>
+        public static string DebugClick()
+        {
+            if (!UiFinder.IsAlive(node))
+                return "（按钮不存在）";
+            try
+            {
+                var rt = node.transform.TryCast<RectTransform>();
+                if (rt == null)
+                    return "（按钮没有 RectTransform）";
+                var center = RectTransformUtility.WorldToScreenPoint(
+                    UiHitTest.CameraFor(node), rt.TransformPoint(rt.rect.center));
+
+                var before = AllBlueprintsPatch.ShowAll;
+                var hit = TryClick(center);
+                var after = AllBlueprintsPatch.ShowAll;
+                // 再点一次还原成原样（探针不能把状态留在原地）。
+                // ⚠️ 先清掉「同帧只切一次」的闸门 —— 探针是在**同一帧**里点两下的。
+                _lastClickFrame = -1;
+                var back = TryClick(center);
+                var restored = AllBlueprintsPatch.ShowAll == before;
+                return "点中心(" + Mathf.RoundToInt(center.x) + ',' + Mathf.RoundToInt(center.y) + ")"
+                    + "  矩形命中=" + (hit ? "是" : "否")
+                    + "  链上激活=" + (SafeActiveInHierarchy() ? "是" : "否（自测强制显示时它整个面板都还没激活 → 这是测试假象）")
+                    + "  画布=" + UiHitTest.CanvasOf(node)
+                    + "  模式 " + (before ? "全部" : "原版") + " → " + (after ? "全部" : "原版")
+                    + "\n  判据 点中即切换=" + (hit && before != after ? "OK" : "NG")
+                    + "  判据 再点一次能还原=" + (back && restored ? "OK" : "NG");
+            }
+            catch (Exception e)
+            {
+                return "点击探针失败：" + e.GetType().Name + ": " + e.Message;
+            }
+        }
+
+        /// <summary>自测用：节点的屏幕矩形（在本机像素空间里，和 <c>Input.mousePosition</c> 同一套）。</summary>
+        private static string ScreenRect(RectTransform rt)
+        {
+            if (rt == null)
+                return "（无矩形）";
+            try
+            {
+                var cam = UiHitTest.CameraFor(rt.gameObject);
+                var bl = RectTransformUtility.WorldToScreenPoint(cam, rt.TransformPoint(rt.rect.min));
+                var tr = RectTransformUtility.WorldToScreenPoint(cam, rt.TransformPoint(rt.rect.max));
+                return "x[" + Mathf.RoundToInt(bl.x) + "," + Mathf.RoundToInt(tr.x)
+                    + "] y[" + Mathf.RoundToInt(bl.y) + "," + Mathf.RoundToInt(tr.y)
+                    + "]  屏=" + Screen.width + "x" + Screen.height;
+            }
+            catch (Exception e)
+            {
+                return "（读不出来 " + e.GetType().Name + "）";
+            }
+        }
+
+        private static string ScreenRectOf(Button b)
+        {
+            if (b == null)
+                return "（无）";
+            try { return ScreenRect(b.transform.TryCast<RectTransform>()); }
+            catch (Exception) { return "（读不出来）"; }
+        }
+
+        private static bool SafeActiveInHierarchy()
+        {
+            try { return UiFinder.IsAlive(node) && node.activeInHierarchy; }
+            catch (Exception) { return false; }
+        }
+
+        private static string ScreenRectOf(GameObject go)
+        {
+            if (!UiFinder.IsAlive(go))
+                return "（无）";
+            try { return ScreenRect(go.transform.TryCast<RectTransform>()); }
+            catch (Exception) { return "（读不出来）"; }
         }
 
         public static string Describe()

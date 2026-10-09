@@ -8,6 +8,7 @@ using MVZ2.Level.HeldItems;
 using MVZ2.Level.Inputing;
 using MVZ2.Managers;
 using MVZ2.Scenes;
+using MVZ2Logic.Games;
 using MVZ2Logic.HeldItems;
 using MVZ2Logic.Level;
 using PVZEngine.Level;
@@ -183,6 +184,97 @@ namespace Replay
             if (fail > 0)
                 Plugin.Log?.LogWarning("[Replay] 有 " + fail + " 个补丁没挂上，录制内容会不完整");
         }
+
+        #region 存档护栏（延迟安装）
+        private static bool saveGuardApplied;
+        private static int saveGuardInstalled;
+        private static readonly System.Collections.Generic.List<string> saveGuardMissing =
+            new System.Collections.Generic.List<string>();
+
+        /// <summary>存档护栏补丁的安装情况（写进播放小结）。</summary>
+        public static string SaveGuardStatus
+        {
+            get
+            {
+                if (!saveGuardApplied)
+                    return "未安装";
+                if (saveGuardMissing.Count == 0)
+                    return "已挂 " + saveGuardInstalled + " 个";
+                // ⛔ 失败的必须点名：少挂一个就意味着回放能改动存档的某一项，
+                // 而「挂上了没生效」和「没挂上」从游戏表现上完全看不出来。
+                return "已挂 " + saveGuardInstalled + " 个，❌ 失败 " + saveGuardMissing.Count
+                    + " 个（" + string.Join("、", saveGuardMissing.ToArray()) + "）";
+            }
+        }
+
+        /// <summary>装一个存档护栏补丁；失败就记下名字（会出现在播放小结里）。</summary>
+        private static void GuardPatch(Type type, string method, Type[] args, string prefix)
+        {
+            int ok = 0, fail = 0;
+            if (PatchIn(type, method, args, typeof(ReplaySaveGuard), prefix, null, ref ok, ref fail))
+                saveGuardInstalled++;
+            else
+                saveGuardMissing.Add(type.Name + "." + method);
+        }
+
+        /// <summary>
+        /// 安装「回放期间不许改动存档」的补丁（详见 <see cref="ReplaySaveGuard"/>）。
+        ///
+        /// <para><b>为什么故意拖到第一次播放才装：</b>目标里有一半在 <c>MVZ2Logic.*</c>
+        /// （金币那两处）。本仓库踩过的坑是「在 <c>Plugin.Load()</c> 阶段反射
+        /// <c>MVZ2Logic</c> 的类型会提前触发它的 <c>.cctor</c>，而那种 cctor 依赖游戏初始化 →
+        /// 抛异常并被运行时永久缓存」。等到真的要播放时，游戏早就初始化完了，
+        /// 这时候反射它们怎么都安全。</para>
+        /// </summary>
+        public static void EnsureSaveGuardHooks()
+        {
+            if (saveGuardApplied)
+                return;
+            saveGuardApplied = true;
+
+            var ext = typeof(MVZ2Logic.Saves.LogicSaveExt);
+            var data = typeof(MVZ2Logic.Saves.LogicSaveData);
+            var sm = typeof(MVZ2.Saves.SaveManager);
+            var ns = typeof(PVZEngine.NamespaceID);
+
+            // ---- 金币①：LogicSaveExt（Global.Saves.* 的公开面，游戏绝大多数地方走这条）----
+            GuardPatch(ext, "GetMoney", new[] { typeof(IGlobalSaveData) },
+                nameof(ReplaySaveGuard.ExtGetMoneyPrefix));
+            GuardPatch(ext, "SetMoney", new[] { typeof(IGlobalSaveData), typeof(int) },
+                nameof(ReplaySaveGuard.ExtSetMoneyPrefix));
+            GuardPatch(ext, "AddMoney", new[] { typeof(IGlobalSaveData), typeof(int) },
+                nameof(ReplaySaveGuard.ExtAddMoneyPrefix));
+
+            // ---- 金币②：LogicSaveData（直接摸到数据对象那条）----
+            // 两层都挂是因为这两个方法都很短，IL2CPP 可能把里层内联进外层；
+            // 只挂一层的话，真被内联了那一层就永远不生效（且不报任何错）。
+            GuardPatch(data, "GetMoney", Type.EmptyTypes, nameof(ReplaySaveGuard.DataGetMoneyPrefix));
+            GuardPatch(data, "SetMoney", new[] { typeof(int) }, nameof(ReplaySaveGuard.DataSetMoneyPrefix));
+
+            // ---- 统计 / 解锁 / 难度记录 / 关卡进度 / 上次选卡 / 上次地图 / 地图对话：一律拦掉 ----
+            // 统计那几个（击杀数 / 放置数 / 通关次数…）是「统计数据变化会反映到回放外」的
+            // 直接来源：它们挂在 POST_ENEMY_SPAWNED / POST_ENTITY_DEATH / POST_LEVEL_CLEAR
+            // 这些关卡回调上，回放重演时会一条条累加进 Global.Saves。
+            var block = nameof(ReplaySaveGuard.BlockPrefix);
+            GuardPatch(sm, "SetStat", new[] { ns, ns, typeof(long) }, block);
+            GuardPatch(sm, "SetDirectEntryStat", new[] { ns, typeof(long) }, block);
+            GuardPatch(sm, "Unlock", new[] { ns }, block);
+            GuardPatch(sm, "Relock", new[] { ns }, block);
+            GuardPatch(sm, "AddLevelDifficultyRecord", new[] { ns, ns }, block);
+            GuardPatch(sm, "SetCurrentEndlessFlag", new[] { ns, typeof(int) }, block);
+
+            // 这三个是 IGlobalSaveData 的扩展方法，Main.SaveManager.SetLastSelection(...) 走的正是它们。
+            // 「上次选卡」在**选卡阶段**就会被写（LevelBlueprintChooseController），
+            // 也就是说只要放一次回放，玩家自己存的上一次选卡就被换掉了。
+            GuardPatch(ext, "SetLastMapID", new[] { typeof(IGlobalSaveData), ns }, block);
+            GuardPatch(ext, "SetLastSelection", null, block);
+            GuardPatch(ext, "SetMapTalk", new[] { typeof(IGlobalSaveData), ns }, block);
+
+            Plugin.Log?.LogInfo("[Replay] 存档护栏补丁：" + SaveGuardStatus);
+            if (saveGuardMissing.Count > 0)
+                Plugin.Log?.LogWarning("[Replay] 有存档护栏补丁没挂上，回放可能会改动存档的对应项：" + SaveGuardStatus);
+        }
+        #endregion
 
         /// <summary>挂一个补丁（prefix/postfix 都在 <see cref="ReplayPatches"/> 里）；失败只记日志。</summary>
         private static bool Patch(Type type, string method, Type[] args, string prefix, string postfix, ref int ok, ref int fail)

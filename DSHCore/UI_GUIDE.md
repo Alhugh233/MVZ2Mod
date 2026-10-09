@@ -481,10 +481,67 @@ UiLocale.Add("Better Furnace", "Better Furnace", UiLocale.English);
 string label = UiLocale.Get("更好的熔炉");                         // 当前语言下的文案
 ```
 
-它把自己挂进游戏的查找链（`LanguageManager.TryGetLocalizedString` 的前缀补丁，
-由 `Plugin.Load()` 调 `UiLocale.Apply()`；挂不上只影响「别人查我们」，
-`UiLocale.Get` 自己永远生效）。启动会打一条 `[UiLocale] 已挂进游戏文本查找链（补丁 N 处）`；
+它把自己挂进游戏的查找链（由 `Plugin.Load()` 调 `UiLocale.Apply()`；挂不上只影响「别人查我们」，
+`UiLocale.Get` 自己永远生效）。启动会打一条 `[UiLocale] 已挂进游戏文本查找链（补丁 N/4 处）`；
 挂链**自检失败**时才会再打一条警告 —— 没有警告就是好的，别猜。
+
+它挂的是**两条**查找（各两个重载）：
+
+| 挂在哪 | 管什么 |
+| --- | --- |
+| `TryGetLocalizedString(text, lang, out, args)` | 普通界面文字（无上下文条目） |
+| `TryGetLocalizedStringParticular(context, text, lang, out, args)` | **游戏内容名** —— 关卡名 / 诅咒名与说明 / 实体名 / 难度名…全部走这条（见 §11.6） |
+
+### 11.2.1 推荐写法：一个 mod 一张表（`UiLocale.Table`）
+
+直接在 `Load()` 里堆一长串 `UiLocale.Add` 很快会失控（看不出属于谁、容易漏语言、
+分不清「内容名」与「界面文字」）。改成一张表：
+
+```csharp
+// Localization.cs —— 一个 mod 一个文件，全部文案都在这里
+internal static class LabLocale
+{
+    private static readonly UiLocaleTable T = UiLocale.Table("mvz2_lab");
+
+    public static void Register()
+    {
+        T.En("实验室小游戏（real_prologue / zero_k_space / unknow_palace）",
+             "Laboratory minigames (real_prologue / zero_k_space / unknow_palace)");
+
+        // 游戏内容名：必须带上下文
+        T.EnAllWith(LogicStrings.CONTEXT_LEVEL_NAME,
+            "真正的序章", "Real Prologue",
+            "零度空间", "Zero-K Space");
+    }
+}
+```
+
+在 `Plugin.Load()` 里调一次 `LabLocale.Register()`（早于任何界面/关卡取词）。
+
+| 方法 | 用途 |
+| --- | --- |
+| `Add(源串, 译文, 语言?, 上下文?)` | 单条（最底层） |
+| `Both(源串, 英文, 中文?, 上下文?)` | 一次登记两种语言 |
+| `En(中文, 英文, 上下文?)` | 「中文源串 → 英文」简写（最常用） |
+| `Zh(源串, 中文, 上下文?)` | 「英文源串 → 中文」（mod 自述名这类） |
+| `EnAll("甲","A","乙","B")` | 批量简写 |
+| `EnAllWith(上下文, "甲","A",…)` | 批量 + 同一上下文（内容名成片登记） |
+
+### 11.2.2 界面文字是**自动**取词的（写文案时不用管）
+
+本库的界面辅助函数在画字的时候会过一遍 `UiLocale.Get`，所以 **mod 只要把译文登记好，
+界面就会跟着游戏语言变** —— 不必在每个调用点包一层：
+
+| 入口 | 行为 |
+| --- | --- |
+| `UiKit.Label` / `UiKit.Paragraph` / `UiKit.TextButton` | ✅ 自动（`TextButton` 的第 2 参是**节点名**，不过取词；第 3 参才是文案） |
+| `UiOptionRow.SetLabel` / `SetTooltip` 等 | ✅ 自动 |
+| `UiList.SetButtonLabel` | ✅ 自动 |
+| `AddonPage.EntryLabel` / `Title` | ✅ 自动（显示走 `EntryLabelText` / `TitleText`；原属性保持稳定，日志里打的是原文） |
+| 游戏原生的 `CustomDialog` / `ShowDialog`（自己拼的对话框） | ❌ 得自己 `UiLocale.Get(...)` —— 它拿到什么就画什么 |
+
+> 没登记的文本会**原样通过**，所以「先写中文、以后补英文」完全可行。
+> 要显示不可翻译的原文（例如「名称原文」那一行）就直接用 `UiClone.SetLabel` 绕开取词。
 
 | 事项 | 怎么做 |
 | --- | --- |
@@ -569,3 +626,42 @@ mod 的显示语言始终跟着**游戏设置**走，而游戏的语言列表来
 | 空译文 | `键 =`（右边为空）= 还没译 → 跳过这一条，取词继续往下走 |
 | 导出模板 | `WriteTemplate(lang)` / `/dshtrans write <lang>`；键表来自本次会话**实际查过**的源串（`KnownKeys`） |
 | 诊断 | `UiLocale.Report()` / `DescribeExternal(lang)` / `DumpKeys()` |
+
+### 11.6 游戏内容名：一定要带**上下文**
+
+这是 mod 多语言最容易漏的一半，也是唯一「翻完觉得没生效」的常见原因。
+
+游戏里有两套查找：普通查找（§11.2.1 那套）与**带上下文的查找**。名字类文本全部走后者：
+
+| 内容 | 上下文常量 |
+| --- | --- |
+| 关卡名（`stages.xml` 的 `name`） | `LogicStrings.CONTEXT_LEVEL_NAME` = `levelname` |
+| 诅咒名 / 诅咒说明 | `LogicStrings.CONTEXT_CURSE_NAME` / `CONTEXT_CURSE_TOOLTIP` |
+| 实体名 / 说明 / 死亡信息 | `CONTEXT_ENTITY_NAME` / `CONTEXT_ENTITY_TOOLTIP` / `CONTEXT_DEATH_MESSAGE` |
+| 制品、难度、音乐、图鉴标签… | `LogicStrings.CONTEXT_*` 里对应那个 |
+
+显示时游戏会 `_p(上下文, 名字)` → `LanguageManager.TryGetLocalizedStringParticular(context, text, …)`。
+**所以 mod 的 XML 里写的中文名字，只有登记成带上下文的条目才会被翻。**
+
+```csharp
+// ✅ 对：关卡选择列表、关卡内标题、统计页都会跟着语言变
+T.En("真正的序章", "Real Prologue", LogicStrings.CONTEXT_LEVEL_NAME);
+
+// ❌ 错：只在你自己用 UiLocale.Get 的地方生效，游戏自己的关卡列表依然是中文
+T.En("真正的序章", "Real Prologue");
+```
+
+**外部文件里带上下文的行**写成 `[上下文] 源串 = 译文`：
+
+```ini
+[curse.name] 怪物的大脑 = The Creature's Brain
+[curse.tooltip] 器械受到伤害时漏电 3s。 = Contraptions leak electricity for 3s when damaged.
+[levelname] 真正的序章 = Real Prologue
+```
+
+**键必须逐字符一致** —— 带富文本标记的名字（`<color=#FF4040>永恒之心</color>`）
+标记也是键的一部分（游戏是把整串拿去做查找的）。漏了标记就查不到，而**不会报任何错**。
+
+> 上下文查找**不做回退**：带上下文的查询不会命中不带上下文的条目。
+> 这是故意的 —— 游戏会对官方的**每一条**名字做这种查找，若允许回退，
+> mod 界面里的泛词（「音乐」「背景」「基础」…）就会掺进官方内容名的翻译里。

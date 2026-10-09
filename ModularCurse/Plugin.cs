@@ -85,6 +85,11 @@ namespace ModularCurse
             // 控制台指令 /curse（all / off / 状态）。
             CurseCommand.Apply();
 
+            // 全部用户可见文案（诅咒名 / 诅咒说明 / 诅咒池 / 本 mod 自述）——
+            // 必须早于任何界面或关卡开始取词。登记完这些，
+            // 游戏里的诅咒面板与悬停提示会自己跟着语言变（DSHCore 挂了查找链）。
+            CurseLocale.Register();
+
             // 订阅 0.7 官方的外部 Mod 注册点（System.Func → Il2CppSystem.Func
             // 的委托转换由 DSHCore.ModInfos 完成）。
             ModInfos.OnRegister(OnRegisterModInfos);
@@ -92,6 +97,8 @@ namespace ModularCurse
             // 「模组设置」页里显示的**中文名**：源串是 NAME，译文挂在
             // DSHCore.Ui.UiLocale（= 游戏的语言系统，切到英文就显示英文原名）。
             UiLocale.Add(NAME, "模块化诅咒");
+            UiLocale.Add("模块化诅咒（QC 池 + SC 池）",
+                "Modular curses (QC / SC / ZY pools)", UiLocale.English);
             UiOptions.DeclareMod(ModularCurseMod.spaceName, NAME,
                 "模块化诅咒（QC 池 + SC 池）", "QoZnoS");
 

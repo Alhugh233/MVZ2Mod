@@ -14,9 +14,8 @@ namespace Loadout
     /// <summary>
     /// 关卡内 · 页「制品」。
     ///
-    /// <para>左侧是**带滚轮的制品列表，一行 4 个**（克隆关卡 HUD 的 <c>ArtifactItemUI</c>，
-    /// 所以图标 / 计数 / 灰化都是原版那一套）；右侧从上到下是
-    /// 「制品框 → 添加 → 计数/删除 → 失效/清空」。</para>
+    /// <para>左侧是**带滚轮的制品列表，一行 4 个**（格子用原版选卡面板的 <c>ArtifactSlot</c>）；
+    /// 右侧从上到下是「制品框 → 添加 → 计数/删除 → 失效/清空」。</para>
     ///
     /// <para>⚠️ 需求里的「不限制数量」是真的不限制：槽位是数组，HUD 那边排不下不归本面板管。</para>
     /// </summary>
@@ -26,9 +25,7 @@ namespace Loadout
 
         private UiArtifactGrid _grid;
         private ArtifactSlot _slotBox;
-        private ArtifactItemUI _slotIcon;
         private GameObject _slotBoxGo;
-        private TextMeshProUGUI _slotName;
         private UiField _count, _number;
         private UiOptionRow _inactiveRow;
         private NamespaceID _pendingId;
@@ -41,9 +38,7 @@ namespace Loadout
         {
             _grid = null;
             _slotBox = null;
-            _slotIcon = null;
             _slotBoxGo = null;
-            _slotName = null;
             _count = _number = null;
             _inactiveRow = null;
             _pendingId = null;
@@ -56,6 +51,12 @@ namespace Loadout
                 return;
             }
 
+            // 整页是**两列**：左＝携带的制品（可滚动的网格，一行 4 个），右＝4 行操作。
+            //
+            // ⚠️ 右列那几行**只能挂进列容器里**，绝不能再调 LoadoutPanel.AddRow ——
+            //    那个方法会把节点搬回面板根（= 整行 732 宽），两列布局当场没了。
+            //    实测症状就是「制品框/添加/计数/失效 四行横铺在上，制品列表被挤到最下面」
+            //    （面板 dump 里 DSH_Row_ArtifactBox…State 是 行5~行8、DSH_Row_Artifacts 是 行9）。
             var columns = UiGridRow.Create("Row_Artifacts", equalize: false);
             if (columns == null)
                 return;
@@ -64,7 +65,8 @@ namespace Loadout
             var left = columns.AddContainer("Col_List", true);
             if (UiFinder.IsAlive(left))
             {
-                _grid = UiArtifactGrid.Create(left.transform, "ArtifactList", UiList.SuggestHeight(0.42f));
+                SetColumnWidth(left, 300f);
+                _grid = UiArtifactGrid.Create(left.transform, "ArtifactList", UiList.SuggestHeight(0.36f));
                 if (_grid != null)
                 {
                     _grid.OnChanged(Refresh);
@@ -72,17 +74,17 @@ namespace Loadout
                 }
             }
 
-            // ---- 右：操作列 ----
-            var right = columns.AddContainer("Col_ArtifactOps", true);
+            // ---- 右：操作列（4 行，每行「说明 + 控件」各占一半宽）----
+            var right = columns.AddContainer("Col_Ops", true);
             if (UiFinder.IsAlive(right))
             {
-                var boxRow = UiGridRow.Create("Row_ArtifactBox", equalize: false);
+                var boxRow = UiGridRow.Create("Row_ArtifactBox");
                 if (boxRow != null)
                 {
                     BuildSlotBox(boxRow);
-                    LoadoutPanel.AddRow(FixRow(boxRow, right));
+                    IntoColumn(boxRow, right, 56f);
                 }
-                var addRow = UiGridRow.Create("Row_ArtifactAdd", equalize: false);
+                var addRow = UiGridRow.Create("Row_ArtifactAdd");
                 if (addRow != null)
                 {
                     _count = addRow.AddField("F_AddCount", "添加数量", numeric: true, integer: true);
@@ -95,11 +97,11 @@ namespace Loadout
                     if (add != null)
                     {
                         add.SetButton("添加", OnAdd);
-                        LoadoutPanel.AddTooltip(add.Root, "添加", "把左边选中的制品加进卡槽。");
+                        LoadoutPanel.AddTooltip(add.Root, "添加", "把右侧制品框里那个制品加进卡槽。");
                     }
-                    LoadoutPanel.AddRow(FixRow(addRow, right));
+                    IntoColumn(addRow, right);
                 }
-                var numberRow = UiGridRow.Create("Row_ArtifactNumber", equalize: false);
+                var numberRow = UiGridRow.Create("Row_ArtifactNumber");
                 if (numberRow != null)
                 {
                     _number = numberRow.AddField("F_Number", "计数", numeric: true, integer: true);
@@ -115,9 +117,9 @@ namespace Loadout
                         del.SetButton("删除", OnDelete);
                         LoadoutPanel.AddTooltip(del.Root, "删除", "删掉列表里选中的那个制品。");
                     }
-                    LoadoutPanel.AddRow(FixRow(numberRow, right));
+                    IntoColumn(numberRow, right);
                 }
-                var stateRow = UiGridRow.Create("Row_ArtifactState", equalize: false);
+                var stateRow = UiGridRow.Create("Row_ArtifactState");
                 if (stateRow != null)
                 {
                     _inactiveRow = stateRow.AddOptionRow("T_Inactive", UiOptionKind.Toggle);
@@ -132,7 +134,7 @@ namespace Loadout
                         clear.SetButton("清空", OnClear);
                         LoadoutPanel.AddTooltip(clear.Root, "清空", "删掉全部制品。");
                     }
-                    LoadoutPanel.AddRow(FixRow(stateRow, right));
+                    IntoColumn(stateRow, right);
                 }
             }
 
@@ -143,43 +145,150 @@ namespace Loadout
             Plugin.Log?.LogInfo("[ArtifactPage] 已装配：" + Describe());
         }
 
-        /// <summary>把「行」挂到右列容器下（行是自己造的，得手动进容器）。</summary>
-        private static GameObject FixRow(UiGridRow row, GameObject column)
+        /// <summary>
+        /// 给自己造的列容器定宽（<c>flexibleWidth = 0</c>，否则会被摊成一半）。
+        /// </summary>
+        private static void SetColumnWidth(GameObject container, float width)
+        {
+            if (!UiFinder.IsAlive(container))
+                return;
+            try
+            {
+                var le = container.GetComponent<LayoutElement>();
+                if (le == null)
+                    le = container.AddComponent<LayoutElement>();
+                if (le != null)
+                {
+                    le.minWidth = -1f;
+                    le.preferredWidth = width;
+                    le.flexibleWidth = 0f;
+                }
+            }
+            catch (Exception) { }
+        }
+
+        /// <summary>
+        /// 把一个「行」放进纵向列里。
+        ///
+        /// <para>行高必须自己声明：<c>UiGridRow.Finish()</c> 给的是 <c>flexibleHeight = 1</c>
+        /// （那是给面板根用的，让多余的竖向空间被各页行摊掉）；在一个纵向列里那样会被摊得很怪。
+        /// 所以这里显式钉成 <paramref name="height"/>。</para>
+        /// </summary>
+        private static GameObject IntoColumn(UiGridRow row, GameObject column, float height = -1f)
         {
             var node = row.Finish();
-            if (UiFinder.IsAlive(node) && UiFinder.IsAlive(column))
+            if (!UiFinder.IsAlive(node) || !UiFinder.IsAlive(column))
+                return node;
+            if (height <= 0f)
+                height = UiKit.RowHeight;
+            try
+            {
                 node.transform.SetParent(column.transform, false);
+                var le = node.GetComponent<LayoutElement>();
+                if (le == null)
+                    le = node.AddComponent<LayoutElement>();
+                if (le != null)
+                {
+                    le.minHeight = height;
+                    le.preferredHeight = height;
+                    le.flexibleHeight = 0f;
+                }
+            }
+            catch (Exception) { }
             return node;
         }
 
-        /// <summary>制品框：克隆原版选卡界面的制品槽（可点 → 开选择窗口）。</summary>
+        /// <summary>
+        /// 制品框那行：左边「选择制品」文字，右边一个 56×56 的制品框
+        /// （克隆原版选卡界面的制品槽，点它 → 开选择窗口）。</summary>
         private void BuildSlotBox(UiGridRow row)
         {
+            row.AddCell(MakeTextCell("Caption", "选择制品"), UiKit.RowHeight);
+
             var template = FindSlotTemplate();
-            var holder = row.AddContainer("SlotBox", false);
-            if (UiFinder.IsAlive(holder) && UiFinder.IsAlive(template))
+            var holder = UiContainer.Instantiate(null, "SlotBox");
+            if (UiFinder.IsAlive(holder))
             {
-                var box = UiClone.Instantiate(template, holder.transform, "Box", true);
-                if (UiFinder.IsAlive(box))
+                UiContainer.FlushHorizontal(holder);
+                CenterCells(holder);
+                if (UiFinder.IsAlive(template))
                 {
-                    UiContainer.FitCell(box, 56f, 56f);
-                    _slotBoxGo = box;
-                    _slotBox = box.GetComponent<ArtifactSlot>();
-                    _slotIcon = box.GetComponent<ArtifactItemUI>();
-                    // 注：ArtifactSlot.OnClick 在 interop 里是 Il2CppSystem.Action<T>，
-                    // C# 编译器不允许 += 一个 lambda。所以不看它的事件，自己在 Tick 里做命中。
+                    var box = UiClone.Instantiate(template, holder.transform, "Box", true);
+                    if (UiFinder.IsAlive(box))
+                    {
+                        FixSize(box, 56f, 56f);
+                        _slotBoxGo = box;
+                        _slotBox = box.GetComponent<ArtifactSlot>();
+                        // 注：ArtifactSlot.OnClick 在 interop 里是 Il2CppSystem.Action<T>，
+                        // C# 编译器不允许 += 一个 lambda。所以不看它的事件，自己在 Tick 里做命中。
+                    }
                 }
+                FixSize(holder, 56f, 56f);
+                row.AddCell(holder, 56f);
             }
-            _slotName = UiKit.Label(row.Root.transform, "SlotName", "未选择");
-            if (_slotName != null)
+            LoadoutPanel.AddTooltip(row == null ? null : row.Root, "制品", "点一下从全部制品里挑一个，再按「添加」。");
+        }
+
+        /// <summary>
+        /// 把节点钉成**固定**宽高。
+        ///
+        /// <para>不能用 <c>UiContainer.FitCell</c>：它给的是 <c>flexibleWidth = 1</c>（等分格子），
+        /// 在一个只占半行的容器里，制品框会被摊成 196×56 的长条（实测就是「方框变宽矩形」）。
+        /// 这里把 min / preferred 都给上、flexible 归 0。</para>
+        /// </summary>
+        private static void FixSize(GameObject go, float width, float height)
+        {
+            if (!UiFinder.IsAlive(go))
+                return;
+            try
             {
-                var le = _slotName.gameObject.GetComponent<LayoutElement>();
+                var le = go.GetComponent<LayoutElement>();
                 if (le == null)
-                    le = _slotName.gameObject.AddComponent<LayoutElement>();
-                if (le != null)
-                    le.preferredHeight = UiKit.RowHeight;
+                    le = go.AddComponent<LayoutElement>();
+                if (le == null)
+                    return;
+                le.ignoreLayout = false;
+                le.minWidth = width;
+                le.preferredWidth = width;
+                le.flexibleWidth = 0f;
+                le.minHeight = height;
+                le.preferredHeight = height;
+                le.flexibleHeight = 0f;
             }
-            LoadoutPanel.AddTooltip(row.Root, "制品", "点一下从全部制品里挑一个，再按「添加」。");
+            catch (Exception) { }
+        }
+
+        /// <summary>造一个「纯文字」的单元格（居中，不带输入框）。</summary>
+        private static GameObject MakeTextCell(string name, string text)
+        {
+            var cell = UiContainer.Instantiate(null, name);
+            if (!UiFinder.IsAlive(cell))
+                return null;
+            UiContainer.FlushHorizontal(cell);
+            CenterCells(cell);
+            var label = UiKit.Label(cell.transform, "Text", text);
+            if (label != null)
+            {
+                try { label.alignment = TextAlignmentOptions.Center; }
+                catch (Exception) { }
+                try { label.raycastTarget = false; }
+                catch (Exception) { }
+            }
+            return cell;
+        }
+
+        /// <summary>把容器里子节点的对齐改成居中（原版那个横向容器默认是左对齐）。</summary>
+        private static void CenterCells(GameObject container)
+        {
+            if (!UiFinder.IsAlive(container))
+                return;
+            try
+            {
+                var lg = container.GetComponent<HorizontalLayoutGroup>();
+                if (lg != null)
+                    lg.childAlignment = TextAnchor.MiddleCenter;
+            }
+            catch (Exception) { }
         }
 
         private static GameObject FindSlotTemplate()
@@ -392,16 +501,9 @@ namespace Loadout
                     {
                         if (_slotBox != null)
                             _slotBox.UpdateView(new ArtifactViewData { sprite = sprite });
-                        else if (_slotIcon != null)
-                        {
-                            _slotIcon.SetIcon(sprite);
-                            _slotIcon.SetNumber(string.Empty);
-                        }
                     }
                     catch (Exception) { }
                 }
-                if (_slotName != null)
-                    _slotName.text = NamespaceID.IsValid(_pendingId) ? ArtifactOps.NameOf(_pendingId) : "未选择";
                 if (_number != null)
                     _number.Text = artifact == null ? "-" : ArtifactOps.GetNumber(artifact).ToString();
                 if (_inactiveRow != null && _inactiveRow.Widgets != null && _inactiveRow.Widgets.Toggle != null)
@@ -421,6 +523,7 @@ namespace Loadout
             var count = level == null ? 0 : ArtifactOps.GetSlotCount(level);
             sb.Append("槽位=").Append(count)
               .Append("  选中=").Append(_grid == null ? -1 : _grid.SelectedSlot)
+              .Append("  列表=").Append(_grid == null ? "（没有）" : _grid.Describe())
               .Append("  待添加=").Append(NamespaceID.IsValid(_pendingId) ? ArtifactOps.NameOf(_pendingId) : "（无）")
               .Append('\n');
             for (var i = 0; i < count; i++)

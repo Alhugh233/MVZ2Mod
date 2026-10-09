@@ -168,6 +168,24 @@ flowchart TD
 
 ---
 
+## 多语言
+
+三个关卡名由 `LabLocale.cs` 登记（走 DSHCore 的 `UiLocale`），游戏切到英文时自动显示英文：
+
+| 原文（`levelname` 上下文） | en-US |
+| -------------------------- | ----- |
+| 真正的序章                 | Real Prologue |
+| 零度空间                   | Zero-K Space  |
+| 真理伪证殿堂               | Hall of Perjured Truth |
+
+关卡名属于**游戏内容名**（走 `LanguageManager.TryGetLocalizedStringParticular`），
+所以登记时带上下文 `LogicStrings.CONTEXT_LEVEL_NAME`；只写 `T.En("真正的序章", …)` 是不够的。
+玩家可以不改 mod 直接覆盖：在 `<游戏>\BepInEx\config\DSHCore\lang\en-US.ini` 里写
+`[levelname] 真正的序章 = My Prologue`（指令 `/dshtrans write en-US` 会生成带上下文的模板）。
+详见 `DSHCore/UI_GUIDE.md` §11。
+
+---
+
 ## 已知限制
 
 - 仅适配 0.7.0 test-10（Windows x86 IL2CPP）

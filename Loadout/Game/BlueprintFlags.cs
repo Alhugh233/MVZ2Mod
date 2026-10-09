@@ -36,24 +36,18 @@ namespace Loadout
         private const string PREFIX_SLEEP = "sl:";
         private const string PREFIX_HEALTH = "hp:";
         private const string PREFIX_PLACE = "up:";
-        private const string PREFIX_RECHARGE = "rc:";
-        private const string PREFIX_NORECHARGE = "nr:";
 
         private static readonly HashSet<string> reverse = new HashSet<string>(StringComparer.Ordinal);
         private static readonly HashSet<string> command = new HashSet<string>(StringComparer.Ordinal);
         private static readonly HashSet<string> noDaySleep = new HashSet<string>(StringComparer.Ordinal);
         private static readonly Dictionary<string, float> health = new Dictionary<string, float>(StringComparer.Ordinal);
-        /// <summary>冷却备份（「禁用冷却」用）：卡片键 → <c>冷却id|基础速度</c>。</summary>
-        private static readonly Dictionary<string, string> recharge = new Dictionary<string, string>(StringComparer.Ordinal);
         private static bool unconditionalPlace;
-        /// <summary>「禁用冷却」开着吗（关卡级；自持一份，不依赖原版 debug buff）。</summary>
-        private static bool noRecharge;
         private static string loadedPath;
 
         /// <summary>
         /// 现在允许把自定义数据写进存档吗（<see cref="GcFeature.SaveCustomData"/>，Standard 档）。
         ///
-        /// <para>关掉时所有标记/备份只在**本次会话的内存**里生效 —— 需求明确要求
+        /// <para>关掉时所有标记只在**本次会话的内存**里生效 —— 需求明确要求
         /// 「禁用冷却在存档里写自定义数据的功能仅在 Standard 下实现，Safe 模式只写到内存」。</para>
         /// </summary>
         public static bool CanPersist
@@ -180,7 +174,6 @@ namespace Loadout
                 lock (command) command.Remove(key);
                 lock (noDaySleep) noDaySleep.Remove(key);
                 lock (health) health.Remove(key);
-                lock (recharge) recharge.Remove(key);
                 Save(level);
                 BlueprintSpawnPatch.Refresh();
                 ReverseFactionPatch.Refresh();
@@ -194,82 +187,6 @@ namespace Loadout
         }
 
         // ---- 冷却备份（「禁用冷却」用）--------------------------------------------
-
-        /// <summary>一条冷却备份：卡片键 → （冷却定义 id, 基础速度）。</summary>
-        public struct RechargeBackup
-        {
-            public string RechargeId;
-            public float Speed;
-            public bool Has;
-        }
-
-        public static bool SetRechargeBackup(LevelEngine level, string key, string rechargeId, float speed)
-        {
-            if (string.IsNullOrEmpty(key) || string.IsNullOrEmpty(rechargeId))
-                return false;
-            try
-            {
-                Sync(level);
-                lock (recharge)
-                    recharge[key] = rechargeId + "|" + speed.ToString("0.######", System.Globalization.CultureInfo.InvariantCulture);
-                Save(level);
-                return true;
-            }
-            catch (Exception e)
-            {
-                Plugin.LogOnce("bflags-rc", "[Flags] 写冷却备份失败：" + e.Message);
-                return false;
-            }
-        }
-
-        public static RechargeBackup GetRechargeBackup(LevelEngine level, string key)
-        {
-            var result = default(RechargeBackup);
-            if (string.IsNullOrEmpty(key))
-                return result;
-            Sync(level);
-            string text;
-            lock (recharge)
-            {
-                if (!recharge.TryGetValue(key, out text))
-                    return result;
-            }
-            var bar = text == null ? -1 : text.LastIndexOf('|');
-            if (bar <= 0)
-                return result;
-            float speed;
-            if (!float.TryParse(text.Substring(bar + 1),
-                    System.Globalization.NumberStyles.Float,
-                    System.Globalization.CultureInfo.InvariantCulture, out speed))
-                return result;
-            result.RechargeId = text.Substring(0, bar);
-            result.Speed = speed;
-            result.Has = !string.IsNullOrEmpty(result.RechargeId);
-            return result;
-        }
-
-        public static bool ClearRechargeBackup(LevelEngine level, string key)
-        {
-            if (string.IsNullOrEmpty(key))
-                return false;
-            try
-            {
-                Sync(level);
-                lock (recharge)
-                    recharge.Remove(key);
-                Save(level);
-                return true;
-            }
-            catch (Exception) { return false; }
-        }
-
-        /// <summary>全部备份（自测/日志用）。</summary>
-        public static List<string> RechargeKeys(LevelEngine level)
-        {
-            Sync(level);
-            lock (recharge)
-                return new List<string>(recharge.Keys);
-        }
 
         // ---- 无条件放置（全局）------------------------------------------------
 
@@ -295,41 +212,9 @@ namespace Loadout
             }
         }
 
-        // ---- 禁用冷却（全局，关卡级）------------------------------------------
-
-        /// <summary>
-        /// 「禁用冷却」开着吗。
-        ///
-        /// <para>★ 自持一份、**不用原版 <c>mvz2:debug_no_recharge</c> buff**。两个理由：
-        /// ① 那个 buff 只在 debug 存档里被注册，普通存档里 <c>AddBuff</c> 直接报
-        /// “missing definition”；② 它是把**整关的冷却速度**拉到 1e8，
-        /// 与我们要做的「逐卡换成『无』」是两回事。
-        /// 换成自己的标记之后，开关状态也自然跟着存档走（需求：必须写到存档）。</para>
-        /// </summary>
-        public static bool GetNoRecharge(LevelEngine level)
-        {
-            Sync(level);
-            return noRecharge;
-        }
-
-        public static bool SetNoRecharge(LevelEngine level, bool value)
-        {
-            try
-            {
-                Sync(level);
-                noRecharge = value;
-                Save(level);
-                return true;
-            }
-            catch (Exception e)
-            {
-                Plugin.LogOnce("bflags-nr", "[Flags] 写禁用冷却开关失败：" + e.Message);
-                return false;
-            }
-        }
-
         /// <summary>全部标了逆阵营的卡键（补丁那边要用）。</summary>
-        public static List<string> ReverseTargets(LevelEngine level)        {
+        public static List<string> ReverseTargets(LevelEngine level)
+        {
             Sync(level);
             lock (reverse)
                 return new List<string>(reverse);
@@ -431,10 +316,7 @@ namespace Loadout
             command.Clear();
             noDaySleep.Clear();
             health.Clear();
-            lock (recharge)
-                recharge.Clear();
             unconditionalPlace = false;
-            noRecharge = false;
             try
             {
                 if (!string.IsNullOrEmpty(path) && File.Exists(path))
@@ -452,12 +334,8 @@ namespace Loadout
                             Add(noDaySleep, text.Substring(PREFIX_SLEEP.Length));
                         else if (text.StartsWith(PREFIX_HEALTH, StringComparison.Ordinal))
                             ParseHealth(text.Substring(PREFIX_HEALTH.Length));
-                        else if (text.StartsWith(PREFIX_RECHARGE, StringComparison.Ordinal))
-                            ParseRecharge(text.Substring(PREFIX_RECHARGE.Length));
                         else if (text.StartsWith(PREFIX_PLACE, StringComparison.Ordinal))
                             unconditionalPlace = true;
-                        else if (text.StartsWith(PREFIX_NORECHARGE, StringComparison.Ordinal))
-                            noRecharge = true;
                         else
                             Add(reverse, text);   // 兼容没有前缀的老文件
                     }
@@ -489,21 +367,6 @@ namespace Loadout
                     System.Globalization.CultureInfo.InvariantCulture, out value))
                 return;
             health[key] = value;
-        }
-
-        /// <summary><c>rc:卡键=冷却id|速度</c> 解析。</summary>
-        private static void ParseRecharge(string body)
-        {
-            if (string.IsNullOrEmpty(body))
-                return;
-            var eq = body.IndexOf('=');
-            if (eq <= 0 || eq >= body.Length - 1)
-                return;
-            var key = NormalizeKey(body.Substring(0, eq));
-            if (string.IsNullOrEmpty(key))
-                return;
-            lock (recharge)
-                recharge[key] = body.Substring(eq + 1);
         }
 
         /// <summary>把一行里的键规范化后放进集合（空则忽略）。</summary>
@@ -551,13 +414,6 @@ namespace Loadout
                 }
                 if (unconditionalPlace)
                     lines.Add(PREFIX_PLACE);
-                if (noRecharge)
-                    lines.Add(PREFIX_NORECHARGE);
-                lock (recharge)
-                {
-                    foreach (var pair in recharge)
-                        lines.Add(PREFIX_RECHARGE + pair.Key + "=" + pair.Value);
-                }
 
                 var dir = Path.GetDirectoryName(path);
                 if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir))

@@ -60,6 +60,9 @@ namespace DSHCore.Ui
         private const string HarmonyId = "qoznos.mvz2.core.uilocale";
         private const string ProbeKey = "DSHCore.LocaleProbe";
 
+        /// <summary>自检用的上下文探针（验证「带上下文的查找」是不是也挂上了）。</summary>
+        private const string ProbeContext = "dsh.localeprobe";
+
         // ------------------------------------------------------------------
         // 表
         // ------------------------------------------------------------------
@@ -69,7 +72,10 @@ namespace DSHCore.Ui
             = new Dictionary<string, Dictionary<string, string>>(StringComparer.Ordinal);
 
         /// <summary>
-        /// 本次会话里**被问过的源串**（<see cref="Get"/> / <see cref="In"/> / <see cref="Add"/>）。
+        /// 本次会话里**被问过的键**（<see cref="Get"/> / <see cref="In"/> / <see cref="Add"/>）。
+        ///
+        /// <para>键是**内部形式**（带上下文的条目在 <c>上下文\u0004源串</c> 里用 EOT 分隔）。
+        /// 要展示给人看请过 <see cref="DescribeKey"/>，要拆回去用 <see cref="SplitKey"/>。</para>
         ///
         /// <para>用途是导出翻译模板（<c>/dshtrans write &lt;lang&gt;</c>）：玩家只需要把游戏跑一遍
         /// （进主菜单 → 打开一次「模组设置」页，让所有文案被问过一遍），就能得到一份
@@ -78,8 +84,41 @@ namespace DSHCore.Ui
         private static readonly List<string> SeenKeys = new List<string>();
         private static readonly HashSet<string> SeenKeySet = new HashSet<string>(StringComparer.Ordinal);
 
-        /// <summary>登记一条译文。<paramref name="language"/> 省略 = 源语言（中文）。</summary>
-        public static void Add(string source, string translated, string language = null)
+        /// <summary>
+        /// 拿一张**归属某个 mod** 的译文表（同名重复调用返回同一张）。
+        ///
+        /// <para>这是 mod 侧写多语言的推荐入口 —— 一个 mod 一个 <c>Localization.cs</c>，
+        /// 一块写完自己的全部文案（见 <see cref="UiLocaleTable"/> 的示例）。</para>
+        /// </summary>
+        public static UiLocaleTable Table(string owner)
+        {
+            var key = owner ?? string.Empty;
+            UiLocaleTable table;
+            if (TableRegistry.TryGetValue(key, out table))
+                return table;
+            table = new UiLocaleTable(key);
+            TableRegistry[key] = table;
+            return table;
+        }
+
+        /// <summary>已登记的全部译文表（诊断用）。</summary>
+        public static UiLocaleTable[] RegisteredTables
+        {
+            get { return new List<UiLocaleTable>(TableRegistry.Values).ToArray(); }
+        }
+
+        private static readonly Dictionary<string, UiLocaleTable> TableRegistry
+            = new Dictionary<string, UiLocaleTable>(StringComparer.Ordinal);
+
+        /// <summary>登记一条译文。<paramref name="language"/> 省略 = 源语言（中文）。
+        ///
+        /// <para><paramref name="context"/> = **文本上下文**（对应游戏自己的 <c>_p(context, text)</c>）。
+        /// 游戏里「名字类」文本都带上下文：关卡名用 <c>LogicStrings.CONTEXT_LEVEL_NAME</c>、
+        /// 诅咒名/说明用 <c>CONTEXT_CURSE_NAME</c> / <c>CONTEXT_CURSE_TOOLTIP</c>……
+        /// 同一个中文串在不同上下文里可能是两种意思，所以**上下文是键的一部分**。
+        /// 不带上下文的登记与查询只与不带上下文的登记互相对应（另见 <see cref="TryTable"/> 的匹配顺序）。</para>
+        /// </summary>
+        public static void Add(string source, string translated, string language = null, string context = null)
         {
             if (string.IsNullOrEmpty(source) || string.IsNullOrEmpty(translated))
                 return;
@@ -91,17 +130,24 @@ namespace DSHCore.Ui
                 table = new Dictionary<string, string>(StringComparer.Ordinal);
                 Tables[lang] = table;
             }
-            table[source] = translated;
-            Remember(source);
+            table[Key(context, source)] = translated;
+            Remember(context, source);
         }
 
         /// <summary>记下「界面问过这个源串」（幂等）。</summary>
         private static void Remember(string source)
         {
+            Remember(null, source);
+        }
+
+        /// <summary>记下「界面问过这个（上下文, 源串）」（幂等）。</summary>
+        private static void Remember(string context, string source)
+        {
             if (string.IsNullOrEmpty(source) || source == ProbeKey)
                 return;
-            if (SeenKeySet.Add(source))
-                SeenKeys.Add(source);
+            var key = Key(context, source);
+            if (SeenKeySet.Add(key))
+                SeenKeys.Add(key);
         }
 
         /// <summary>批量登记（<c>Add(a, b); Add(a2, b2); …</c> 的简写：<c>AddAll("a","b","a2","b2")</c>）。</summary>
@@ -130,23 +176,106 @@ namespace DSHCore.Ui
             return (language != null && Tables.TryGetValue(language, out table)) ? table.Count : 0;
         }
 
+        /// <summary>某个语言下**带上下文**的条目有多少条（游戏内容名）。</summary>
+        public static int ContextCountOf(string language)
+        {
+            Dictionary<string, string> table;
+            if (language == null || !Tables.TryGetValue(language, out table))
+                return 0;
+            var n = 0;
+            foreach (var key in table.Keys)
+            {
+                if (key.IndexOf(ContextSeparator) >= 0)
+                    n++;
+            }
+            return n;
+        }
+
         private static bool TryTable(string language, string source, out string translated)
+        {
+            return TryTable(language, source, null, false, out translated);
+        }
+
+        /// <summary>
+        /// 查表（外部文件 → 代码表）。
+        ///
+        /// <para><b>带上下文时先查带上下文的键，再（仅在 <paramref name="plainFallback"/> 时）退回
+        /// 不带上下文的键</b> —— 后者是给“我自己既把它当内容名、又把它当界面文字”的调用方用的
+        /// 便利（<see cref="Get(string,string)"/>）。</para>
+        ///
+        /// <para>⚠ 给**游戏查找链的补丁**永远用 <c>plainFallback: false</c>：
+        /// 游戏会对官方的每一条名字文本做带上下文的查找，允许回退的话，
+        /// 一个 mod 的界面译文（例如 Loadout 的「音乐」「背景」这种泛词）
+        /// 就会掺进官方的 **内容名** 查找里。上下文存在的意义就是这个，
+        /// 不能让两份表互相串味。</para>
+        /// </summary>
+        private static bool TryTable(string language, string source, string context, bool plainFallback,
+            out string translated)
         {
             translated = null;
             if (string.IsNullOrEmpty(language) || string.IsNullOrEmpty(source))
                 return false;
 
+            var strict = !string.IsNullOrEmpty(context) && !plainFallback;
+
             // ① 外部文件优先：用户改得动的那一份（见 UiLocale 的「外部文件」注释）。
             EnsureExternal(language);
             ExternalTable ext;
-            if (_external.TryGetValue(language, out ext) && ext.Map.TryGetValue(source, out translated))
-                return true;
+            if (_external.TryGetValue(language, out ext))
+            {
+                if (!string.IsNullOrEmpty(context) && ext.Map.TryGetValue(Key(context, source), out translated))
+                    return true;
+                if (!strict && ext.Map.TryGetValue(source, out translated))
+                    return true;
+            }
 
             // ② 代码里 Add 的那份
             Dictionary<string, string> table;
             if (!Tables.TryGetValue(language, out table))
                 return false;
+            if (!string.IsNullOrEmpty(context) && table.TryGetValue(Key(context, source), out translated))
+                return true;
+            if (strict)
+                return false;
             return table.TryGetValue(source, out translated);
+        }
+
+        // ------------------------------------------------------------------
+        // 上下文（键的组成部分）
+        // ------------------------------------------------------------------
+
+        /// <summary>
+        /// 上下文与源串的分隔符 —— 与游戏自己的 catalog 键一致（gettext 的 EOT）。
+        /// 用同一个字符意味着两份表在概念上可以互相导出/导入。
+        /// </summary>
+        private const char ContextSeparator = '\u0004';
+
+        /// <summary>拼内部键。</summary>
+        private static string Key(string context, string source)
+        {
+            return string.IsNullOrEmpty(context) ? source : context + ContextSeparator + source;
+        }
+
+        /// <summary>把内部键拆回「上下文 / 源串」（没有上下文时 context 为 null）。</summary>
+        public static void SplitKey(string key, out string context, out string source)
+        {
+            context = null;
+            source = key;
+            if (string.IsNullOrEmpty(key))
+                return;
+            var i = key.IndexOf(ContextSeparator);
+            if (i < 0)
+                return;
+            context = key.Substring(0, i);
+            source = key.Substring(i + 1);
+        }
+
+        /// <summary>内部键的人读形式：<c>[上下文] 源串</c>（没有上下文就只有源串）。</summary>
+        public static string DescribeKey(string key)
+        {
+            string context, source;
+            SplitKey(key, out context, out source);
+            return string.IsNullOrEmpty(context) ? source : "[" + context + "] " + source;
         }
 
         // ------------------------------------------------------------------
@@ -296,7 +425,13 @@ namespace DSHCore.Ui
         /// <para>格式：每行 <c>源串 = 译文</c>；<c>#</c> 或 <c>;</c> 开头是注释；空行忽略；
         /// <c>=</c> 取**第一个**（译文里可以再出现 <c>=</c>）。</para>
         ///
-        /// <para><b>译文留空（<c>键 =</c>）等于「还没译」</b>：这一条会被跳过，
+        /// <para>**带上下文**的行写成 <c>[上下文] 源串 = 译文</c>，例如
+        /// <c>[curse.name] 怪物的大脑 = The Creature's Brain</c>。
+        /// 上下文就是游戏自己的那套（<c>curse.name</c> / <c>curse.tooltip</c> / <c>level.name</c> …），
+        /// 可以用 <c>/dshtrans keys</c> 或在 <c>LogicStrings</c> 里查到。
+        /// 不带前缀的行 = 不带上下文（普通界面文字）。</para>
+        ///
+        /// <para>**译文留空（<c>键 =</c>）等于「还没译」**：这一条会被跳过，
         /// 取词继续往下走（代码表 → 游戏 catalog → 源串）。这样
         /// <see cref="WriteTemplate"/> 导出的模板可以直接当工作稿 ——
         /// 没填的行不会把界面变成空白。</para>
@@ -325,7 +460,21 @@ namespace DSHCore.Ui
                     if (key.Length == 0 || value.Length == 0)
                         continue;
 
-                    into[key] = value;
+                    // [上下文] 源串 —— 方括号必须在第一个 '=' 之前、且非空
+                    string context = null;
+                    if (key[0] == '[')
+                    {
+                        var close = key.IndexOf(']');
+                        if (close > 1)
+                        {
+                            context = key.Substring(1, close - 1).Trim();
+                            key = key.Substring(close + 1).Trim();
+                            if (key.Length == 0)
+                                continue;
+                        }
+                    }
+
+                    into[Key(context, key)] = value;
                     n++;
                 }
             }
@@ -402,6 +551,7 @@ namespace DSHCore.Ui
                 sb.Append("# 语言：").Append(language).Append('\n');
                 sb.Append("# 格式：源串 = 译文      （'=' 左边是键，右边是译文；# 开头是注释；\\n 表示换行）\n");
                 sb.Append("# 没译的行**留空**即可 —— 右边空着 = 这一条不生效，会退回 mod 自带的译文。\n");
+                sb.Append("# 带 [上下文] 前缀的行是「游戏内容名」（关卡名 / 诅咒名 …），上下文不要改。\n");
                 sb.Append("# 用法：把译文写在 '=' 右边。改完用游戏内指令 /dshtrans reload 重新读取，或重启游戏。\n");
                 sb.Append("# 注意：这里**不会**凭空让游戏多出一种语言 —— \n");
                 sb.Append("#       要使用某个语言，得先在「插件 → 资源包」里启用一份支持该语言的语言包。\n");
@@ -412,9 +562,11 @@ namespace DSHCore.Ui
                 for (var i = 0; i < keys.Length; i++)
                 {
                     var key = keys[i];
-                    var current = In(key, language);
-                    sb.Append("# ").Append(key == current ? "（无译文）" : current).Append('\n');
-                    sb.Append(key).Append(" = \n\n");
+                    string context, source;
+                    SplitKey(key, out context, out source);
+                    var current = In(source, language, context);
+                    sb.Append("# ").Append(current == source ? "（无译文）" : current).Append('\n');
+                    sb.Append(DescribeKey(key)).Append(" = \n\n");
                 }
 
                 System.IO.File.WriteAllText(path, sb.ToString(), new UTF8Encoding(false));
@@ -459,17 +611,23 @@ namespace DSHCore.Ui
         /// </summary>
         public static string Get(string source)
         {
+            return Get(source, null);
+        }
+
+        /// <summary>带上下文的取词（游戏内容名用；见 <see cref="Add"/> 的 <c>context</c>）。</summary>
+        public static string Get(string source, string context)
+        {
             if (string.IsNullOrEmpty(source))
                 return source;
             EnsureProbed();
-            Remember(source);
+            Remember(context, source);
 
             var lang = CurrentLanguage;
             string t;
-            if (TryTable(lang, source, out t))
+            if (TryTable(lang, source, context, true, out t))
                 return t;
 
-            if (TryGame(source, lang, out t))
+            if (TryGame(source, lang, context, out t))
                 return t;
 
             return source;
@@ -478,13 +636,19 @@ namespace DSHCore.Ui
         /// <summary>指定语言取词（诊断 / 自测用）。</summary>
         public static string In(string source, string language)
         {
+            return In(source, language, null);
+        }
+
+        /// <summary>指定语言 + 上下文取词（诊断 / 自测用）。</summary>
+        public static string In(string source, string language, string context)
+        {
             if (string.IsNullOrEmpty(source))
                 return source;
-            Remember(source);
+            Remember(context, source);
             string t;
-            if (TryTable(language, source, out t))
+            if (TryTable(language, source, context, true, out t))
                 return t;
-            if (TryGame(source, language, out t))
+            if (TryGame(source, language, context, out t))
                 return t;
             return source;
         }
@@ -500,13 +664,39 @@ namespace DSHCore.Ui
         }
 
         /// <summary>
+        /// 逐个取词（对话框那一组按钮文案一趟搞定）。
+        ///
+        /// <para>给走**游戏原生**控件的调用点用：那些控件拿到什么就画什么，不会替我们取词，
+        /// 所以必须自己先过一遍（<c>UiKit</c> 那几个克隆辅助函数已经内置了取词，
+        /// 不需要再包一层）。</para>
+        /// </summary>
+        public static string[] GetAll(params string[] texts)
+        {
+            if (texts == null)
+                return null;
+            var result = new string[texts.Length];
+            for (var i = 0; i < texts.Length; i++)
+                result[i] = Get(texts[i]);
+            return result;
+        }
+
+        /// <summary>
         /// 问游戏自己的本地化链（catalog provider 都在这里）。
         ///
         /// <para>用 <c>GetLocalizedString</c>（返回串）而不是 <c>TryGetLocalizedString</c>
         /// （多一个 <c>out</c> 参数）：前者是同一个入口、调用形状已经在 <c>Loadout/Ui/NameIndex</c>
         /// 里验证过；「查不到」的判据就是它把**源串原样**还回来。</para>
+        ///
+        /// <para>带 <paramref name="context"/> 时走 <c>GetLocalizedStringParticular</c> ——
+        /// 游戏里「名字类」文本（关卡名 / 诅咒名 / 实体名…）都是这条链，
+        /// 所以诊断报告里能看到语言包到底有没有盖住某条内容。</para>
         /// </summary>
         private static bool TryGame(string source, string language, out string translated)
+        {
+            return TryGame(source, language, null, out translated);
+        }
+
+        private static bool TryGame(string source, string language, string context, out string translated)
         {
             translated = null;
             try
@@ -516,7 +706,9 @@ namespace DSHCore.Ui
                 if (lm == null)
                     return false;
 
-                var result = lm.GetLocalizedString(source, language, NoArgs);
+                var result = string.IsNullOrEmpty(context)
+                    ? lm.GetLocalizedString(source, language, NoArgs)
+                    : lm.GetLocalizedStringParticular(context, source, language, NoArgs);
                 if (string.IsNullOrEmpty(result) || result == source)
                     return false;
                 translated = result;
@@ -544,6 +736,19 @@ namespace DSHCore.Ui
         /// 把自己挂进游戏的文本查找链（幂等；本库的 <c>Plugin.Load()</c> 已经调过，
         /// 单独用本类的 mod 不用管）。挂不上只是「只有 <see cref="Get"/> 生效」，
         /// 不会报错，日志里会写清楚。
+        ///
+        /// <para>挂**两种**查找（各两个重载，共 4 处）：</para>
+        /// <list type="number">
+        /// <item><c>TryGetLocalizedString(text, language, out, args)</c> —— 普通界面文字（gettext 的无上下文条目）；</item>
+        /// <item><c>TryGetLocalizedStringParticular(context, text, language, out, args)</c> ——
+        /// <b>游戏内容名</b>。关卡名 / 诅咒名 / 诅咒说明 / 实体名 / 难度名…全部走这条
+        /// （<c>LogicGameExt.GetCurseName</c> 等 → <c>GetTextParticular</c>）。
+        /// 不挂这条的话，mod 的 XML 里的中文名字在英文下就永远是中文 ——
+        /// 这是「mod 多语言」真正欠的那一半。</item>
+        /// </list>
+        ///
+        /// <para>不带参数（<c>args</c> 为空）的查找才接管：带参数的串由官方 provider 自己
+        /// <c>string.Format</c>（见 <see cref="TryGetLocalizedStringPrefix"/> 的不变量）。</para>
         /// </summary>
         public static void Apply()
         {
@@ -551,27 +756,47 @@ namespace DSHCore.Ui
                 return;
             _applied = true;
 
-            var native = AccessTools.Method(typeof(LanguageManager), "TryGetLocalizedString",
-                new[]
-                {
-                    typeof(string), typeof(string), typeof(string).MakeByRefType(),
-                    typeof(Il2CppReferenceArray<Il2CppSystem.Object>)
-                });
-            var managed = AccessTools.Method(typeof(LanguageManager), "TryGetLocalizedString",
-                new[]
-                {
-                    typeof(string), typeof(string), typeof(string).MakeByRefType(),
-                    typeof(Il2CppSystem.Object[])
-                });
-
-            var prefix = new HarmonyMethod(AccessTools.Method(typeof(UiLocale),
+            var plain = new HarmonyMethod(AccessTools.Method(typeof(UiLocale),
                 nameof(TryGetLocalizedStringPrefix)));
-            var patched = PatchOne(native, prefix, "原生重载") + PatchOne(managed, prefix, "托管重载");
+            var particular = new HarmonyMethod(AccessTools.Method(typeof(UiLocale),
+                nameof(TryGetLocalizedStringParticularPrefix)));
+
+            var patched = 0;
+            patched += PatchOne(Find("TryGetLocalizedString", false, false), plain, "普通-原生重载");
+            patched += PatchOne(Find("TryGetLocalizedString", false, true), plain, "普通-托管重载");
+            patched += PatchOne(Find("TryGetLocalizedStringParticular", true, false), particular, "上下文-原生重载");
+            patched += PatchOne(Find("TryGetLocalizedStringParticular", true, true), particular, "上下文-托管重载");
+
             if (patched == 0)
-                Plugin.Log?.LogWarning("[UiLocale] 没能挂上 LanguageManager.TryGetLocalizedString，"
+                Plugin.Log?.LogWarning("[UiLocale] 没能挂上 LanguageManager 的文本查找，"
                     + "mod 译文只在本库自己的界面里生效（UiLocale.Get）。");
             else
-                Plugin.Log?.LogInfo("[UiLocale] 已挂进游戏文本查找链（补丁 " + patched + " 处）");
+                Plugin.Log?.LogInfo("[UiLocale] 已挂进游戏文本查找链（补丁 " + patched + "/4 处）");
+        }
+
+        /// <summary>
+        /// 找 <c>LanguageManager</c> 上的一个重载。
+        /// </summary>
+        /// <param name="particular">
+        /// true = 找 <c>TryGetLocalizedStringParticular(context, text, language, out, args)</c>（多一个 context）。
+        /// </param>
+        /// <param name="managedArgs">
+        /// 最后一个参数用托管数组 <c>Il2CppSystem.Object[]</c>（true）还是原生
+        /// <c>Il2CppReferenceArray&lt;Il2CppSystem.Object&gt;</c>（false）——
+        /// 同一个方法在互操作层有**两份**，两个都得挂，否则总有一半调用绕过了我们。
+        /// </param>
+        private static System.Reflection.MethodInfo Find(string name, bool particular, bool managedArgs)
+        {
+            var types = new List<Type>();
+            if (particular)
+                types.Add(typeof(string));               // context
+            types.Add(typeof(string));                   // text
+            types.Add(typeof(string));                   // language
+            types.Add(typeof(string).MakeByRefType());   // translated
+            types.Add(managedArgs
+                ? typeof(Il2CppSystem.Object[])
+                : typeof(Il2CppReferenceArray<Il2CppSystem.Object>));
+            return AccessTools.Method(typeof(LanguageManager), name, types.ToArray());
         }
 
         private static int PatchOne(System.Reflection.MethodInfo target, HarmonyMethod prefix, string what)
@@ -617,6 +842,35 @@ namespace DSHCore.Ui
         }
 
         /// <summary>
+        /// 上下文查找前缀 —— 游戏内容名（关卡名 / 诅咒名与说明 / 实体名 / 难度名…）走这条。
+        ///
+        /// <para>与普通前缀同一套不变量（只接不带参数的查找），另外**严格匹配上下文**：
+        /// 不允许退回不带上下文的条目，理由是游戏会对官方的每一条名字做这种查找，
+        /// 而 mod 的界面文字里有一堆泛词（「音乐」「背景」…），放它们进来会弄脏官方内容。</para>
+        /// </summary>
+        private static bool TryGetLocalizedStringParticularPrefix(string context, string text, string language,
+            ref string translated, Il2CppReferenceArray<Il2CppSystem.Object> args, ref bool __result)
+        {
+            try
+            {
+                if (args != null && args.Length > 0)
+                    return true;
+                if (string.IsNullOrEmpty(context) || string.IsNullOrEmpty(text))
+                    return true;
+                string hit;
+                if (!TryTable(language, text, context, false, out hit))
+                    return true;
+                translated = hit;
+                __result = true;
+                return false;
+            }
+            catch (Exception)
+            {
+                return true;
+            }
+        }
+
+        /// <summary>
         /// 自检：拿一个探针串走**游戏自己的入口**（<c>LanguageManager.GetLocalizedString</c>），
         /// 看前缀有没有真的挂上。只在第一次取词时跑一次（那时游戏已经初始化完）。
         /// </summary>
@@ -632,15 +886,23 @@ namespace DSHCore.Ui
                     return;             // 游戏还没初始化完，下次再说
                 _probed = true;
 
+                // ① 普通查找（界面文字）
                 Add(ProbeKey, ProbeKey + "=ok");
                 var viaGame = lm.GetLocalizedString(ProbeKey, CurrentLanguage, NoArgs);
                 var ok = viaGame == ProbeKey + "=ok";
-                _probeResult = ok
-                    ? "OK（游戏查找链读到了本库的译文）"
-                    : "**未生效**（译文只在本库界面里可见）";
-                // 只在**失败**时记日志 —— 成功是常态，每次启动都打一行只会稀释日志。
-                // 结果随时可以在 `UiLocale.Report()`（模组设置页的 dump）里看到。
-                if (!ok)
+
+                // ② 带上下文的查找（游戏内容名）—— 没挂上的话，mod 的关卡/诅咒名字
+                //    在英文下永远是中文
+                Add(ProbeKey + "Ctx", ProbeKey + "=ok", null, ProbeContext);
+                var viaGameCtx = lm.GetLocalizedStringParticular(ProbeContext, ProbeKey + "Ctx", CurrentLanguage, NoArgs);
+                var okCtx = viaGameCtx == ProbeKey + "=ok";
+
+                _probeResult = ok && okCtx
+                    ? "OK（普通 + 上下文两条链都读到了本库的译文）"
+                    : (ok
+                        ? "**半通**（普通链通、上下文链未生效 —— mod 内容名不会翻译）"
+                        : "**未生效**（译文只在本库界面里可见）");
+                if (!ok || !okCtx)
                     Plugin.Log?.LogWarning("[UiLocale] 挂链自检：" + _probeResult);
             }
             catch (Exception e)
@@ -666,6 +928,14 @@ namespace DSHCore.Ui
             var current = CurrentLanguage;
             if (CountOf(current) == 0 && DescribeExternal(current).StartsWith("无"))
                 sb.Append("  （当前语言没有任何译文 —— mod 名会原样显示源串）\n");
+            sb.Append("  带上下文的条目（游戏内容名）：");
+            for (var i = 0; i < Languages.Length; i++)
+            {
+                if (i > 0)
+                    sb.Append("，");
+                sb.Append(Languages[i]).Append(" ").Append(ContextCountOf(Languages[i])).Append(" 条");
+            }
+            sb.Append('\n');
             sb.Append("  外部目录：").Append(ExternalDirectory).Append('\n');
             sb.Append("  本次会话见过的源串：").Append(SeenKeys.Count).Append(" 条")
               .Append("（导出模板：/dshtrans write <语言码>）\n");
@@ -689,8 +959,11 @@ namespace DSHCore.Ui
             sb.Append("源串（").Append(keys.Length).Append(" 条）→ 「").Append(lang).Append("」下的取值：\n");
             for (var i = 0; i < keys.Length; i++)
             {
-                sb.Append("  ").Append(keys[i]).Append('\n')
-                  .Append("    = ").Append(In(keys[i], lang)).Append('\n');
+                var key = keys[i];
+                string context, source;
+                SplitKey(key, out context, out source);
+                sb.Append("  ").Append(DescribeKey(key)).Append('\n')
+                  .Append("    = ").Append(In(source, lang, context)).Append('\n');
             }
             return sb.ToString();
         }

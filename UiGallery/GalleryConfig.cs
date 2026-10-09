@@ -72,12 +72,20 @@ namespace UiGallery
                     + "需要完整注入链，会让本 mod 注册一个 ModInfo（出现在 mod 列表里），所以默认关闭。");
                 SampleVanillaOptions = vanilla.Value;
 
+                // 示例值：给上取值范围 / 取值集合 —— BepInEx 会把它们写成 cfg 里的
+                // `# Acceptable value range:` / `# Acceptable values:` 两行，
+                // MVZ2ModManager 据此渲染成**滑条 / 下拉框**（只给字符串说明就只能画文本框）。
+                // 多值项的下标范围与 SampleOptions.ChoiceItems（低/中/高）一致。
                 SampleToggle = config.Bind("SampleValues", "Toggle", true,
                     "模组设置页样例复选框的当前值（由设置界面写入）。");
                 SampleSlider = config.Bind("SampleValues", "Slider", 3,
-                    "模组设置页样例滑条的当前值（由设置界面写入）。");
+                    new ConfigDescription(
+                        "模组设置页样例滑条的当前值（由设置界面写入）。",
+                        new AcceptableValueRange<int>(0, 10)));
                 SampleChoice = config.Bind("SampleValues", "Choice", 1,
-                    "模组设置页样例多值项的当前选项下标（由设置界面写入）。");
+                    new ConfigDescription(
+                        "模组设置页样例多值项的当前选项下标（由设置界面写入）。0=低 1=中 2=高。",
+                        new AcceptableValueList<int>(0, 1, 2)));
             }
             catch
             {

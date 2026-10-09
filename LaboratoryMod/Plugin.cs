@@ -104,6 +104,9 @@ namespace LaboratoryMod
             // 译文挂在 DSHCore.Ui.UiLocale（= 游戏的语言系统，切到英文就显示英文名）。
             // DeclareMod 另外把「一句说明 + 作者」也带上（本 mod 有 ModInfo，不带也行）。
             UiLocale.Add(DisplayName, "实验室");
+            // 关卡名 + 本 mod 自述的英文（关卡名带 CONTEXT_LEVEL_NAME，
+            // 登记完游戏自己的关卡列表就会跟着语言变）。
+            LabLocale.Register();
             UiOptions.DeclareMod(LabMod.spaceName, DisplayName,
                 "实验室小游戏（real_prologue / zero_k_space / unknow_palace）", "QoZnoS");
 

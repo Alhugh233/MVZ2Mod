@@ -46,6 +46,7 @@ flowchart LR
 .\build.ps1                             # 构建全部（游戏目录存在时自动部署）
 .\build.ps1 -Mod curse -Pack -Launch    # 只构建诅咒 mod：打包 + 启动冒烟
 .\build.ps1 -Clean -Pack                # 全部：先清理再构建，并打包
+.\build.ps1 -Mvz2Pack                   # 全部：再打一个 MVZ2ModManager 的模组包
 ```
 
 只想构建单个 mod 时，也可以直接运行该目录下的 `build.ps1`（参数一致）。
@@ -60,12 +61,15 @@ flowchart LR
 | `-KeepGame`                     | 不结束正在运行的游戏（**游戏会锁住插件 DLL**，一般不要用）                                   |
 | `-Pack`                         | 打包可分发 zip 到`dist\`（默认**含** BepInEx 运行环境）                                      |
 | `-PackDevKit`                   | 额外打「不含 DSHCore 源码」的便携开发环境包（只对`dsh` 有效）                                |
+| `-Mvz2Pack`                     | 额外打一个`MVZ2ModManager` 可导入的`.mvz2pack`（**除 UI 画廊外**的全部 mod，不带运行环境）    |
+| `-Mvz2PackName <名字>`          | 指定模组包文件名（默认 `MVZ2Mods_v<日期>_0.7.0`）                                            |
+| `-Mvz2PackAuthor <作者>`        | 写进清单的作者（默认 `QoZnoS`）                                                              |
 | `-NoRuntime`                    | 打包时**不带** BepInEx（包体从 ~44MB 降到几十 KB）                                           |
 | `-Launch`                       | 构建/打包后启动游戏                                                                          |
 
 VS Code 里这套命令已注册为任务（`Ctrl+Shift+P` → `Tasks: Run Task`）：
-构建全部 / 构建全部 + 打包 / 各 mod 单独构建 / 打包 DevKit / 同步 runtime /
-清理构建产物 / 查看 BepInEx 日志（含 `ErrorLog.log`）。
+构建全部 / 构建全部 + 打包 / 构建全部 + 模组包（.mvz2pack） / 各 mod 单独构建 / 打包 DevKit /
+同步 runtime / 清理构建产物 / 查看 BepInEx 日志（含 `ErrorLog.log`）。
 （多根工作区里用 `MVZ2Mod.code-workspace` 自带的那份任务。）
 
 ---
@@ -82,7 +86,7 @@ VS Code 里这套命令已注册为任务（`Ctrl+Shift+P` → `Tasks: Run Task`
 会起一个**只监听 `127.0.0.1`** 的本地网页并自动用浏览器打开，实时显示**所有插件**的日志。
 日志是从**游戏启动**就开始记的，所以一开就能看到之前的完整历史。
 
-指令名支持 **Tab 补全**：输个 `/ds` 按 Tab 就会补成 `/dshlog`，再接着输 `o` 能补出
+指令名支持 **Tab 补全**：输个 `/ds` 按 Tab 就会补成 `/dshlog`（还有 `/dshtrans`），再接着输 `o` 能补出
 `off` / `open` 等子指令，不用背。
 
 
@@ -100,6 +104,11 @@ VS Code 里这套命令已注册为任务（`Ctrl+Shift+P` → `Tasks: Run Task`
 > 调试控制台需要存档用户名是 `debug` —— 这是游戏自身的限制。
 > URL 里的令牌只在本会话有效，`/api/status` 不会把它回吐出去。
 
+另一个指令 `/dshtrans` 管**模组译文的外部文件**（玩家不改 mod 也能加语言）：
+`/dshtrans keys` 列出已知源串、`/dshtrans write en-US` 导出翻译模板、
+`/dshtrans reload` 改完文件重新读盘。译文放 `BepInEx/config/DSHCore/lang/<语言码>.txt`，
+详细规则见 `DSHCore/UI_GUIDE.md` §11.5。
+
 网页是**三栏**：左边筛选（等级 / 来源 / 关键词）、中间日志、右边点开的详情。
 两条分隔条都能拖动调宽度，双击分隔条或点「重置分栏宽度」恢复默认，
 宽度会记住（存在浏览器本地）。没选中行时右栏收起，日志区自动变宽。
@@ -114,6 +123,61 @@ VS Code 里这套命令已注册为任务（`Ctrl+Shift+P` → `Tasks: Run Task`
 > 如果游戏是从已有终端启动的，BepInEx 是**附着**到那个终端的窗口，
 > 此时隐藏会被**主动拒绝**（藏了会连你自己的终端一起没），网页里表现为
 > `not-our-window` —— 这是保护，不是故障。
+
+---
+
+## 模组多语言
+
+本仓库的 mod（**除 UI 画廊外**）都跟着游戏的**语言设置**走：中文是源语言，
+英文译文写在代码里；玩家不用改 mod 就能加第三种语言。
+
+| 内容 | 在哪 | 备注 |
+| --- | --- | --- |
+| 界面文字（按钮 / 标题 / 提示） | 各 mod 的 `*Locale.cs` | 由 DSHCore 的界面辅助函数**自动取词** |
+| 游戏内容名（关卡名 / 诅咒名与说明） | 同上，但**带上下文** | 游戏自己会 `_p(上下文, 名字)`，所以登记时必须带上 |
+| 英文译文 | 代码里随 mod 一起编译 | 切到英文即生效 |
+| **玩家加/改语言** | `BepInEx/config/DSHCore/lang/<语言码>.txt` | 不用改 mod、不用重编译 |
+
+```
+BepInEx/config/DSHCore/lang/zh-Hans.txt     ← /dshtrans write en-US 可导出模板
+BepInEx/config/DSHCore/lang/zh-Hans.d/*.txt 可放多份，按文件名排序，后者优先
+```
+
+```ini
+[curse.name] 怪物的大脑 = The Creature's Brain
+[curse.tooltip] 器械受到伤害时漏电 3s。 = Contraptions leak electricity for 3s when damaged.
+[levelname] 真正的序章 = Real Prologue
+MVZ2 Loadout = Graphical Console
+```
+
+> **它不会凭空让游戏多出一种语言**：游戏的语言列表来自**语言包资源包**，
+> 所以要新增一种语言，得先在 **插件 → 语言包** 里启用一份支持该语言的语言包，
+> 对应的 `<语言码>.txt` 才会被读到（mod 语言始终跟游戏设置走）。
+> 改完文件用游戏内 `/dshtrans reload` 重新读取，不用重启。
+
+方括号里的**上下文**是游戏自带的那套（`curse.name` / `curse.tooltip` / `levelname` …），
+不要改 —— 它是键的一部分。用 `/dshtrans keys` 能看到全部已知条目与它们当前的取值。
+细节见 `DSHCore/UI_GUIDE.md` §11。
+
+---
+
+## 配置文件与 MVZ2ModManager
+
+各 mod 的配置（`BepInEx/config/qoznos.mvz2.*.cfg`）都**声明了取值范围 / 取值集合**，
+`# Acceptable value range:` 与 `# Acceptable values:` 两行注释就是给
+[MVZ2ModManager](MVZ2ModManager/README.md) 看的：它据此把条目渲染成
+
+- **滑条**（有范围的数值，例如日志端口、回放保留数量、假鼠标倍率）
+- **下拉框**（取值集合，例如 `Safe / Standard / Full`、`Auto / On / Off`、
+  `linear / quadout / quadinout / cubicout`）
+
+而不是让玩家对着文本框猜合法值。越界时的行为已反编译确认（BepInEx 6 be.788）：
+范围 → 夹到边界、列表 → **换成列表第一项**，两者都**不抛异常**，
+所以手改坏值也不会让插件加载失败；列表里把 `Auto` / `off` 放第一位就是让非法值退回最安全的那个。
+
+> 有意**不**给「关键字或路径」类配置加取值列表（例如回放的 `OutputDir`
+> 既能填 `save` / `savemod` / `saveroot` / `game`，也能填任意路径）——
+> 列成下拉框会让自定义路径没法填，所以它保持文本框。
 
 ---
 
@@ -205,7 +269,7 @@ MVZ2Mod/
 │   └─ CurseBuffs/              诅咒 buff 实现
 ├─ _refs/DSHCore/               编译引用：DSHCore.dll（入库，构建时自动同步）
 ├─ tools/
-│   ├─ build-common.ps1         三个 mod 共用的构建/部署/打包函数
+│   ├─ build-common.ps1         三个 mod 共用的构建/部署/打包函数（含 New-Mvz2Pack）
 │   ├─ sync-runtime.ps1         从游戏目录刷新 runtime/
 │   ├─ show-log.ps1             看测试游戏目录的 BepInEx 日志
 │   ├─ InteropGen/              interop 预生成工具（⚠️ 产物不完整，勿用作编译引用）
@@ -289,6 +353,36 @@ MVZ2-Mod-DevKit/
 
 > 即：**每个包都是自包含的**，玩家装一个 zip 就能用（每个 ~44 MB）。
 > 只要插件本体（比如给已装好的游戏换个 DLL）时加 `-NoRuntime`，包体就降到几十 KB。
+
+### 模组包（`.mvz2pack`，给 MVZ2ModManager 用）
+
+上面那些 zip 是「解压到游戏根目录」的手工安装包；`-Mvz2Pack` 打的则是**另一套东西**：
+一份可以直接丢给 **MVZ2ModManager** 导入 / 一键还原的合集包。
+
+```powershell
+.\build.ps1 -Mvz2Pack                    # 构建全部 → dist\MVZ2Mods_v20261007_0.7.0.mvz2pack
+.\build.ps1 -Mvz2Pack -SkipBuild         # 只用已有产物打包（不重新构建）
+```
+
+包内只有**模组本体**，不带 BepInEx 运行环境（那个由管理器 / 游戏自己负责）：
+
+```
+mvz2pack.json                         清单（文件名固定，管理器只认它）
+BepInEx/plugins/*.dll                 5 个插件：DSHCore / LaboratoryMod / ModularCurse / Loadout / Replay
+StreamingAssets/Mods/mvz2_lab/…       实验室的资源
+StreamingAssets/Mods/modular_curse/…  诅咒的资源
+```
+
+| 事项 | 说明 |
+| --- | --- |
+| 包含哪些 mod | **除 UI 画廊外的全部**（`UiGallery` 是开发者工具，不进玩家向的包） |
+| 来源 | 各 mod 的 `bin\Debug\` 产物 —— **不读游戏目录**，所以没有游戏也能打包 |
+| 还原语义 | 管理器会先**清空** `BepInEx\plugins\` 与 `StreamingAssets\Mods\` 再解压（格式本身如此），所以别往那两个目录塞私货 |
+| 与 `-Mod` 连用 | 不允许（合集包没有单 mod 版本） |
+| 自检 | 打完会**读回来验一遍**（清单在不在、字段名对不对、条目是不是正斜杠、前缀认不认）——不过就直接 throw 并删掉包，不会交出一份「导入后什么都没发生」的包 |
+
+> 该格式的三条硬约束（正斜杠条目名 / 清单字段名 / 无 BOM）实现细节写在
+> `tools/build-common.ps1` 的 `New-Mvz2Pack` 注释里，改这个函数前先读那段。
 
 ---
 

@@ -1,18 +1,6 @@
 # ---------------- 构建产物 ----------------
-DSHCore/bin/
-DSHCore/obj/
-LaboratoryMod/bin/
-LaboratoryMod/obj/
-ModularCurse/bin/
-ModularCurse/obj/
-Loadout/bin/
-Loadout/obj/
-UiGallery/bin/
-UiGallery/obj/
-Replay/bin/
-Replay/obj/
-tools/InteropGen/bin/
-tools/InteropGen/obj/
+[Bb]in/
+[Oo]bj/
 
 # ---------------- 打包输出 ----------------
 dist/
@@ -41,5 +29,3 @@ _dump_out/
 _replay_report.txt
 TODO.txt
 Loadout.txt
-GraphicConsole/bin/
-GraphicConsole/obj/

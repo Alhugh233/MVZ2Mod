@@ -58,8 +58,13 @@ namespace Replay
         ///   1 = 早期草案（无指针位置，工具点击记成派生的 set/reset）
         ///   2 = 指针事件带位置、工具点击记成 tool
         ///   3 = 实体事件额外带 def（定义 ID）与 ex/ey/ez（记时坐标）
+        ///   6 = 实体事件带分层（layers）
+        ///   7 = header 记窗口尺寸（sw/sh），播放时把屏幕坐标换算回同一个世界点
+        ///       （旧文件没有这两个字段 → 恒等换算，行为不变）
+        ///   8 = blueprint / bpkey / entity 事件带 itg/evk（拿起蓝图那一刻的
+        ///       「立即触发 / 立即激发」标记）。旧文件没有 → 回放不做任何干预。
         /// </summary>
-        private const int FormatVersion = 6;
+        private const int FormatVersion = 8;
 
         #region 会话状态
         private static readonly List<string> eventLines = new List<string>();
@@ -84,6 +89,16 @@ namespace Replay
         private static string hArea;
         private static string hDifficulty;
         private static int hSeed;
+
+        /// <summary>
+        /// 开录那一刻的窗口尺寸（写进 header 的 <c>sw</c>/<c>sh</c>）。
+        ///
+        /// <para>事件里的屏幕坐标必须配上它才能跨窗口尺寸重放：
+        /// 「像素 → 世界坐标」换算里含屏幕高，不记下来的话换个窗口再播，
+        /// 同一个像素就指向别的格子了（见 <see cref="ReplayViewport"/>）。</para>
+        /// </summary>
+        private static float hScreenW;
+        private static float hScreenH;
 
         private static string lastWrittenPath;
         #endregion
@@ -323,6 +338,28 @@ namespace Replay
             sb.Append(",\"wz\":").Append(Json.Num(world.z));
         }
 
+        /// <summary>
+        /// 把「这个事件之后手持蓝图上的两个标记」写进事件行（v8 起）。
+        ///
+        /// <para><b>为什么必须记：</b><c>instantTrigger</c> 是
+        /// 「是否手持触发器」与**玩家选项**「交换触发」的异或，而那个选项
+        /// **不在关卡关键帧里、关卡内随手可改**。不记下来的话，录/放两边设置不同
+        /// 就会让器械行为整个反过来（详见 <see cref="ReplayHeldFlags"/>）。</para>
+        ///
+        /// <para>手上不是蓝图（或读不到）时**什么都不写** —— 回放据此区分
+        /// 「这个事件不需要干预」与「这个事件的标记是 false」。</para>
+        /// </summary>
+        private static void AppendHeldFlags(StringBuilder sb, LevelController ctrl)
+        {
+            var lvl = ctrl != null ? TryEngine(ctrl) : null;
+            if (lvl == null)
+                return;
+            if (!ReplayHeldFlags.TryRead(lvl, out var itg, out var evk))
+                return;
+            sb.Append(",\"itg\":").Append(Json.Bool(itg));
+            sb.Append(",\"evk\":").Append(Json.Bool(evk));
+        }
+
         /// <summary>格子上的手持物指针事件。</summary>
         public static void RecordGrid(LevelController ctrl, int lane, int column, int pointerId, int button, int interaction, Vector2 screen, Vector3 world)
         {
@@ -503,6 +540,8 @@ namespace Replay
             sb.Append(",\"btn\":").Append(Json.Num(button));
             sb.Append(",\"ia\":").Append(Json.Num(interaction));
             AppendPos(sb, screen, world);
+            // 实体路径也包含「捡起掉在地上的卡」（blueprint_pickup），一样会产生手持蓝图。
+            AppendHeldFlags(sb, ctrl);
             Commit(sb);
         }
 
@@ -520,6 +559,7 @@ namespace Replay
             sb.Append(",\"btn\":").Append(Json.Num(button));
             sb.Append(",\"ia\":").Append(Json.Num(interaction));
             AppendPos(sb, screen, world);
+            AppendHeldFlags(sb, ctrl);
             Commit(sb);
         }
 
@@ -533,6 +573,7 @@ namespace Replay
             sb.Append(",\"idx\":").Append(Json.Num(index));
             sb.Append(",\"cv\":").Append(Json.Bool(conveyor));
             sb.Append(",\"key\":").Append(Json.Num(key));
+            AppendHeldFlags(sb, ctrl);
             Commit(sb);
         }
 
@@ -623,6 +664,8 @@ namespace Replay
             hArea = null;
             hDifficulty = null;
             hSeed = 0;
+            hScreenW = 0f;
+            hScreenH = 0f;
         }
 
         private static bool Begin(string replayName, string armReason, LevelController ctrl)
@@ -645,6 +688,11 @@ namespace Replay
             lastTick = startTick;
             nextFingerprintTick = startTick + GetFingerprintInterval();
             nextAutoSaveTick = startTick + AutoSaveTicks;
+
+            // 窗口尺寸按「开录那一刻」记：中途改窗口尺寸的话这局回放本来就不一致了，
+            // 记最早的至少能保证前半段是对的。
+            hScreenW = Screen.width;
+            hScreenH = Screen.height;
 
             if (lvl != null)
             {
@@ -1016,6 +1064,8 @@ namespace Replay
             sb.Append(",\"area\":").Append(Json.Str(hArea));
             sb.Append(",\"difficulty\":").Append(Json.Str(hDifficulty));
             sb.Append(",\"seed\":").Append(Json.Num(hSeed));
+            sb.Append(",\"sw\":").Append(Json.Num(hScreenW));
+            sb.Append(",\"sh\":").Append(Json.Num(hScreenH));
             sb.Append(",\"startTick\":").Append(Json.Num(startTick));
             sb.Append(",\"lastTick\":").Append(Json.Num(lastTick));
             sb.Append(",\"hasKeyframe\":").Append(Json.Bool(keyframeState == KeyframeState.Ok));

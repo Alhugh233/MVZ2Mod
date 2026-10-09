@@ -259,15 +259,17 @@ namespace Replay
         /// </summary>
         public static void HeldItemPosPrefix()
         {
-            savedPointerScreen = ReplayPlayer.PointerScreen;
+            // 两边都用**录制坐标系**的裸值（Raw*）：
+            // PointerScreen 那个属性是「已换算到当前窗口」的，拿它当输入会再换算一次，越偏越多。
+            savedPointerScreen = ReplayPlayer.RawPointerScreen;
             if (FakePointer.Active)
-                ReplayPlayer.SetPointerScreen(FakePointer.ScreenPos);
+                ReplayPlayer.RawPointerScreen = FakePointer.RawScreenPos;
         }
 
         /// <summary><c>LevelController.UpdateHeldItemPosition</c> 后缀：还原指针位置。</summary>
         public static void HeldItemPosPostfix()
         {
-            ReplayPlayer.SetPointerScreen(savedPointerScreen);
+            ReplayPlayer.RawPointerScreen = savedPointerScreen;
         }
         #endregion
 
@@ -287,13 +289,15 @@ namespace Replay
         /// </summary>
         public static void OptionsRestartLabelPostfix(MVZ2.Options.OptionsDialogController __instance)
         {
-            SetOptionButtonText(__instance, MVZ2.UI.OptionsDialogMainPage.TextButtonType.Restart, LabelReplay);
+            SetOptionButtonText(__instance, MVZ2.UI.OptionsDialogMainPage.TextButtonType.Restart,
+                UiLocale.Get(LabelReplay));
         }
 
         /// <summary><c>OptionsDialogController.UpdateLeaveLevelButton</c> 后缀：回放期间改成「结束播放」。</summary>
         public static void OptionsLeaveLabelPostfix(MVZ2.Options.OptionsDialogController __instance)
         {
-            SetOptionButtonText(__instance, MVZ2.UI.OptionsDialogMainPage.TextButtonType.LeaveLevel, LabelEndPlay);
+            SetOptionButtonText(__instance, MVZ2.UI.OptionsDialogMainPage.TextButtonType.LeaveLevel,
+                UiLocale.Get(LabelEndPlay));
         }
 
         /// <summary>
@@ -402,7 +406,8 @@ namespace Replay
                 // ⚠️ 必须钉住：ShowDialogSelect 的回调最终落在 il2cpp 的委托字段上，
                 // 只在调用点建一个局部委托的话随时可能被 GC 掉（症状：点「是」毫无反应，且不报错）。
                 pinnedConfirm = cb;
-                main.Scene.ShowDialogSelect(title, desc, cb);
+                // 走游戏原生的对话框，它不会替我们取词。
+                main.Scene.ShowDialogSelect(UiLocale.Get(title), UiLocale.Get(desc), cb);
             }
             catch (Exception e)
             {

@@ -32,7 +32,7 @@ namespace DSHCore.Ui
         /// <c>ElementList</c>）。修补完必须自己调 <see cref="Activate"/>。</para>
         /// </summary>
         public static GameObject Instantiate(GameObject template, Transform parent, string name = null,
-            bool activate = true)
+            bool activate = true, bool replaceMask = true)
         {
             if (!UiFinder.IsAlive(template))
                 return null;
@@ -41,7 +41,7 @@ namespace DSHCore.Ui
                 var go = UnityEngine.Object.Instantiate(template, parent, false);
                 if (go == null)
                     return null;
-                Normalize(go, name, activate);
+                Normalize(go, name, activate, replaceMask);
                 return go;
             }
             catch (Exception e)
@@ -99,6 +99,12 @@ namespace DSHCore.Ui
         /// 不打开的话子组件的 <c>Awake</c> 永远不会跑，事件绑定也不会发生。
         /// 传 <paramref name="activate"/> = <c>false</c> 可以推后这一步（见
         /// <see cref="Instantiate"/>），修补完再用 <see cref="Activate"/>。</item>
+        /// <item>把子树里的 <c>Mask</c> 换成 <c>RectMask2D</c>（<see cref="UiKit.ReplaceMask"/>，
+        /// 传 <paramref name="replaceMask"/> = <c>false</c> 可跳过）—— 这是**硬要求**，且在"激活之前"做：
+        /// 克隆体与模板（= 游戏自己的节点）共用同一份全局共享的 Stencil 材质实例，
+        /// 之后无论销毁哪一边都会把对方一起打爆。详见 <see cref="UiKit.ReplaceMask"/> 与
+        /// <c>UI_RESEARCH.md</c>。⚠️ 只有"确实需要**非矩形**的模板缓冲裁剪"时才该跳过 ——
+        /// <c>RectMask2D</c> 只会做矩形裁剪，跳过的克隆体必须保证自己**永不销毁**（否则照样会连累模板）。</item>
         /// </list>
         ///
         /// <para><b>它刻意**不**去改 TMP 的自动缩放。</b>早期版本在这里无条件
@@ -107,7 +113,8 @@ namespace DSHCore.Ui
         /// <c>TitleArea</c> 固定只有 40px 高）。关掉之后长标题只能换成两行，于是向上溢出到框体外面。
         /// 需要“固定字号”时请用 <see cref="SetLabel"/> 并显式传尺寸。</para>
         /// </summary>
-        public static GameObject Normalize(GameObject go, string name = null, bool activate = true)
+        public static GameObject Normalize(GameObject go, string name = null, bool activate = true,
+            bool replaceMask = true)
         {
             if (!UiFinder.IsAlive(go))
                 return null;
@@ -117,6 +124,14 @@ namespace DSHCore.Ui
                 if (!string.IsNullOrEmpty(name))
                     go.name = name;
                 UiHost.MarkOwn(go);
+                // ⚠️ 换 Mask **必须在激活之前**：只要 Mask 还在 enabled 状态，子树里的 TMP 子网格
+                // 一活跃就会去向 TMP_MaterialManager 申请**全局共享**的 Stencil 材质实例
+                // （与模板 = 游戏自己的节点共用同一份），之后销毁任何一边都会把游戏自己
+                // 关卡 HUD 的 TMP 一起打爆 —— 表现为"每帧 TMP_SubMeshUI / Material.GetFloat 抛
+                // NullReferenceException"，进而让 LevelUIPreset 的 Animator 再也不被驱动。
+                // 所有克隆体统一在这里做掉，是这一类问题的根治点。
+                if (replaceMask)
+                    UiKit.ReplaceMask(go);
                 if (activate && !go.activeSelf)
                     go.SetActive(true);
             }

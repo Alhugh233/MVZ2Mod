@@ -30,7 +30,7 @@
             <spawn id="mvz2:skeleton_statue" />
             <spawn id="mvz2:hacker" />
             <spawn id="mvz2:zombie_cat" />
-            <spawn id="mvz2:axolotl_suit_pilot" />
+            <spawn id="mvz2:axolotl_suit" />
             <spawn id="mvz2:mutant_zombie" />
             <spawn id="mvz2:mega_mutant_zombie" />
         </spawns>

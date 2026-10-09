@@ -415,10 +415,11 @@ public void AddMod(Mod mod)
 | `UiDropdown` | TMP 弹窗的**诊断**（不属于功能 API） | `Of` / `Show` / `Hide` / `FindList` / `Describe` / `DumpCanvases` / `DumpScrollViews` / `PreparePopup` / `SetPopupCanvasMode` / `MoveListTo` / `MoveListToRoot` / `StripListCanvas` |
 | `UiTooltip` | 原版悬停提示全链 | `Attach(target, title, text)` / `AttachExisting(node, …)` / `SetText` / `AnchorPivot` / `Describe` / `Hide()` |
 | `UiOptions` | **设置项注册**：默认进「模组设置」页（零注入）；`scope: VanillaMenu` 时才进原版设置界面 | `DeclareToggle` / `DeclareSlider` / **`DeclareChoice`** / `DeclareDropdown` / **`DeclareMod(space, 名, 说明, 作者, 中文?)`** / `SetModDisplayName(space, 源串, 中文?)` / `GetModEntry` / `GetModDisplayName` / **`GetModDisplayNameSource`** / `GetModDescription` / `GetModAuthor` / **`DeclaredSpaces`** / `For` / **`ForPage`** / **`SpacesWithSettings`** / `Report`；原版路径另有 `Attach(mod)` / `ApplyProperties()` |
-| `UiLocale` | **模组文本本地化**（把 mod 的小表挂进游戏的查找链；**支持玩家可编辑的外部文件**） | `Add` / `AddAll` / `Get` / `In` / `Format` / `CurrentLanguage` / `Apply` / `Languages` / `CountOf` / `Report` / **`ExternalDirectory`** / **`ReloadExternal`** / **`DescribeExternal(lang)`** / **`WriteTemplate(lang, overwrite?)`** / **`KnownKeys`** / **`DumpKeys`**；语言码常量 `Chinese`(`zh-Hans`) / `English`(`en-US`) / `SourceLanguage`；取词顺序 **外部文件 → 代码表 → 游戏 catalog → 源串** |
+| `UiLocale` | **模组文本本地化**（把 mod 的小表挂进游戏的**两条**查找链；**支持带上下文的游戏内容名**；**支持玩家可编辑的外部文件**） | `Add(源串, 译文, 语言?, 上下文?)` / `AddAll` / **`Table(owner)` → `UiLocaleTable`** / `Get(源串)` / **`Get(源串, 上下文)`** / `In(源串, 语言)` / **`In(源串, 语言, 上下文)`** / `Format` / **`GetAll(texts)`** / `CurrentLanguage` / `Apply` / `Languages` / `CountOf` / **`ContextCountOf`** / `Report` / **`ExternalDirectory`** / **`ReloadExternal`** / **`DescribeExternal(lang)`** / **`WriteTemplate(lang, overwrite?)`** / **`KnownKeys`** / **`SplitKey`** / **`DescribeKey`** / **`DumpKeys`** / **`RegisteredTables`**；语言码常量 `Chinese`(`zh-Hans`) / `English`(`en-US`) / `SourceLanguage`；取词顺序 **外部文件 → 代码表 → 游戏内容链（普通 + 带上下文）→ 源串** |
+| **`UiLocaleTable`** | **mod 侧写多语言的入口**（一个 mod 一张表，诊断里能看出归属者与条数） | `Add` / **`Both(源串, 英文, 中文?, 上下文?)`** / **`En(中文, 英文, 上下文?)`** / **`Zh(源串, 中文, 上下文?)`** / **`EnAll(…)`** / **`EnAllWith(上下文, …)`** / `Owner` / `Count` |
 | `UiTagRow` | **档案样式条目行**（`Toggle` + 文字；勾选 = 选中） | `Template(searchRoot?)` / `Create(parent, name, label, isOn, onChanged)` / `Set(row, label, isOn)` / `IsOn` / `TextOf` / `Describe` / `Forget` |
 | `UiKit` | 克隆小工具（行容器 / 文本 / 按钮 / 尺寸契约 / 克隆体修补 / 布局 dump） | `RowHeight` / `ButtonWidth` / `HContainer` / `VContainer` / `Fit` / `Label` / `Paragraph` / **`AutoHeight`** / **`SetBold`** / **`IsBold`** / `TextButton` / **`Separator`** / **`ImageAlpha`** / `ReplaceMask` / `ClearEmptySpriteAlpha` / `StripTextTranslators` / `NormalizeSubtree` / `MakeVertical` / `Path` / `SetWidthRatio` / **`SetTwoColumnWidth(left, right, totalRatio)`** / `Describe` / `DescribeTexts` |
-| `AddonPage` | **插件页子页面**（入口按钮 + 页面壳 + 生命周期全自动） | 抽象：`Id` / `EntryLabel` / `Title` / `ShellSource` / `WidthRatio` / **`TwoColumnWidthRatio`** / **`LeftColumnPath`** / `RightColumnPath` / **`TopHeight`** / `BuildContent(shell)` / `Suspended()` / `OnBuildFailed`；运行：`Register` / `Open` / `Close` / `RequestOpen` / `PumpNow` / `SetReturnTo` / `Root` / `EntryInstalled` / `LastError` |
+| `AddonPage` | **插件页子页面**（入口按钮 + 页面壳 + 生命周期全自动） | 抽象：`Id` / `EntryLabel` / `Title` / `ShellSource` / `WidthRatio` / **`TwoColumnWidthRatio`** / **`LeftColumnPath`** / `RightColumnPath` / **`TopHeight`** / **`EntryLabelText`** / **`TitleText`** / `BuildContent(shell)` / `Suspended()` / `OnBuildFailed`；运行：`Register` / `Open` / `Close` / `RequestOpen` / `PumpNow` / `SetReturnTo` / `Root` / `EntryInstalled` / `LastError` |
 | `AddonPages` | 子页面登记表 + 心跳 + 共用查找 | `Register` / `Get` / `All` / `IsAddonsPage` / `FindShellSource` / `FindEntryTemplate` / `Apply`（挂心跳）/ `Report` |
 | `ModSettingsPage` | **内建的「模组设置（DSHCore）」页**（左栏 mod、右栏详细信息 + 设置项） | `SelectNamespace` / `SelectedNamespace` / `DumpLayout` |
 | `InjectedDefinitions` | 注入定义 → 官方定义表 | `Register` / `Bind` / `ListFor` / `All` / `Count` / `Track` / `Create<T>` / `Apply` / **`NamespaceOf(mod)`**（判定"这个 `Mod` 是不是我的"只用它） / `Report` |
@@ -718,7 +719,7 @@ flowchart TD
 | 19 | `ScreenCapture.CaptureScreenshot` 会落空白/黑帧 | 截图只当辅助；优先看布局 dump 日志 |
 | **20** | **克隆体一被激活，挂在它上面的组件就会跑 `Awake`** —— 所以「不该存在的组件」必须在激活**之前**删，而且要用 `DestroyImmediate`（`Destroy` 是帧末生效的，同一帧照样会 Awake，白删）。`UiClone.Instantiate(..., activate: false)` + `UiClone.Activate` 就是为此加的 | 先克隆→修补→再激活（`UiSkin.Resolve` 已经这么排） |
 | **21** | **`Scroll View/Viewport/Content` 上那个 `ElementList` 的 `_template` 是空的**（原版的行模板是运行时才塞进去的）→ 克隆体被激活时它的 `Awake`（第一句就是 `_template.transform`）必抛空指针。日志里只有孤零零一行 `ElementList.Awake ← Instantiate`，**调用方是 mod 代码时调用者帧都不会出现**，完全无法定位 | `UiSkin.StripRowSpawners`：把可滚动容器克隆体里所有 `ElementList`/`ElementListUI` 一律 `DestroyImmediate`（我们的 Content 靠 `VerticalLayoutGroup` 排版，不需要它们）。定位手法：Harmony prefix 挂在 `ElementList.Awake` 上，模板不可用就打印自己/模板/`_listRoot` 的路径（`UiGallery/ElementListWatchdog.cs`） |
-| **22** | **`Mask` 会让 TMP 的子网格（`TMP_SubMeshUI`）去申请一份共享的 Stencil 材质实例**；`Instantiate` 只复制引用，于是克隆体与模板（就是游戏自己那个设置界面）共用同一份 —— 之后无论哪一边先被销毁都把材质一起销毁，另一边 `OnDisable` 时就在 `Material.GetFloat` 里抛空指针（还会经 `Mask.OnDisable → MaskUtilities.NotifyStencilStateChanged` 连带触发一串）。实测：一次开页刷 **11 行**空指针 | 视口遮罩换成 `RectMask2D`（`UiSkin.ReplaceStencilMaskWithRectMask`）：矩形裁剪、不需要 Sprite、不碰模板缓冲，外观与行为一致。换完实测 **11 → 0** |
+| **22** | **`Mask` 会让 TMP 的子网格（`TMP_SubMeshUI`）去申请一份共享的 Stencil 材质实例**；`Instantiate` 只复制引用，于是克隆体与模板（就是游戏自己那个设置界面）共用同一份 —— 之后无论哪一边先被销毁都把材质一起销毁，另一边 `OnDisable` 时就在 `Material.GetFloat` 里抛空指针（还会经 `Mask.OnDisable → MaskUtilities.NotifyStencilStateChanged` 连带触发一串）。实测：一次开页刷 **11 行**空指针 | 视口遮罩换成 `RectMask2D`（`UiKit.ReplaceMask`，**所有克隆体由 `UiClone.Normalize` 自动做掉**）：矩形裁剪、不需要 Sprite、不碰模板缓冲，外观与行为一致。换完实测 **11 → 0**。❗**必须先 `enabled = false` 再销毁**：`Destroy` 要到帧末才生效、而 interop 组件上 `DestroyImmediate` 又不保证立刻生效（dump 里能看到 `Mask` 与 `RectMask2D` 并存）—— 只要 Mask 还有一帧是 enabled，注册就已经发生了。**2026-10-07 补充：这一条不只是"日志噪音"** —— 被共享材质打爆的如果正好是**游戏自己关卡 HUD** 的 TMP（蓝图/能量/进度文本都挂在遮罩视口里），`LevelController.UpdateFrameUI` 就会每帧在 `uiPreset.UpdateFrame` **之前**抛 NRE，于是 `LevelUIPreset` 那个「prefab 里就是 `m_Enabled = 0`、只靠每帧 `animator.Update(dt)` 养着」的 Animator **永远建不出来**；等第一大波 `ShowHugeWaveText()` 第一次写它 → `Animator.SetTrigger` 抛 `NullReferenceException`，玩家侧看到的是「关卡行为 `WaveStageBehaviour` 在执行 `Update` 时出现错误」。所以纪律是：**克隆体上的 `Mask` 一律在激活之前交给 `UiKit.ReplaceMask` 处理，永远不要自己写裸 `Destroy/DestroyImmediate(mask)`**（Loadout 那次就是漏在自己写的 `DestroyImmediate` 上）。`DSHCore/LevelUiAnimatorGuard.cs` 只是这条漏网时的安全网 |
 
 ### 6.5 交互与其它
 
@@ -1125,6 +1126,80 @@ mod 语言始终跟游戏设置走 —— 所以新增一种语言仍需要玩�
 - **键表只能来自「实际查过」的源串**：没有静态元数据可扫（源串散落在各 mod 的代码里），
   所以 `KnownKeys` 记录的是**本次会话**被问过的键 —— 想导出完整模板，
   得先把各个界面都开一遍（模组设置页会一次问完大部分）。
+
+### 7.11 第八轮：上下文（游戏内容名）多语言 + 各 mod 接入（实测记录）
+
+**需求**：在前置里提供多语言接口，并为所有 mod 加上多语言支持（UI 画廊除外）；
+另外修改各 mod 的配置声明，让 MVZ2ModManager 能把「特殊值」的条目渲染成下拉框。
+
+**背景（为什么上一轮的 `UiLocale` 只算做了一半）**：上一轮只挂了
+`LanguageManager.TryGetLocalizedString`（**无上下文**），于是 mod 自己画的界面文字能翻，
+但 mod 的**游戏内容名**（关卡名 / 诅咒名 / 诅咒说明 —— 都写在 `assets/**.xml` 里）
+在英文下永远显示中文。原因在源码里一眼可见：
+
+- `LevelManager.GetStageName` → `_p(LogicStrings.CONTEXT_LEVEL_NAME, meta.GetLevelName())`
+- `LogicGameExt.GetCurseName` → `GetTextParticular(name, LogicStrings.CONTEXT_CURSE_NAME)`
+- 它们最终都走 `TryGetLocalizedStringParticular(context, text, language, out, args)` —— **另一条链**。
+
+**交付物**
+
+- `UiLocale`：`Add` / `Get` / `In` 全部加上可选的 `context`；内部键用游戏自己那套分隔符
+  （EOT `\u0004`，与 `ResourcePack.TryGetStringParticular` 的 `context + "\u0004" + text` 一致）；
+  新增 `GetAll(texts)`（一趟给原生对话框取一组按钮文案）、`SplitKey` / `DescribeKey` / `ContextCountOf`。
+- `UiLocale.Apply()` 现在挂 **4 处**：`TryGetLocalizedString` 与
+  `TryGetLocalizedStringParticular` 各有「原生数组 / 托管数组」两个重载。
+  挂链自检也升级：普通链 + 上下文链各拿一个探针串走一遍游戏入口，
+  任一不通就告警（`半通` 措辞明确指向「mod 内容名不会翻译」）。
+- **`UiLocaleTable`**（新文件 `Ui/UiLocaleTable.cs`）：`UiLocale.Table(owner)` 返回的表，
+  给 mod 侧一个「一个 mod 一个 `Localization.cs`」的写法（`En` / `Zh` / `Both` /
+  `EnAll` / `EnAllWith`）。
+- **界面文字自动取词**：`UiKit.Label` / `Paragraph` / `TextButton`、
+  `UiOptionRow.SetLabel` / `SetTooltip`、`UiList.SetButtonLabel` 写文字前都过一遍 `UiLocale.Get`；
+  `AddonPage` 新增 `EntryLabelText` / `TitleText`（显示取词，原属性保持稳定供日志用）。
+- 各 mod 的 `*Locale.cs`：`LaboratoryMod/LabLocale.cs`（3 个关卡名带 `CONTEXT_LEVEL_NAME`）、
+  `ModularCurse/CurseLocale.cs`（**44 个诅咒名 + 44 条说明**，带 `CONTEXT_CURSE_NAME` /
+  `CONTEXT_CURSE_TOOLTIP`）、`Replay/ReplayLocale.cs`、`Loadout/LoadoutLocale.cs`。
+- 取词点：Replay 的 `CustomDialog` / `ShowDialogSelect`（原生控件不会替我们取词）、
+  Replay 列表数量改成格式串 `"共 {0} 个"`；Loadout 的 `AddTooltip` / `SetTooltip` /
+  `UiField.SetLabel` / `SyncPageSet` 的页签；ModularCurse 的诅咒池 tooltip。
+- **配置声明**（第二部分）：给 `Loadout`（等级 + 9 个功能开关 + 自测模式）、
+  `Replay`（缓动曲线 + 5 个数值范围）、`DSHCore`（端口 + 容量）、`UiGallery`（示例值）
+  递上 `AcceptableValueList` / `AcceptableValueRange`。
+
+**实测结果**
+
+- 挂链：`[UiLocale] 已挂进游戏文本查找链（补丁 4/4 处）`，自检 `OK（普通 + 上下文两条链都读到了本库的译文）`。
+- 外部文件：`[levelname] 键 = 值` 这种带上下文的行能被带上下文的查找读到，
+  而**不带上下文的查找读不到**（判据同时验这两半，正好证明上下文真的是键的一部分）。
+- 多语言判据：en-US 下 10 条抽样（4 条内容名 + 6 条界面文字）全部命中。
+- 配置渲染（MVZ2ModManager 的 `--screenshot` 控件树为准）：
+  `Loadout` 的 `CompatLevel` 与 9 个 `Compat.Features.*` → **10 个 `RDropdown`**；
+  `Replay` 的 `FakeMouseEase` → `RDropdown`，而 `FingerprintInterval` / `ProbeMaxLines` /
+  `MaxReplays` / `FakeMouseTicks` / `FakeMouseScale` → **5 个 `TrackBar`（带数值读数）**，
+  `OutputDir` 仍是 `RTextBox`（有意为之，见坑）。
+
+**本轮新增的坑**
+
+- **上下文查找不能做「回退到无上下文条目」**：游戏会对官方的**每一条**名字文本做带上下文的查找
+  （`GetEntityName`、`GetCurseTooltip`…），一旦允许回退，mod 界面里的泛词
+  （Loadout 的「音乐」「背景」「基础」，Replay 的「删除」「导入」）就会掺进官方内容名的翻译。
+  做法：`TryTable(..., strict)` —— 挂链补丁传 `strict: true`，而显式的 `Get(源串, 上下文)` 允许回退
+  （方便「同一个串既当内容名又当界面文字」的调用方）。
+- **键必须把富文本标记算进去**：`<color=#FF4040>永恒之心</color>` 是要整串去做查找的，
+  只登记「永恒之心」永远查不到，而且**不报错**。
+- **BepInEx 的日志是缓冲的（`InstantFlushing = false`）**：进程被 `Kill()` 时缓冲直接丢，
+  `LogOutput.log` 会是 **0 字节**。症状是「自测明明跑了一半（截图都写出来了）却什么日志都没有」，
+  而 `run-selftest.ps1` 会在 `$text.Contains(...)` 上报「不能对 Null 值表达式调用方法」。
+  → 跑完自测要**优雅关闭**（`CloseMainWindow()`）而不是杀进程；或者把 `InstantFlushing` 打开再跑。
+- **`AcceptableValueList.Clamp` 不抛异常，而是换成列表第一项**（反编译确认）。
+  所以列表的**顺序有意义**：`Auto` / `off` 放第一位，玩家的非法值就退回最安全的那个。
+- **别给「关键字或路径」类配置加取值列表**：`Replay.OutputDir` 既能填 4 个关键字
+  （`save` / `savemod` / `saveroot` / `game`）也能填任意路径，列成下拉框会让自定义路径没法填
+  → 保持文本框，只在说明里列关键字（MVZ2ModManager 的解析器也会把这些关键字收进下拉项，
+  但它**不会**因此挡住手填）。
+- **删掉 cfg 会让玩家改过的值退回默认**：验证「配置声明是否生效」时为了重新生成 cfg 而删了文件，
+  结果把 `CompatLevel = Full` 重置成了默认的 `Standard` —— 已从备份改回。
+  以后验证配置项这类事，要么先备份逐项写回，要么只在副本/临时目录里试。
 
 ---
 

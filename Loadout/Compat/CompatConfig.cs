@@ -168,7 +168,16 @@ namespace Loadout
         /// </summary>
         internal static string SelfTestMode
         {
-            get { return selfTestEntry == null ? string.Empty : (selfTestEntry.Value ?? string.Empty).Trim(); }
+            get
+            {
+                var v = selfTestEntry == null ? string.Empty : (selfTestEntry.Value ?? string.Empty).Trim();
+                // 取值表现在是 off/menu/level/all（见 SelfTestValues）：把 off 归一成「关闭」，
+                // 其余调用点就不必认识这个新词。
+                if (v.Equals("off", StringComparison.OrdinalIgnoreCase) ||
+                    v.Equals("none", StringComparison.OrdinalIgnoreCase))
+                    return string.Empty;
+                return v;
+            }
         }
 
         // ------------------------------------------------------------------
@@ -237,57 +246,87 @@ namespace Loadout
 
         private const string DefaultLevelText = "Standard";
 
+        // ------------------------------------------------------------------
+        // 选项表 —— 只给字符串说明的话，MVZ2ModManager 只能画一个文本框；
+        // 递上 AcceptableValueList 后它会写成 cfg 里的 `# Acceptable values: …`
+        // 并渲染成**下拉框**（越界值的行为：BepInEx 会**换成列表第一项**，不报错
+        // —— 所以顺序有意义：Auto 在第一位 = 非法值退回「跟随等级」，最安全）。
+        // ------------------------------------------------------------------
+
+        /// <summary>兼容性等级的取值（顺序与 <see cref="Levels"/> 无关，下拉框里就按这个顺序）。</summary>
+        private static readonly AcceptableValueList<string> LevelValues =
+            new AcceptableValueList<string>("Safe", "Standard", "Full");
+
+        /// <summary>单项开关的取值。Auto 放第一位：非法值会退回 Auto。</summary>
+        private static readonly AcceptableValueList<string> ModeValues =
+            new AcceptableValueList<string>("Auto", "On", "Off");
+
+        /// <summary>自测模式的取值。off 放第一位：非法值退回关闭（不会意外开自测）。</summary>
+        private static readonly AcceptableValueList<string> SelfTestValues =
+            new AcceptableValueList<string>("off", "menu", "level", "all");
+
+        /// <summary>带取值范围的配置说明。</summary>
+        private static ConfigDescription D(string text, AcceptableValueBase values)
+        {
+            return values == null ? new ConfigDescription(text) : new ConfigDescription(text, values);
+        }
+
         internal static void Init(ConfigFile cfg)
         {
             levelEntry = cfg.Bind(
                 "Compat", "CompatLevel", DefaultLevelText,
-                "兼容性等级：Safe / Standard / Full。\n" +
+                D("兼容性等级：Safe / Standard / Full。\n" +
                 "Safe     = 只做「存档修改器也能直接做」的事：写原版已有的关卡属性、挂原版 debug buff、\n" +
                 "           改卡槽/卡池、换掉某张卡的冷却定义（只写内存，不落盘自定义数据）。\n" +
                 "Standard = 默认。额外挂会改原版行为的补丁（面板暂停 / 选卡显示所有蓝图 / 蜘蛛图标入口 /\n" +
                 "           蓝图血量不睡觉 / 逆阵营 / 无条件放置 / 传送带接管），并允许自定义数据落盘。\n" +
-                "Full     = 全部功能（留给需要替换、接管或可能与其它 mod 竞争的功能，目前没有）。");
+                "Full     = 全部功能（留给需要替换、接管或可能与其它 mod 竞争的功能，目前没有）。",
+                    LevelValues));
 
             speedZeroEntry = cfg.Bind(
                 "Compat.Features", "PanelSpeedZeroPause", "Auto",
-                "Auto / On / Off。面板打开时让 LevelController.GetGameSpeed 返回 0" +
-                "（冻结关卡逻辑，保留蓝图/镐子/星之碎片等游戏内操作）。");
+                D("Auto / On / Off。面板打开时让 LevelController.GetGameSpeed 返回 0" +
+                "（冻结关卡逻辑，保留蓝图/镐子/星之碎片等游戏内操作）。", ModeValues));
 
             allBlueprintsEntry = cfg.Bind(
                 "Compat.Features", "AllBlueprintsInChoose", "Auto",
-                "Auto / On / Off。选卡界面显示所有（含不在图鉴内的）实体蓝图。只追加、不替换官方排序结果。");
+                D("Auto / On / Off。选卡界面显示所有（含不在图鉴内的）实体蓝图。只追加、不替换官方排序结果。",
+                    ModeValues));
 
             iconEntry = cfg.Bind(
                 "Compat.Features", "DebugIconOpensPanel", "Auto",
-                "Auto / On / Off。把左上角的半透明蜘蛛图标（原版调试图标）改为打开面板。");
+                D("Auto / On / Off。把左上角的半透明蜘蛛图标（原版调试图标）改为打开面板。", ModeValues));
 
             conveyorEntry = cfg.Bind(
                 "Compat.Features", "ConveyorTakeover", "Auto",
-                "Auto / On / Off。传送带卡池接管：把卡池写到关卡属性上（原版只写在关卡定义上）。属 Full 档。");
+                D("Auto / On / Off。传送带卡池接管：把卡池写到关卡属性上（原版只写在关卡定义上）。属 Full 档。",
+                    ModeValues));
 
             reverseFactionEntry = cfg.Bind(
                 "Compat.Features", "ReverseFaction", "Auto",
-                "Auto / On / Off。蓝图页的「逆阵营放置」：被标记的器械生成时翻到右阵营。属 Full 档。");
+                D("Auto / On / Off。蓝图页的「逆阵营放置」：被标记的器械生成时翻到右阵营。属 Full 档。",
+                    ModeValues));
 
             blueprintOverridesEntry = cfg.Bind(
                 "Compat.Features", "BlueprintOverrides", "Auto",
-                "Auto / On / Off。蓝图页/传送带页的「血量」与「白天不睡觉」：\n" +
-                "被标记的蓝图生成时把血量顶到设定值、并摘掉「夜用」器械的睡眠 buff。属 Standard 档。");
+                D("Auto / On / Off。蓝图页/传送带页的「血量」与「白天不睡觉」：\n" +
+                "被标记的蓝图生成时把血量顶到设定值、并摘掉「夜用」器械的睡眠 buff。属 Standard 档。",
+                    ModeValues));
 
             unconditionalPlaceEntry = cfg.Bind(
                 "Compat.Features", "UnconditionalPlace", "Auto",
-                "Auto / On / Off。蓝图页/传送带页的「无条件放置」：短路官方那道「放得下吗」的判定。\n" +
-                "费用与冷却照扣。属 Standard 档。");
+                D("Auto / On / Off。蓝图页/传送带页的「无条件放置」：短路官方那道「放得下吗」的判定。\n" +
+                "费用与冷却照扣。属 Standard 档。", ModeValues));
 
             noRechargeEntry = cfg.Bind(
                 "Compat.Features", "NoRecharge", "Auto",
-                "Auto / On / Off。「禁用冷却」：把卡槽里每张卡的冷却换成「无」，开启前备份原值（含玩家改过的）。\n" +
-                "属 Safe 档（只是换掉已有的冷却定义并写属性）。");
+                D("Auto / On / Off。「禁用冷却」：把卡槽里每张卡的冷却换成「无」，开启前备份原值（含玩家改过的）。\n" +
+                "属 Safe 档（只是换掉已有的冷却定义并写属性）。", ModeValues));
 
             saveCustomDataEntry = cfg.Bind(
                 "Compat.Features", "SaveCustomData", "Auto",
-                "Auto / On / Off。把自定义数据（蓝图标记、冷却备份）写进关卡存档旁边的 .loadoutflags。\n" +
-                "关闭时一切只在本次会话内存里生效，不落盘。属 Standard 档。");
+                D("Auto / On / Off。把自定义数据（蓝图标记、冷却备份）写进关卡存档旁边的 .loadoutflags。\n" +
+                "关闭时一切只在本次会话内存里生效，不落盘。属 Standard 档。", ModeValues));
 
             panelHotkeyEntry = cfg.Bind(
                 "General", "PanelHotkey", "",
@@ -297,11 +336,11 @@ namespace Loadout
                 "默认入口是左上角那个半透明蜘蛛图标，或 /loadout open。");
 
             selfTestEntry = cfg.Bind(
-                "General", "SelfTest", "",
-                "自测脚手架（排障用）：空 = 关闭。\n" +
+                "General", "SelfTest", "off",
+                D("自测脚手架（排障用）：off = 关闭。\n" +
                 "menu  = 在主界面自动打开面板、把运行时布局打进 BepInEx 日志、再关闭；\n" +
                 "level = 额外自动进第一关，并在关卡内再 dump 一次；\n" +
-                "all   = 两者都做。");
+                "all   = 两者都做。", SelfTestValues));
 
             levelEntry.SettingChanged += OnLevelChanged;
             level = ParseLevel(levelEntry.Value, out var note);

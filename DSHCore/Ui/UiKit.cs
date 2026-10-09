@@ -353,6 +353,12 @@ namespace DSHCore.Ui
         /// **0 = 高度交给内容**（<see cref="AutoHeight"/>，文字换行时行高会自己长）；
         /// **&gt; 0 = 指定高度**（例如「比正文更矮的栏目标题」）。
         /// </param>
+        /// <remarks>
+        /// 与 <see cref="Paragraph"/> / <see cref="TextButton"/> / <c>UiOptionRow</c> 一样，
+        /// 写文字前会过一遍 <see cref="UiLocale.Get"/> —— 子 mod 只要用
+        /// <see cref="UiLocale.Table"/> 登记译文，界面就会跟着游戏语言变（没登记的文本原样通过）。
+        /// 需要绕开取词（比如要显示「名称原文」）就直接用 <see cref="UiClone.SetLabel"/>。
+        /// </remarks>
         public static TextMeshProUGUI Label(Transform parent, string name, string text,
             float fontSize = LabelFontSize, float preferredWidth = 0f, float flexibleWidth = 1f,
             TextAlignmentOptions align = TextAlignmentOptions.Left, float preferredHeight = -1f)
@@ -360,7 +366,7 @@ namespace DSHCore.Ui
             var go = UiSkin.Clone(UiSkinPart.Text, parent, name);
             if (!UiFinder.IsAlive(go))
                 return null;
-            UiClone.SetLabel(go, text ?? string.Empty, fontSize, preferredHeight == 0f);
+            UiClone.SetLabel(go, UiLocale.Get(text) ?? string.Empty, fontSize, preferredHeight == 0f);
             var tmp = go.GetComponent<TextMeshProUGUI>();
             try
             {
@@ -459,7 +465,7 @@ namespace DSHCore.Ui
             var go = UiSkin.Clone(UiSkinPart.Text, parent, name);
             if (!UiFinder.IsAlive(go))
                 return null;
-            UiClone.SetLabel(go, text ?? string.Empty, fontSize, true);
+            UiClone.SetLabel(go, UiLocale.Get(text) ?? string.Empty, fontSize, true);
             var tmp = go.GetComponent<TextMeshProUGUI>();
             try
             {
@@ -476,13 +482,14 @@ namespace DSHCore.Ui
         }
 
         /// <summary>克隆一个原版文本按钮并挂上点击回调。</summary>
+        /// <remarks><paramref name="name"/> 是节点名（**不过取词**），<paramref name="label"/> 是按钮文案（过取词）。</remarks>
         public static GameObject TextButton(Transform parent, string name, string label,
             Action onClick, float width = -1f, float fontSize = LabelFontSize)
         {
             var go = UiSkin.Clone(UiSkinPart.Button, parent, name);
             if (!UiFinder.IsAlive(go))
                 return null;
-            UiClone.SetLabel(go, label ?? string.Empty, fontSize, false);
+            UiClone.SetLabel(go, UiLocale.Get(label) ?? string.Empty, fontSize, false);
             Fit(go, width > 0f ? width : ButtonWidth, RowHeight, 0f);
             if (onClick != null)
                 UiClone.OnClick(go, onClick);

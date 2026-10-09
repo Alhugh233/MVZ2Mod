@@ -139,15 +139,15 @@ namespace Loadout
                 new ToggleItem
                 {
                     Label = "禁用冷却",
-                    Tooltip = "把所有蓝图的冷却换成「无」。\n"
-                        + "开启前会备份每张卡原本的冷却（含你改过的），关闭时原样换回。",
+                    Tooltip = "所有蓝图立刻充能完成（等价于原版 /cheat recharge）。\n"
+                        + "写的是关卡属性，所以跟着存档走；蓝图页里的「冷却(秒)」仍然可以单独改。",
                     Feature = GcFeature.NoRecharge,
-                    // ★ 用**我们自己的**关卡级开关，不用原版 mvz2:debug_no_recharge buff：
-                    //   那个 buff 只在 debug 存档里注册（普通存档 AddBuff 直接报 missing definition），
-                    //   而且它改的是整关冷却速度，与「逐卡换成『无』」是两回事。
-                    //   自己的开关也跟着存档走，所以「必须写到存档」这条自然满足。
-                    Get = l => BlueprintFlags.GetNoRecharge(l),
-                    Set = (l, v) => NoRecharge.SetEnabled(l, v),
+                    // ★ 直接用**原版**的实现：原作者已经把 /cheat recharge 改成写关卡属性
+                    //   `EngineLevelProps.NO_RECHARGE`（种子包的 IsCharged() 在它为 true 时恒为 true）。
+                    //   所以这里不再自己逐卡备份/替换冷却 —— 那份备份没必要了，
+                    //   而「逐卡改冷却」这件独立的事仍然保留在蓝图页（冷却/预设/重置）。
+                    Get = l => PVZEngine.Level.EngineLevelProps.NoRecharge(l),
+                    Set = (l, v) => PVZEngine.Level.EngineLevelProps.SetNoRecharge(l, v),
                 },
                 new ToggleItem
                 {
@@ -444,13 +444,7 @@ namespace Loadout
                 return null;
             if (!Allowed(item))
                 return CompatConfig.DisabledHint(item.Feature.Value);
-            var text = item.Tooltip;
-            // 「禁用冷却」的备份数据要落盘才算真的记住了 —— 低等级下说明白。
-            if (item.Feature == GcFeature.NoRecharge && !CompatConfig.IsEnabled(GcFeature.SaveCustomData))
-                text = (text == null ? string.Empty : text + "\n")
-                    + "当前等级不写自定义存档：冷却备份只保留在本次游戏内存里。\n"
-                    + CompatConfig.DisabledHint(GcFeature.SaveCustomData);
-            return text;
+            return item.Tooltip;
         }
 
         /// <summary>按当前等级把这一项点亮 / 置灰。</summary>

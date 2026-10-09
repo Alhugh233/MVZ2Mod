@@ -62,11 +62,23 @@
 `.mrep` 是 **gzip** 压缩的逐行 JSON（与游戏的 `.lvl` 一样用 gzip）：
 
 ```
-第 1 行   header          {"magic":"mrep","ver":3,...}
+第 1 行   header          {"magic":"mrep","ver":8,...}
 第 2 行   keyframe        {"k":"keyframe","tick":0,"state":"<SerializableLevelController 的 BSON>"}
 之后      ...             {"t":123,"k":"grid","lane":1,"col":3,"pid":-1,"btn":0,"ia":4,"sx":960,"sy":540,"wx":1.2,"wy":0.3,"wz":2.4}
+          ...             {"t":906,"k":"bpkey","idx":0,"cv":false,"key":49,"itg":false,"evk":false}
           ...             {"t":30,"k":"fp","en":175,"w":1,"fl":0,"cl":false,"r":"..."}
 ```
+
+header 里跟「能不能放、放到哪一天」有关的字段：
+
+| 字段 | 含义 |
+| --- | --- |
+| `ver` | 文件格式版本（当前 **8**）。旧版本照旧能读能放 |
+| `stage` / `area` / `difficulty` / `seed` | 进关用的语义信息 |
+| `tps` | 逻辑帧率（固定 30） |
+| `startTick` / `lastTick` | 录制区间 |
+| `hasKeyframe` | 有没有起始关键帧（没有就放不了） |
+| `sw` / `sh` | **录制那一刻的窗口尺寸**（v7 起）。见下方「换了窗口尺寸也对得上」 |
 
 配置项 `WritePlainText = true`（默认）时会额外写一份**未压缩**的 `.mrep.json`，方便直接查看。
 
@@ -84,6 +96,11 @@
 
 `t` = tick，`pid` = 指针 ID，`btn` = 鼠标键，`ia` = `PointerInteraction` 枚举值，
 `s*` / `w*` = 指针位置（见上文）。
+
+`blueprint` / `bpkey` / `entity` 三个事件在**拿起蓝图**时还会带上 `itg` / `evk`
+（那一刻手持蓝图上的「立即触发 / 立即激发」标记，v8 起）。**两个字段要么都在、要么都不在**：
+只写一个的话就分不出「另一个是 false」和「这个事件没有这个信息」。
+为什么要记：见下方「不受『交换触发』选项影响」。
 
 `entity` 事件的 `def` 是目标的**定义 ID**，`ex/ey/ez` 是录制时目标的坐标 —— 它们是
 「ID 错位时把目标找回来」的依据，见下文「已知限制」。
@@ -173,6 +190,108 @@
    写到 `targetGraphic`（我们的 `Image`）上，于是光标被换成按钮那张 400x40 的贴图、
    渲染出来就是一块灰方块。`Destroy(Button)` 是**帧末**生效的，拦不住 `OnEnable`。
    修法：**先把 `transition` 设成 `None` 再销毁**，另外每帧比较一次、不对就按回去。
+3. **锚点不在贴图左上角，而是整整差一个贴图高度** —— 游戏把箭头的光点存在 `CursorData.hotspot`
+   里，而它是交给 `Cursor.SetCursor(texture, hotspot, mode)` 的：**那个重载的热点以贴图左上角为原点**。
+   而 `RectTransform.pivot` 用的是**左下角**原点 —— 两者差一个上下翻转。
+   第一版直接把它当枢轴用（`pivot = hotspot / texSize`），于是热点 `(0,0)` 变成了**左下角**，
+   光标被画到指针**上方**一整个贴图高度，看起来就像「锚点在贴图正中」。
+   修法：`pivot = (hotspot.x / w, 1 - hotspot.y / h)`（`FakePointer.HotspotToPivot`）。
+   小结里会把热点与枢轴都打出来：**游戏的箭头热点就是 `0,0`，所以枢轴必须是 `0,1`**。
+4. **换了窗口尺寸之后坐标就对不上了** —— 见下一节。
+
+#### 换了窗口尺寸也对得上（`sw`/`sh` + `ReplayViewport`）
+
+`*x`/`*y` 记的是**当时的屏幕像素**，而游戏把像素变成世界坐标的公式（`LevelCamera`，正交相机）是
+
+```
+世界偏移 = (像素 - 屏幕中心) × 2 × orthographicSize / 屏幕高
+```
+
+注意到分子里只有**屏幕高**：纵向可视范围恒为 `2*orthographicSize`，横向才是「纵向 × 宽高比」。
+所以同一个像素在不同窗口尺寸下**指向不同的格子** —— 回放里的操作本身是语义化重演（记的是
+`lane`/`col`、实体 ID），跟像素无关；而假鼠标（以及「手持物跟手」那条）走的是像素，
+两者只在**录制时那个分辨率**下才重合。
+
+修法：header 记下录制时的窗口尺寸，播放时把坐标换算回去（`ReplayViewport`）：
+
+```
+k  = 现在屏幕高 / 录制时屏幕高
+新 = 现在屏幕中心 + (旧 - 录制时屏幕中心) × k
+```
+
+两个分量用同一个 `k`（横向可视范围跟着宽高比一起变，不能用「新宽/旧宽」）。
+**尺寸相同则 `k = 1` 且中心相同 → 原样返回**，所以不换窗口这条路上它是恒等的，
+不会影响任何既有行为；旧文件（没有 `sw`/`sh`）也直接恒等返回。
+同一个换算同时用在：假鼠标路点、注入进游戏的 `args.position` / `raycast.screenPosition` /
+`eventData.position`、以及给 `Global.Input` 报的指针位置。
+
+> ⚠️ **换算必须放在「取值时」做，不能烘进路点表/缓存。**
+> 第一版在 `FakePointer.Begin` 里就把路点换算好了（因为那时窗口尺寸已经知道），
+> 结果「开始播放**之后**再改窗口尺寸」依旧对不上 —— 表里的值是定死的。
+> 现在路点表里存的是**录制坐标系**的原值，`ScreenPos` / `RawScreenPos` / `PointerScreen`
+> 都在读取时现算，所以**播放中途**改尺寸也立刻跟上。
+> （也因此存在两套取值：`ScreenPos`/`PointerScreen` = 已换算；`RawScreenPos`/`RawPointerScreen`
+> = 原值。「临时换上假鼠标位置」那条通道两边必须用同一套坐标系，不能用混了。）
+
+假鼠标的**大小**也会跟着重算（画布 UI 单位 ↔ 像素的比值同样依赖窗口尺寸）。
+
+这个修复有自动验证：自测会在**播放中途真去改一次分辨率**（1222x796 → 800x480），
+验证「假鼠标位置 = 按**当前**尺寸换算的结果、且不是录制时尺寸的结果」，然后还原。
+因为自测注入的动作（数字键 / 工具按钮）**一个坐标都没有**，那条路径本来跑不到，
+所以自测会临时塞一条假路点把换算链走通（报告里会标出来）。
+
+### 不受「交换触发」选项影响（`itg`/`evk`）
+
+难度界面里那个「交换触发」开关（`swap_trigger`）**在关卡内随时可以改**，而它会改变仿真：
+
+```csharp
+// SelectBlueprintHeldItemBehaviour.GetBlueprintPickData
+bool swapped = Global.Saves.IsTriggerUnlocked() && Global.Options.IsTriggerSwapped();
+bool triggerValue = canInstantTrigger && (holdingTrigger != swapped);
+...
+builder.SetInstantTrigger(pickData.triggerValue);   // 存进手持物，放下时由 BlueprintGlobalCallbacks 读
+```
+
+问题在于它是**玩家选项**、**不在关卡关键帧里** —— 录的时候开着、放的时候关着（或反过来）
+会让 `triggerValue` 整个反过来，于是回放里的器械行为就与录那时不同了。
+
+所以录制时把**拿起蓝图那一刻**的 `instantTrigger` / `instantEvoke` 跟着事件一起记下来
+（`itg` / `evk`），回放时在同一个位置**按回去**（`ReplayHeldFlags`）。
+这样回放与那个选项完全无关。
+
+- 只有 `instantTrigger` 受该选项影响（`instantEvoke` 只看星之碎片）—— 两个都记只是为了完整。
+- 录制侧只对「手上确实是蓝图」的事件写入这两个字段（类型白名单比对 `NamespaceID.Path`：
+  `blueprint` / `conveyor` / `blueprint_pickup`），所以选卡**没成功**（能量不够、卡无效）时
+  不会写 —— 回放据此知道「这个事件不用管」。自测的报告里会直接把「手持是什么」打出来。
+- 写回用的是游戏自己的属性扩展（`LogicHeldItemProps.SetInstantTrigger`）。
+  ⚠️ 那种属性是**注册过的键**才有意义的：键没注册时 `SetProperty` 只会默默失败。
+  所以自测会拿一个现造的手持物数据验一遍「写进去能读回来」。
+
+### 回放不改动存档（金币 / 统计 / 解锁 …）
+
+放一次回放**不能让玩家的存档发生变化**。这不是「锦上添花」—— MVZ2 的金币是**全局存档里的钱**
+（`MoneyComponent` 直接读写 `Global.Saves`），退出关卡时还会 `Saves.SaveToFile()` 落盘；
+统计（击杀数 / 放置数 / 通关次数…）则挂在 `POST_ENEMY_SPAWNED` / `POST_ENTITY_DEATH` /
+`POST_LEVEL_CLEAR` 这些关卡回调上，重演时一条条累加。
+
+| 类别 | 处理 | 为什么不能一律拦掉 |
+| --- | --- | --- |
+| 金币 | **影子值**：读改都走 mod 自己的一份副本，第一次读时用真值播种 | 关卡要**读**钱决定买不买得起，读到的必须还能随消费/拾取变化 |
+| 统计 / 解锁 / 难度记录 / 关卡进度 / 上次选卡 / 上次地图 / 地图对话 | **直接拦掉** | 这些在回放里没有「读回去」的需求，写进去只会污染存档 |
+
+- 玩家看到的金币照样会涨会跌（观感完全正常），只是那些变化全进了影子；
+  播放结束时影子整个丢掉，真存档一个字节都没动过。
+- 金币挂**两层**：`LogicSaveExt`（`Global.Saves.*` 的公开面）与 `LogicSaveData`（直接摸数据对象那条）。
+  两者都是很短的方法，IL2CPP 可能把里层内联进外层，只挂一层的话真被内联了就永远不生效。
+- 拦截点是在**第一次播放时**才装的（`ReplayHooks.EnsureSaveGuardHooks`）—— 金币那两处在
+  `MVZ2Logic.*`，而这个仓库踩过「在 `Plugin.Load` 阶段反射 `MVZ2Logic` 的类型会提前触发
+  它的 `.cctor`」的坑；等到要播放时游戏早已初始化完，怎么反射都安全。
+- 播放小结里会写 `存档护栏 : 补丁 已挂 14 个，开（…）`。**「已挂」和「拦下 N 次」都要看**：
+  补丁没挂上、或者一次都没命中，都会让存档静默地被改动，而这从游戏表现上完全看不出来。
+
+> 通关那一条另有一套拦截（见下）—— 原版 `OnEngineClearCallback` 会
+> `RemoveLevelState()`（**删掉该关卡的存档文件**）、解锁关卡、写难度记录，
+> 所以「通关」这个入口是单独前缀拦掉的。
 
 ### 回放结束面板
 
@@ -379,6 +498,16 @@
 > 结束面板也常驻，导出改成**原生「另存为」对话框**（目标由玩家自己挑，不再配目录）。
 > 老 cfg 里残留的这几行会在下次启动后自动消失。
 
+**这些键在 MVZ2ModManager 的配置页里是什么控件，由声明决定**（不声明就只能手打字符串）：
+
+| 键 | 声明 | 管理器里显示为 |
+| --- | --- | --- |
+| `FingerprintInterval` / `ProbeMaxLines` / `MaxReplays` / `FakeMouseTicks` | `AcceptableValueRange<int>` | **滑条**（带值读数）|
+| `FakeMouseScale` | `AcceptableValueRange<float>` | **滑条** |
+| `FakeMouseEase` | `AcceptableValueList<string>` | **下拉框** |
+| `OutputDir` | 无（自由文本） | 文本框 —— 它要接受路径，**不能**给列表 |
+| 其余布尔 / 自由文本 | 无 | 复选框 / 文本框 |
+
 `[Visual]` 段（播放时的观感，见上方「假鼠标」）：
 
 | 键 | 默认 | 说明 |
@@ -418,6 +547,25 @@
 
 **入口**：主菜单 → 更多选项 → **插件**。列表里的条目自上而下是
 「资源包」「模组设置（DSHCore）」「回放」（原版那个横向列表容器被改成纵向，各占一行）。
+
+---
+
+## 多语言
+
+`ReplayLocale.cs` 把回放页、结束面板、提示与确认弹窗、以及各类失败原因的文字全部登记进
+DSHCore 的 `UiLocale`，游戏切到英文时自动显示英文。`共 {0} 个` 这种带占位符的用 `UiLocale.Format`：
+
+```csharp
+T.En("共 {0} 个", "{0} total");
+SetCountText(UiLocale.Format("共 {0} 个", shown));
+```
+
+弹窗按钮标签一次取一组用 `UiLocale.GetAll(...)`（游戏原生的 `SetDialog` 不会自己过翻译）。
+
+> ⚠️ **自测用的字符串故意没翻**：`ReplaySelfTest` 靠文本匹配读自己的报告，
+> 比如结束面板的 `_info`。这类“只给机器看”的文字动了会直接把自测弄坏。
+
+玩家可以在 `<游戏>\BepInEx\config\DSHCore\lang\<语言码>.ini` 里覆盖。详见 `DSHCore/UI_GUIDE.md` §11。
 
 > 回放页现在是 **DSHCore 的 `AddonPage`** 的一个实现（`Ui/ReplayPage.cs`）：
 > 入口按钮的安装与文案纠正、页面壳的克隆与修补、「藏起插件页索引 → 叠面板」、

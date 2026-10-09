@@ -296,6 +296,12 @@ namespace Loadout
                 return "不在关卡内";
             try
             {
+                // ⚠️ 必须先清零槽位再放：读档会把「槽位数量」带进来（实测开局就有 3 格），
+                //    那 3 格是空的，我们再加就落到 3/4/5 —— 面板显示的是 0..count-1，
+                //    于是看起来「一个图标都没有」（自测里踩过这个坑）。
+                Clear(level);
+                level.SetArtifactSlotCount(0);
+
                 var ids = AllArtifactIDs();
                 if (ids.Count == 0)
                     return "没有可用的制品定义";

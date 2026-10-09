@@ -211,6 +211,10 @@ private static Il2CppSystem.Threading.Tasks.Task OnRegisterModInfos(
 > 与 `/dshlog` 共用同一条分派链：`DebugCommands` 依次问两个 `Execute`，都返回 `null` 才放行。
 实现见下面的「想加自己的游戏内指令」第 3 条。
 
+> ⚠️ 写外部译文文件时，**游戏内容名（关卡名 / 诅咒名 / 实体名）那一行必须带上下文前缀**：
+> `[levelname] 原文 = 译文`。`write <语言码>` 生成的模板已经带好了 `[上下文] ` 前缀；
+> 只写 `原文 = 译文` 的条目只会命中界面文字，不会命中游戏内容名。见 `UI_GUIDE.md` §11.6。
+
 > 为什么要拆成「一直捕获 + 按需开网页」：**调试时你要的是游戏启动到出问题那一段**。
 > 捕获只是一个环形缓冲 + 一个后台线程；等出问题了再 `/dshlog`，打开就是完整历史。
 
@@ -364,7 +368,8 @@ UiClone.OnClick(buttonNode, () => { /* … */ });            // 内部处理委�
 | `UiOptionRow` | **控件行的唯一入口**：`Create` / `SetKind` / `SetLabel` / `SetStretch` / `SetTooltip` / `SetToggle` / `SetSlider`（标签自动带值）/ `SetSliderValueFormat` / `SetButton` / `SetDropdown`（⚠️ 不可用）/ `Describe` / `LabelText` |
 | `UiList` | **纯代码可滚动列表**：`Create` / `Add` / `AddButton` / `AddOptionRow` / `Clear` / `SetFlexible` / `SetViewportHeight` / `SuggestHeight` / **`SetRowFit`** / `ScrollToTop` / `ScrollToBottom` / `Describe` / **`DescribeStructure`** |
 | `UiOptions` | **设置项注册**：默认进「模组设置」页（零注入）：`DeclareToggle` / `DeclareSlider` / `DeclareChoice` / **`DeclareMod(space, 名, 说明, 作者, 中文?)`** / `GetModEntry` / `SetModDisplayName(space, 源串, 中文?)`；`scope: VanillaMenu` 时才需要 `Attach(mod)`（LoadStages）→ `ApplyProperties()`（PostInit） |
-| `UiLocale` | **模组文本本地化**：`Add(源串, 译文, 语言?)` / `Get` / `In` / `Report` —— 把自己的小表挂进游戏的文本查找链；**玩家可编辑的外部译文文件**（`ExternalDirectory` / `ReloadExternal` / `WriteTemplate` / `KnownKeys`，指令 `/dshtrans`；`UI_GUIDE.md` §11） |
+| `UiLocale` | **模组文本本地化**：`Add(源串, 译文, 语言?, 上下文?)` / `Get(源串, 上下文?)` / `In` / `GetAll` / `Report` —— 把自己的小表挂进游戏的**两条**文本查找链（普通链 = 界面文字；`Particular` 链 = **关卡名 / 诅咒名 / 实体名等游戏内容名**）；**玩家可编辑的外部译文文件**（`ExternalDirectory` / `ReloadExternal` / `WriteTemplate` / `KnownKeys`，指令 `/dshtrans`；`UI_GUIDE.md` §11） |
+| `UiLocaleTable` | **子 mod 的批量登记表**：`UiLocale.Table("命名空间")` → `En` / `Zh` / `Both` / `EnAll` / **`EnAllWith(上下文, …)`**，可链式；见 `UI_GUIDE.md` §11.2.1 |
 | `UiTagRow` | **档案样式条目行**（Toggle + 文字，勾选 = 选中）：`Template` / `Create` / `Set` / `IsOn` / `Describe` —— 要「像对话档案那样的一行」就用它 |
 | `AddonPage` | **插件页子页面**（入口按钮 + 页面壳 + 生命周期全自动）：override `Id` / `EntryLabel` / `Title` / `BuildContent(shell)`，构造里 `Register()`；两栏版式另有 `TwoColumnWidthRatio` / **`TopHeight`** |
 | `AddonPages` | 子页面登记表 + 心跳 + 状态：`Get` / `All` / `IsAddonsPage` / `Report` |

@@ -51,6 +51,21 @@
 			"problemMatcher": []
 		},
 		{
+			"label": "构建全部 + 模组包（.mvz2pack）",
+			"detail": "构建全部（除 UI 画廊）并打成 MVZ2ModManager 可直接导入的 .mvz2pack 到 dist\\",
+			"type": "shell",
+			"command": "powershell",
+			"args": [
+				"-NoProfile",
+				"-ExecutionPolicy",
+				"Bypass",
+				"-File",
+				"${workspaceFolder}\\build.ps1",
+				"-Mvz2Pack"
+			],
+			"problemMatcher": []
+		},
+		{
 			"label": "构建: DSHCore",
 			"detail": "工具 + 前置库（唯一携带 BepInEx 运行环境的包）",
 			"type": "shell",

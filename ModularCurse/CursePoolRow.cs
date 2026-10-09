@@ -467,7 +467,7 @@ namespace ModularCurse
                 {
                 }
                 CurseTooltip.Show(item.Pointer, camera,
-                    CursePoolRules.Name(pool), CursePoolRules.Description(pool));
+                    CursePoolRules.NameText(pool), CursePoolRules.DescriptionText(pool));
             }
             catch (Exception e)
             {

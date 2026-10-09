@@ -215,6 +215,21 @@ namespace Replay
         public float Sx, Sy;
         public float Wx, Wy, Wz;
 
+        /// <summary>
+        /// 这个事件发生之后，**手持蓝图上的两个标记**（v8 起记录）。
+        ///
+        /// <para>为什么必须在**每个拿起蓝图的事件上**记：<c>instantTrigger</c> 是由
+        /// 「是否手持触发器」与**玩家选项**「交换触发」（<c>swap_trigger</c>）的异或算出来的，
+        /// 而那个选项不在关卡关键帧里、关卡内随手就能改。不记下来的话，
+        /// 「录的时候开、放的时候关」会把器械行为整个反过来（详见 <see cref="ReplayHeldFlags"/>）。</para>
+        ///
+        /// <para><see cref="HasHeldFlags"/> 为 false 时（旧文件、或事件发生时手上不是蓝图）
+        /// 回放不做任何干预。</para>
+        /// </summary>
+        public bool HasHeldFlags;
+        public bool InstantTrigger;
+        public bool InstantEvoke;
+
         public override string ToString()
         {
             return Kind + "@" + Tick;
@@ -280,6 +295,19 @@ namespace Replay
         public bool HasKeyframe;
         public int EventCountInHeader;
         public int FingerprintCountInHeader;
+
+        /// <summary>
+        /// 录制那一刻的**窗口尺寸**（v7 起记录）。
+        ///
+        /// <para>事件里的 <c>sx/sy</c> 是屏幕像素，而「像素 → 世界坐标」的换算里含屏幕高，
+        /// 所以换个窗口尺寸再播，同一个像素就指向别的格子了。记下这个尺寸，
+        /// 回放时才能把坐标换算回「同一个世界点」（见 <see cref="ReplayViewport"/>）。</para>
+        ///
+        /// <para>旧文件（没有这两个字段）读出来是 0 → <see cref="ReplayViewport.Active"/> 为假
+        /// → 一切照旧（恒等换算）。</para>
+        /// </summary>
+        public float ScreenW;
+        public float ScreenH;
 
         public int KeyframeTick;
         public string KeyframeBson;
@@ -369,6 +397,8 @@ namespace Replay
             file.HasKeyframe = GetBool(head, "hasKeyframe", false);
             file.EventCountInHeader = GetInt(head, "eventCount", 0);
             file.FingerprintCountInHeader = GetInt(head, "fingerprintCount", 0);
+            file.ScreenW = GetFloat(head, "sw", 0f);
+            file.ScreenH = GetFloat(head, "sh", 0f);
 
             // ---- 之后每行一个对象 ----
             int badLines = 0;
@@ -471,6 +501,16 @@ namespace Replay
                         ev.Wx = GetFloat(obj, "wx", 0f);
                         ev.Wy = GetFloat(obj, "wy", 0f);
                         ev.Wz = GetFloat(obj, "wz", 0f);
+                    }
+
+                    // v8 起：拿起蓝图那一刻的「立即触发 / 立即激发」标记。
+                    // 两个字段**同时存在**才算有效 —— 只写一个会让「另一个是 false」与
+                    // 「旧文件没有这两个字段」分不开。
+                    if (obj.ContainsKey("itg") && obj.ContainsKey("evk"))
+                    {
+                        ev.HasHeldFlags = true;
+                        ev.InstantTrigger = GetBool(obj, "itg", false);
+                        ev.InstantEvoke = GetBool(obj, "evk", false);
                     }
 
                     file.Events.Add(ev);

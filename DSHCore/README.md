@@ -59,7 +59,8 @@ UiClone.OnClick(button, () => { /* … */ });
 | `UiOptionRow` | **控件行的唯一入口**（复选/滑条/按钮）—— 直接克隆子控件会丢尺寸契约与提示锚点；下拉框那一支**已知不可用** |
 | `UiList` | **纯代码可滚动列表**（底层克隆官方设置界面的 `ScrollRect`）：`Add` / `AddButton` / `AddOptionRow` / `Clear` / `SetFlexible` / **`SetRowFit`**（紧凑 + 铺满框体）/ `DescribeStructure` |
 | `UiOptions` | **设置项注册**：默认进本库的「模组设置（DSHCore）」页（零注入、不需要 ModInfo/XML）：`DeclareToggle` / `DeclareSlider` / `DeclareChoice`；`DeclareMod(space, 名, 说明, 作者, 中文?)`（声明过的 mod **无条件出现在左栏**，没设置项也会出现）；`scope: VanillaMenu` 时才走 `Attach(mod)` + `ApplyProperties()` 进原版设置界面 |
-| `UiLocale` | **模组文本本地化**：`Add` / `Get` + 把 mod 的译文表挂进游戏的文本查找链（不用打包语言包 .mo 也有译文）；**玩家可在 `BepInEx/config/DSHCore/lang/` 里放外部译文文件**，不用改 mod 就能加语言（详见 `UI_GUIDE.md` §11、指令 `/dshtrans`） |
+| `UiLocale` | **模组文本本地化**：`Add` / `Get` / **`Get(source, context)`** + 把 mod 的译文表挂进游戏的**两条**文本查找链（普通链 = 界面文字；`Particular` 链 = **关卡名 / 诅咒名 / 实体名等游戏内容名**），不用打包语言包 .mo 也有译文；**玩家可在 `BepInEx/config/DSHCore/lang/` 里放外部译文文件**，不用改 mod 就能加语言（详见 `UI_GUIDE.md` §11、指令 `/dshtrans`） |
+| `UiLocaleTable` | **子 mod 的批量登记表**：`UiLocale.Table("命名空间")` → `En` / `Zh` / `Both` / `EnAll` / **`EnAllWith(上下文, …)`**（内容名必须用它），全部可链式 |
 | `UiTagRow` | **档案样式条目行**（`Toggle` + 文字，勾选 = 选中）：从「对话档案」的条目模板克隆 |
 | `AddonPage` | **插件页子页面**：入口按钮 + 页面壳 + 生命周期全自动（`Replay` / `ModSettingsPage` 已用它） |
 | `AddonPages` | 子页面登记表 + 心跳（挂在 `MainSceneController.Update`）+ `Report` |
@@ -89,6 +90,7 @@ UiClone.OnClick(button, () => { /* … */ });
 | `SaveManagerPatch.cs` | 存档读写**之前**再次兜底重绑（否则 `LoadSaveData`/`CreateSaveData` 抛找不到入口点）                                                                                                                   |
 | `MetaInjection.cs`    | 接管`ResourceManager.LoadMetaLists`：直接读 `StreamingAssets/Mods/<nsp>/Content/metas/*.xml` 并用游戏的 `MetaXMLParser` 解析进 `ModResource` —— **完全绕过 Addressables provider 链路**             |
 | `ArcadeIndexFix.cs`   | `LoadMods` **之后**平移外部 mod 的 `ArcadeMeta.Index`，避免与 vanilla 的 `0/1/2` 撞车导致街机条目被顶掉                                                                                               |
+| `LevelUiAnimatorGuard.cs` | 补原版漏洞的**安全网**：`LevelUIPreset.ShowHugeWaveText / ShowFinalWaveText / ShowReadySetBuild` 直接 `animator.SetTrigger` 而**没有** `activeInHierarchy` 守卫（同类其它地方都有）。那个 Animator 在 prefab 里就是 disabled、只靠游戏每帧手动 `Update` 养着 —— 一旦 HUD 的每帧驱动链断掉（例如克隆 UI 打爆了共享材质，见 `UI_RESEARCH.md` §6.4 第 22 条），这三处会把 `NullReferenceException` 抛进关卡行为里（玩家侧看到「关卡行为 `WaveStageBehaviour` 在执行 `Update` 时出现错误」）。本补丁按原版别处的纪律判一次可用性，可用就自己 `SetTrigger`、不可用就跳过 + WarnOnce。**只挡报错，不修根因** |
 
 ### 公共 API（供 mod 调用）
 
@@ -102,7 +104,7 @@ UiClone.OnClick(button, () => { /* … */ });
 | `CoreRegistry`                             | 跨插件登记表，上述补丁按命名空间生效                                                                                                            |
 | `VTableRebind.Ensure(Type)`                | 手动触发 vtable 槽重绑                                                                                                                          |
 | `LogViewer`                                | 本地网页日志查看器：`Url` / `OpenInBrowser()` / `CapturedCount` / `DroppedCount` / `Report(src,level,msg)` / `HideConsole()` / `ShowConsole()` |
-| `UiLocale`（外部文件）                     | 玩家可编辑的译文：`ExternalDirectory` / `ReloadExternal()` / `WriteTemplate(lang)` / `DescribeExternal(lang)` / `KnownKeys` / `DumpKeys()` |
+| `UiLocale`（外部文件）                     | 玩家可编辑的译文：`ExternalDirectory` / `ReloadExternal()` / `WriteTemplate(lang)` / `DescribeExternal(lang)` / `KnownKeys` / `DumpKeys()`；**内容名那一行写成 `[上下文] 原文 = 译文`**（上下文如 `levelname` / `curse.name`），只写 `原文 = 译文` 只能翻界面文字 |
 
 ---
 
@@ -330,6 +332,7 @@ DSHCore/
 ├─ SaveManagerPatch.cs     存档读写兜底
 ├─ MetaInjection.cs        磁盘 XML metas 注入
 ├─ ArcadeIndexFix.cs       街机条目 Index 平移
+├─ LevelUiAnimatorGuard.cs 关卡 HUD 提示的 Animator 守卫（补原版漏判）
 │
 ├─ Il2CppPin.cs            GC 根驻留
 ├─ InjectedMod.cs          注入类 Mod 实例创建

@@ -456,13 +456,32 @@ namespace Loadout
                     BlueprintOps.SetCommandBlock(pack, value);
                 int slot;
                 if (BlueprintKeys.TrySlot(key, out slot))
-                    VanillaChooseBridge.SyncCommandBlock(slot, pack == null ? null : pack.GetDefinitionID(), value);
+                    VanillaChooseBridge.RefreshAll(level, slot);
             }
             else
             {
                 BlueprintOps.SetReverseFaction(level, key, value);
             }
             Refresh();
+        }
+
+        /// <summary>面板改完之后让**原版那几处显示**跟着重画（详见 <see cref="VanillaChooseBridge"/>）。</summary>
+        private static void SyncVanilla(int slot)
+        {
+            try
+            {
+                var level = LevelFacade.Current;
+                if (level != null)
+                    VanillaChooseBridge.RefreshAll(level, slot);
+            }
+            catch (Exception) { }
+        }
+
+        /// <summary>当前选中的卡槽（没选中 → -1）。</summary>
+        private int TargetSlot()
+        {
+            var index = DisplayIndex();
+            return index >= 0 ? index : -1;
         }
 
         // ------------------------------------------------------------------
@@ -735,7 +754,7 @@ namespace Loadout
                     !reverseOk ? CompatConfig.DisabledHint(GcFeature.ReverseFaction)
                     : !scoped ? ScopeHint
                     : "这一张卡放出来的器械属于右阵营（敌我互调）。\n"
-                      + "开了之后镜像框里这张卡会染红，一眼能看出哪张动过。");
+                      + "开了之后镜像框里这张卡的图标会**左右翻转**，一眼能看出哪张动过。");
                 LoadoutPanel.SetTooltip(_daySleepRow == null ? null : _daySleepRow.Root, "白天不睡觉",
                     !overrideOk ? CompatConfig.DisabledHint(GcFeature.BlueprintOverrides)
                     : !scoped ? ScopeHint
@@ -775,10 +794,10 @@ namespace Loadout
                 var pack = BlueprintOps.GetPackAt(level, i);
                 var id = pack == null ? null : pack.GetDefinitionID();
                 _strip.SetCard(i, id, pack != null && BlueprintOps.GetCommandBlock(pack), i);
-                // 逆阵营标记 → 镜像框里这张卡染红（空槽 / 没标记就还原）。
+                // 逆阵营标记 → 镜像框里这张卡的**图标左右翻转**（空槽 / 没标记就还原）。
                 var reverse = pack != null && level != null
                     && BlueprintOps.GetReverseFaction(level, BlueprintKeys.Slot(i));
-                _strip.SetTint(i, reverse ? BlueprintStrip.ReverseTint : Color.white);
+                _strip.SetMirror(i, reverse);
                 _strip.SetMark(i, IsPicked(i));
             }
         }

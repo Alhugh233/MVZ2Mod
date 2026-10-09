@@ -116,6 +116,13 @@ namespace Replay
         private static int layerRecoveredCount;
         private static int defMismatchCount;
         private static int skippedWrongTarget;
+        /// <summary>
+        /// 「按录制时的值把蓝图手持物的即时触发/激发标记改回来」的次数。
+        ///
+        /// <para>> 0 就说明「交换触发」选项在录/放两边确实不同、而且我们静默地改正了它。
+        /// 如果它一直是 0 而回放行为仍然不同，那就是这个选项还有别的消费者（或者补丁读不到手持物）。</para>
+        /// </summary>
+        private static int heldFlagFixes;
 
         /// <summary>
         /// 「同定义 + 最近坐标」匹配时允许的最大距离（草坪单位）。
@@ -139,11 +146,15 @@ namespace Replay
         private static float elapsedSeconds;
 
         // 指针位置（给 Global.Input 用）
+        // ⚠️ 存的是**录制时坐标系**的值（与文件里的 sx/sy 同制），不是当前窗口的像素。
+        // 因为「像素 → 世界坐标」的换算里含屏幕高：把换算结果缓存下来，
+        // 一旦玩家在播放中途改了窗口尺寸就会失效。所以这里保持原值、
+        // 在**每次读取时**才换算（见 PointerScreen 与 ReplayViewport）。
         private static Vector2 pointerScreen;
         private static int pointerQueries;
 
         /// <summary>
-        /// 当前「游戏认为的指针位置」。
+        /// 当前「游戏认为的指针位置」（已换算到当前窗口，与 <c>Input.mousePosition</c> 同制）。
         ///
         /// <para>⚠️ 这是**事件原值**，会被 <c>Global.Input</c> 的那几个查询读到，
         /// 而其中 <c>MinecartRideable</c> / <c>Snipenser</c> / <c>BreakoutBoard</c>
@@ -151,10 +162,20 @@ namespace Replay
         /// 假鼠标只允许在 <c>LevelController.UpdateHeldItemPosition</c> 那一层临时替换
         /// （见 <see cref="FakePointer"/> 的类注释）。</para>
         /// </summary>
-        public static Vector2 PointerScreen => pointerScreen;
+        public static Vector2 PointerScreen => ReplayViewport.ToCurrent(pointerScreen);
 
-        /// <summary>整体替换当前指针位置（只给「视觉通道」的临时替换用）。</summary>
-        public static void SetPointerScreen(Vector2 value) => pointerScreen = value;
+        /// <summary>
+        /// 未换算的指针位置（**录制时坐标系**）。
+        ///
+        /// <para>只给「临时换上假鼠标 / 换回来」那条通道用：
+        /// 那边两边都得是同一个坐标系，否则会在重复换算中越偏越多
+        /// （写进去的是当前窗口值、读出来又换算一次）。</para>
+        /// </summary>
+        public static Vector2 RawPointerScreen
+        {
+            get { return pointerScreen; }
+            set { pointerScreen = value; }
+        }
 
         private const int MaxReports = 60;
 
@@ -285,6 +306,10 @@ namespace Replay
             lastSummary = BuildSummary();
             ReplayHud.Hide();
             FakePointer.End();
+            // 真正的「离开这次回放」：交还存档控制权、清掉窗口换算。
+            // （结束面板那段时间护栏继续开着 —— 关卡还在后面跑，钱还得继续花在影子上。）
+            ReplayViewport.Clear();
+            ReplaySaveGuard.End();
 
             ReplayPage.RequestOpen();
             wantsReplayPage = true;
@@ -373,6 +398,8 @@ namespace Replay
                     + " 次连定义都找不到，改用记录坐标当锚点 —— 游戏会自己就近选目标）");
             if (layerRecoveredCount > 0)
                 sb.Append("（其中 " + layerRecoveredCount + " 次靠「分层」在同格多器械里挑对了）");
+            if (heldFlagFixes > 0)
+                sb.Append("（按录制时的值改正了 " + heldFlagFixes + " 次蓝图的「即时触发」标记）");
             if (invokeErrors > 0)
                 sb.Append("（有 ").Append(invokeErrors).Append(" 个注入抛异常）");
             sb.Append('\n');
@@ -418,6 +445,10 @@ namespace Replay
                 sb.Append("  Global.Input 指针位置查询被改写 ").Append(pointerQueries).Append(" 次\n");
             if (ReplayPointerAction.Enabled)
                 sb.Append("  回放的指针动作（POST_POINTER_ACTION）").Append(ReplayPointerAction.Fired).Append(" 次\n");
+            // 「重演一局不许改动存档」这条护栏必须报出来：补丁没挂上 / 影子一次都没命中，
+            // 都说明存档还在被回放改（而这从游戏表现上完全看不出来）。
+            sb.Append("  存档护栏  : 补丁 ").Append(ReplayHooks.SaveGuardStatus)
+                .Append("，").Append(ReplaySaveGuard.Describe()).Append('\n');
             FakePointer.AppendReport(sb);
             return sb.ToString().TrimEnd('\n');
         }
@@ -461,6 +492,7 @@ namespace Replay
             layerRecoveredCount = 0;
             defMismatchCount = 0;
             skippedWrongTarget = 0;
+            heldFlagFixes = 0;
             invokeErrors = 0;
             fpCompared = 0;
             fpMatched = 0;
@@ -485,6 +517,15 @@ namespace Replay
             ReplayHud.Reset();
             ReplayProbe.Reset();
             ReplayPointerAction.Reset();
+
+            // 存档护栏：回放里挣的/花的钱只进影子，统计与解锁等一律不写。
+            // 补丁**故意延迟到这里才装**（游戏早就初始化完了，反射 MVZ2Logic 的类型是安全的）。
+            ReplayHooks.EnsureSaveGuardHooks();
+            ReplaySaveGuard.Begin();
+            // 把「录制时的窗口尺寸」记下来：事件里的 sx/sy 是像素，
+            // 换个窗口尺寸再播就指向别的格子了（见 ReplayViewport）。
+            ReplayViewport.Capture(f);
+
             FakePointer.Begin(f);
             ReplayEndPanel.Close();
             wantsReplayPage = false;
@@ -512,6 +553,8 @@ namespace Replay
             elapsedSeconds = Time.realtimeSinceStartup - phaseStart;
             ReplayHud.Hide();
             FakePointer.End();
+            ReplayViewport.Clear();
+            ReplaySaveGuard.End();
             bound = null;
             cursor = 0;
             lastSummary = BuildSummary();
@@ -527,6 +570,8 @@ namespace Replay
             phase = Phase.Failed;
             ReplayHud.Hide();
             FakePointer.End();
+            ReplayViewport.Clear();
+            ReplaySaveGuard.End();
             bound = null;
             Plugin.Log?.LogError("[Replay] 播放失败：" + reason);
             try { Global.Debugs?.Print("[replay] 播放失败：" + reason + "\n"); } catch (Exception) { }
@@ -1401,8 +1446,13 @@ namespace Replay
                         case "entity":
                         case "lawn":
                         case "blueprint":
-                            ReplayPointerAction.Fire(MainManager.Instance, ev.PointerId,
-                                ev.Interaction, ev.Sx, ev.Sy);
+                            {
+                                // ⚠️ 必须先换算成**当前窗口**的坐标：事件里存的是录制时的像素，
+                                // 而「像素 → 世界坐标」里含屏幕高，不换的话换个窗口尺寸就点到别的格子上了。
+                                var fp = ReplayViewport.ToCurrent(ev.Sx, ev.Sy);
+                                ReplayPointerAction.Fire(MainManager.Instance, ev.PointerId,
+                                    ev.Interaction, fp.x, fp.y);
+                            }
                             break;
                     }
                 }
@@ -1462,6 +1512,7 @@ namespace Replay
                                 ReplayProbe.Write(ReplayProbe.EntityLine(ev, ent, entity));
                             var args = BuildArgs(ev);
                             mEntity.Invoke(bound, new object[] { ctrl, args });
+                            ApplyHeldFlags(ev);
                             if (IsProbeDown(ev))
                                 ReplayProbe.Write("     → 注入后 手持=[" + ReplayProbe.Held(bound.GetEngine()) + "]");
                             injectedCount++;
@@ -1475,6 +1526,7 @@ namespace Replay
                                 ReplayProbe.Write("blueprint Down t=" + ev.Tick + " idx=" + ev.Index
                                     + " 能量=" + EnergyOf(bound) + " 手持=[" + ReplayProbe.Held(bound.GetEngine()) + "]");
                             mBlueprint.Invoke(bound, new object[] { ev.Index, args, ev.Conveyor });
+                            ApplyHeldFlags(ev);
                             if (IsProbeDown(ev))
                                 ReplayProbe.Write("     → 注入后 手持=[" + ReplayProbe.Held(bound.GetEngine()) + "]");
                             injectedCount++;
@@ -1489,6 +1541,7 @@ namespace Replay
                         }
                     case "bpkey":
                         mBlueprintKey.Invoke(bound, new object[] { ev.Index, ev.Conveyor, ev.Key });
+                        ApplyHeldFlags(ev);
                         injectedCount++;
                         break;
                     case "tool":
@@ -1586,45 +1639,67 @@ namespace Replay
         private static PointerInteractionArgs BuildArgs(ReplayEvent ev)
         {
             var args = new PointerInteractionArgs();
+            // 录制时的像素 → 当前窗口的像素（尺寸没变时是恒等），见 ReplayViewport。
+            var p = ReplayViewport.ToCurrent(ev.Sx, ev.Sy);
             try
             {
                 args.pointerId = ev.PointerId;
                 args.interaction = (MVZ2Logic.Inputs.PointerInteraction)ev.Interaction;
                 args.button = (PointerEventData.InputButton)ev.Button;
-                args.position = new Vector2(ev.Sx, ev.Sy);
+                args.position = p;
                 args.delta = Vector2.zero;
 
-                var rr = MakeRaycast(ev);
+                var rr = MakeRaycast(ev, p);
                 args.pointerCurrentRaycast = rr;
-                args.eventData = MakeEventData(ev, rr);
+                args.eventData = MakeEventData(ev, rr, p);
             }
             catch (Exception e)
             {
                 Note("拼指针参数失败：" + e.GetType().Name + ": " + e.Message);
             }
+            // 存**原值**（录制坐标系）：换算留到读取时做，这样播放中途改窗口尺寸也不会偏。
             pointerScreen = new Vector2(ev.Sx, ev.Sy);
             return args;
         }
 
-        private static RaycastResult MakeRaycast(ReplayEvent ev)
+        /// <summary>
+        /// 把「拿起蓝图那一刻」的两个标记按回手持物上。
+        ///
+        /// <para>不做的话，<c>instantTrigger</c> 会按**当前**的「交换触发」选项重算一遍 ——
+        /// 而那个选项是玩家选项、不在关卡关键帧里，录/放两边设置不同就会让器械行为反过来。
+        /// 详见 <see cref="ReplayHeldFlags"/>。</para>
+        /// </summary>
+        private static void ApplyHeldFlags(ReplayEvent ev)
+        {
+            if (!ev.HasHeldFlags)
+                return;
+            var lvl = bound != null ? bound.GetEngine() : null;
+            if (lvl == null)
+                return;
+            int changed = ReplayHeldFlags.Apply(lvl, ev.InstantTrigger, ev.InstantEvoke);
+            if (changed > 0)
+                heldFlagFixes++;
+        }
+
+        private static RaycastResult MakeRaycast(ReplayEvent ev, Vector2 screen)
         {
             var rr = new RaycastResult();
             var world = new Vector3(ev.Wx, ev.Wy, ev.Wz);
             try { rr.worldPosition = world; } catch (Exception) { }
             try { rr.worldNormal = new Vector3(0f, 1f, 0f); } catch (Exception) { }
-            try { rr.screenPosition = new Vector3(ev.Sx, ev.Sy, 0f); } catch (Exception) { }
+            try { rr.screenPosition = new Vector3(screen.x, screen.y, 0f); } catch (Exception) { }
             return rr;
         }
 
-        private static PointerEventData MakeEventData(ReplayEvent ev, RaycastResult rr)
+        private static PointerEventData MakeEventData(ReplayEvent ev, RaycastResult rr, Vector2 screen)
         {
             try
             {
                 var es = EventSystem.current;
                 var ped = new PointerEventData(es);
                 ped.pointerId = ev.PointerId;
-                ped.position = new Vector2(ev.Sx, ev.Sy);
-                ped.pressPosition = new Vector2(ev.Sx, ev.Sy);
+                ped.position = screen;
+                ped.pressPosition = screen;
                 ped.delta = Vector2.zero;
                 ped.button = (PointerEventData.InputButton)ev.Button;
                 ped.pointerCurrentRaycast = rr;
@@ -1647,7 +1722,9 @@ namespace Replay
         /// </summary>
         public static bool TryOverridePointerPosition(int type, int button, out Vector2 pos)
         {
-            pos = pointerScreen;
+            // 注意读的是 PointerScreen（会换算到当前窗口），不是裸字段：
+            // 一次播放里事件之间可能隔着几千帧，玩家中途改窗口尺寸是常事。
+            pos = PointerScreen;
             if (phase != Phase.Playing || injecting)
                 return false;
             pointerQueries++;

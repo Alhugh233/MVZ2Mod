@@ -243,6 +243,7 @@ namespace UiGallery
                             + (ProbeExternalLocale() ? "通过" : "失败"));
                         Plugin.Log?.LogInfo("[SelfTest] 判据 游戏内指令分派："
                             + (ProbeTransCommand() ? "通过" : "失败"));
+                        ProbeModLocales();
                         Plugin.Log?.LogInfo("[SelfTest] 本地化状态：\n" + DSHCore.Ui.UiLocale.Report());
                     }
                     catch (Exception e)
@@ -360,6 +361,10 @@ namespace UiGallery
             const string NewKey = "DSHCore.LocaleSelfTest.NewKey";
             const string CodeKey = "MVZ2 Loadout";
             const string FallKey = "MVZ2 Laboratory";       // 只存在于代码表，用来验「模板空值放行」
+            // 带上下文的键（游戏内容名）：用 [上下文] 前缀写在外部文件里，
+            // 应该能被**带上下文的查找**读到（而普通查找读不到）。
+            const string Ctx = "levelname";
+            const string CtxKey = "DSHCore.LocaleSelfTest.CtxKey";
 
             var codeBefore = UiLocale.In(CodeKey, Lang);
             var fallBefore = UiLocale.In(FallKey, Lang);
@@ -369,6 +374,7 @@ namespace UiGallery
             var mainExisted = System.IO.File.Exists(mainPath);
             var okNew = false;
             var okPrec = false;
+            var okCtx = false;
             var okTemplate = false;
             var okBack = false;
             try
@@ -377,19 +383,25 @@ namespace UiGallery
                 System.IO.File.WriteAllText(path,
                     "# 自测用，跑完会删掉\n"
                     + NewKey + " = 外部文件命中\n"
-                    + CodeKey + " = 外部文件优先\n",
+                    + CodeKey + " = 外部文件优先\n"
+                    + "[" + Ctx + "] " + CtxKey + " = 上下文命中\n",
                     new System.Text.UTF8Encoding(false));
 
                 UiLocale.ReloadExternal();
 
                 var gotNew = UiLocale.In(NewKey, Lang);
                 var gotCode = UiLocale.In(CodeKey, Lang);
+                var gotCtx = UiLocale.In(CtxKey, Lang, Ctx);
+                var gotPlain = UiLocale.In(CtxKey, Lang);   // 不带上下文不该读到它
                 okNew = gotNew == "外部文件命中";
                 okPrec = gotCode == "外部文件优先";
+                okCtx = gotCtx == "上下文命中" && gotPlain == CtxKey;
 
                 Plugin.Log?.LogInfo("[SelfTest] 外部译文文件：新键 " + (okNew ? "OK" : "FAIL")
                     + "（" + gotNew + "）；覆盖代码表 " + (okPrec ? "OK" : "FAIL")
                     + "（" + codeBefore + " → " + gotCode + "）");
+                Plugin.Log?.LogInfo("[SelfTest] 外部译文文件：带上下文 " + (okCtx ? "OK" : "FAIL")
+                    + "（[" + Ctx + "] → " + gotCtx + "；不带上下文 → " + gotPlain + "）");
 
                 // 导出模板：值全空 → 不该抢走代码表的译文（否则导出一次界面就全白了）。
                 // 已存在真文件时不写（WriteTemplate 也不覆盖），跳过而不是 FAIL。
@@ -442,7 +454,67 @@ namespace UiGallery
             {
             }
 
-            return okNew && okPrec && okTemplate && okBack;
+            return okNew && okPrec && okCtx && okTemplate && okBack;
+        }
+
+        /// <summary>
+        /// 「各 mod 的多语言」判据：直接在 en-US 下取几个**其他 mod 登记的**键，
+        /// 看两张表都真的生效了。
+        ///
+        /// <para>分两类，正是 DSHCore 那套接口的两半：</para>
+        /// <list type="number">
+        /// <item><b>游戏内容名</b>（带上下文）—— 关卡名 / 诅咒名。这类能不能翻，
+        /// 取决于 <c>TryGetLocalizedStringParticular</c> 有没有挂上（没挂的话
+        /// mod 的 XML 名字在英文下永远是中文，而界面文字却是英文的）。</item>
+        /// <item><b>界面文字</b>（不带上下文）—— mod 列表里的说明 / 页面标题 / 按钮文案。</item>
+        /// </list>
+        ///
+        /// <para>查不到就原样返回，所以每一行都能看出「是没登记还是没生效」。</para>
+        /// </summary>
+        private static bool ProbeModLocales()
+        {
+            const string CtxLevel = "levelname";              // = LogicStrings.CONTEXT_LEVEL_NAME
+            const string CtxCurseName = "curse.name";         // = LogicStrings.CONTEXT_CURSE_NAME
+
+            var rows = new string[]
+            {
+                // ---- 游戏内容名（上下文） ----                Row(CtxLevel, "真正的序章", "Real Prologue"),
+                Row(CtxLevel, "零度空间", "Zero-K Space"),
+                Row(CtxCurseName, "怪物的大脑", "The Creature's Brain"),
+                Row(CtxCurseName, "<color=#FF4040>永恒之心</color>",
+                    "<color=#FF4040>Eternal Heart</color>"),
+                // ---- 界面文字（无上下文） ----
+                Row("", "实验室小游戏（real_prologue / zero_k_space / unknow_palace）",
+                    "Laboratory minigames (real_prologue / zero_k_space / unknow_palace)"),
+                Row("", "图形化控制台面板（调试工具，替代原版控制台输入窗）",
+                    "Graphical console panel (a debug tool that replaces the vanilla console input window)"),
+                Row("", "回放", "Replay"),
+                Row("", "按时间", "By time"),
+                Row("", "基础", "Basic"),
+                Row("", "共 {0} 个", "{0} replays"),
+            };
+
+            var ok = true;
+            for (var i = 0; i < rows.Length; i++)
+            {
+                if (!rows[i].StartsWith("OK"))
+                    ok = false;
+            }
+            Plugin.Log?.LogInfo("[SelfTest] 判据 各 mod 多语言（en-US）：" + (ok ? "通过" : "失败"));
+            for (var i = 0; i < rows.Length; i++)
+                Plugin.Log?.LogInfo("    " + rows[i]);
+            return ok;
+        }
+
+        /// <summary>一行判据：<c>[上下文] 源串 → 期望的英文</c>。</summary>
+        private static string Row(string context, string source, string expected)
+        {
+            var got = context.Length == 0
+                ? UiLocale.In(source, "en-US")
+                : UiLocale.In(source, "en-US", context);
+            var ok = got == expected;
+            return (ok ? "OK   " : "FAIL ") + "[" + context + "] " + source
+                + "  →  " + got + (ok ? "" : "（期望：" + expected + "）");
         }
 
         /// <summary>下拉框那一页的下标（探针只在那一页跑）。</summary>

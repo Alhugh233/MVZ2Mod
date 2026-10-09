@@ -827,13 +827,16 @@ namespace Loadout
         }
 
         /// <summary>
-        /// 把某格染个色（<c>Color.white</c> = 还原）。
+        /// 把某格**左右镜像**（<c>false</c> = 还原）。
         ///
-        /// <para>用途：这张卡开了「逆阵营放置」时，镜像框里的卡**看着就不对**才对 ——
-        /// 不然要逐格点开才知道哪张被动过手脚。染的是 <c>Root/Icons</c> 下面所有
-        /// <c>Image</c>（图标本体），不动卡框、不动帷幕，所以不会有副作用。</para>
+        /// <para>用途：这张卡开了「逆阵营放置」时，镜像框里的**器械图标左右翻转** ——
+        /// 一眼能看出哪张被动过手脚，而且不脏色（早期版本是染红，看着像"被禁用"）。</para>
+        ///
+        /// <para>只翻 <c>iconImage</c> / <c>iconImageCommandBlock</c> 这两个图标节点
+        /// （<c>Blueprint</c> 自己的公开字段，<c>ImageResolver</c> 上就有 <c>rectTransform</c>），
+        /// 不碰卡框与费用文字 —— 整个卡翻的话费用数字会变成镜像，读不了。</para>
         /// </summary>
-        public void SetTint(int index, Color tint)
+        public void SetMirror(int index, bool mirror)
         {
             if (!IsValid || index < 0 || index >= Ids.Count)
                 return;
@@ -842,26 +845,25 @@ namespace Loadout
                 return;
             try
             {
-                var root = Find(bp.transform, "Root");
-                var icons = Find(root, "Icons");
-                if (icons == null)
-                    return;
-                var images = icons.GetComponentsInChildren<Image>(true);
-                for (var i = 0; images != null && i < images.Length; i++)
-                {
-                    var img = images[i];
-                    if (img == null)
-                        continue;
-                    var c = tint;
-                    c.a = img.color.a;   // 保留各自的透明度
-                    img.color = c;
-                }
+                var scale = mirror ? new Vector3(-1f, 1f, 1f) : Vector3.one;
+                ApplyMirror(bp.iconImage, scale);
+                ApplyMirror(bp.iconImageCommandBlock, scale);
             }
             catch (Exception) { }
         }
 
-        /// <summary>逆阵营的染色。</summary>
-        public static readonly Color ReverseTint = new Color(1f, 0.45f, 0.45f, 1f);
+        private static void ApplyMirror(MVZ2Logic.UI.ImageResolver resolver, Vector3 scale)
+        {
+            if (resolver == null)
+                return;
+            try
+            {
+                var rt = resolver.rectTransform;
+                if (rt != null)
+                    rt.localScale = scale;
+            }
+            catch (Exception) { }
+        }
 
         /// <summary>命中测试：返回被点到的格子下标（-1 = 没点到）。</summary>
         public int Hit(Vector2 screenPoint)
@@ -900,6 +902,50 @@ namespace Loadout
                 return "（越界 " + index + "/" + Ids.Count + "）";
             try { return CardState(_set.GetBlueprintAt(index)); }
             catch (Exception e) { return "（" + e.GetType().Name + "）"; }
+        }
+
+        /// <summary>
+        /// 自测用：第 <paramref name="index"/> 格那两个图标节点的**缩放与颜色**。
+        ///
+        /// <para>逆阵营的观感是「左右翻转」（<c>localScale.x = -1</c>）而**不是染红** ——
+        /// 这两件事都得能直接读出来才叫验过。</para>
+        /// </summary>
+        public string MirrorStateAt(int index)
+        {
+            if (!IsValid || index < 0 || index >= Ids.Count)
+                return "（越界 " + index + "）";
+            var bp = _set.GetBlueprintAt(index);
+            if (bp == null)
+                return "（无卡）";
+            var sx = ScaleX(bp.iconImage);
+            var color = ColorOf(bp.iconImage);
+            var white = Mathf.Abs(color.r - 1f) < 0.01f && Mathf.Abs(color.g - 1f) < 0.01f && Mathf.Abs(color.b - 1f) < 0.01f;
+            return "Icon.sx=" + Fmt(sx)
+                + "  CommandBlockIcon.sx=" + Fmt(ScaleX(bp.iconImageCommandBlock))
+                + "  Icon.色=" + Fmt(color.r) + "/" + Fmt(color.g) + "/" + Fmt(color.b)
+                + "\n    判据 图标左右翻转=" + (sx < 0f ? "OK（sx=-1）" : "NG（没翻转）")
+                + "  判据 没有染红=" + (white ? "OK（仍是白）" : "NG（被染色了）");
+        }
+
+        private static float ScaleX(MVZ2Logic.UI.ImageResolver resolver)
+        {
+            try
+            {
+                var rt = resolver == null ? null : resolver.rectTransform;
+                return rt == null ? 1f : rt.localScale.x;
+            }
+            catch (Exception) { return 1f; }
+        }
+
+        private static Color ColorOf(MVZ2Logic.UI.ImageResolver resolver)
+        {
+            try
+            {
+                var rt = resolver == null ? null : resolver.rectTransform;
+                var img = rt == null ? null : rt.GetComponent<Image>();
+                return img == null ? Color.white : img.color;
+            }
+            catch (Exception) { return Color.white; }
         }
 
         /// <summary>自测用：第 <paramref name="index"/> 格那张卡上的悬停提示状态。</summary>
@@ -1072,12 +1118,16 @@ namespace Loadout
                 if (img == null)
                     return label + "=（无图）";
                 var c = img.color;
+                // sx/lsx：镜像看的是 <c>localScale.x</c>（逆阵营 = -1），和颜色无关
+                //（早先是把图标染红，现在改成左右翻转）。
+                var s = t.localScale;
                 return label + "(on=" + (t.gameObject.activeSelf ? "1" : "0")
                     + (t.gameObject.activeInHierarchy ? "" : "/链关")
                     + ",en=" + (img.enabled ? "1" : "0")
                     + ",a=" + Fmt(c.a)
                     + ",rgb=" + Fmt(c.r) + "/" + Fmt(c.g) + "/" + Fmt(c.b)
                     + ",fill=" + Fmt(img.fillAmount)
+                    + ",sx=" + Fmt(s.x)
                     + ",spr=" + (img.sprite == null ? "无" : img.sprite.name) + ")";
             }
             catch (Exception)
