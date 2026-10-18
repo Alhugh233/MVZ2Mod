@@ -21,8 +21,10 @@ namespace Replay
     /// 这三类问题 dump 永远证不出来）。</para>
     ///
     /// <para><b>流程：</b>等主菜单 → 程序化切到「插件」页 → 等入口装好 → **真的调用一次
-    /// 入口按钮的 <c>onClick</c>** → 面板打开 → 截图 + dump → 弹一次删除确认 → 截图 + dump
-    /// → 收起 → 截图（看插件页上追加了入口没有）→ 写报告（<c>_replay_gui.txt</c>）→ 退出。</para>
+    /// 入口按钮的 <c>onClick</c>** → 面板打开 → 截图 + dump → 循环一遍排序 →
+    /// 打开【更多】详情（含输入框）→ 截图 → 重命名 → 返回列表 → 跑一次清理 →
+    /// 弹一次删除确认 → 截图 + dump → 收起 → 截图（看插件页上追加了入口没有）
+    /// → 写报告（<c>_replay_gui.txt</c>）→ 退出。</para>
     ///
     /// <para>截图写在 <c>&lt;游戏目录&gt;/BepInEx/_rp_shot*.png</c>。
     /// ⚠️ <c>ScreenCapture.CaptureScreenshot</c> 是**帧末异步写盘**，
@@ -40,6 +42,13 @@ namespace Replay
             OpenPage,
             SettlePage,
             ShotPage,
+            SortCycle,
+            Detail,
+            SettleDetail,
+            ShotDetail,
+            Rename,
+            CloseDetail,
+            Cleanup,
             Confirm,
             SettleConfirm,
             ShotConfirm,
@@ -132,6 +141,37 @@ namespace Replay
                         break;
                     case Phase.ShotPage:
                         Shoot("page");
+                        Next(Phase.SortCycle);
+                        break;
+                    case Phase.SortCycle:
+                        // 排序按钮只有一个，点一下按六档循环 —— 转完一圈应回到起点。
+                        Note("排序循环：" + ReplayPage.TestSortCycle());
+                        Next(Phase.Detail);
+                        break;
+                    case Phase.Detail:
+                        // 【更多】详情子层（里面有一个克隆来的 TMP_InputField）。
+                        Note("打开详情：" + ReplayPage.TestOpenDetail());
+                        Next(Phase.SettleDetail);
+                        break;
+                    case Phase.SettleDetail:
+                        Settle("回放详情子层", Phase.ShotDetail);
+                        break;
+                    case Phase.ShotDetail:
+                        Shoot("detail");
+                        Next(Phase.Rename);
+                        break;
+                    case Phase.Rename:
+                        // 改名后就不再是自动命名（= 不计入上限、不会被自动清理）。
+                        Note("重命名：" + ReplayPage.TestRenameFirst("selftest_renamed"));
+                        Next(Phase.CloseDetail);
+                        break;
+                    case Phase.CloseDetail:
+                        Note("从详情返回：" + ReplayPage.TestCloseDetail());
+                        Next(Phase.Cleanup);
+                        break;
+                    case Phase.Cleanup:
+                        // 只是让这条链真的被跑一遍（会真的删文件，只删未命名/失效的）。
+                        Note("清理：" + ReplayPage.TestCleanup());
                         Next(Phase.Confirm);
                         break;
                     case Phase.Confirm:
@@ -339,6 +379,22 @@ namespace Replay
 
             if (AutoQuit())
             {
+                // ⚠️ **回放正在播的时候不退出。**
+                //
+                // 两个自测是各自独立的状态机，配置里也可能同时开着（脚本以前不强制互斥），
+                // 而 GUI 自测跑完会 Application.Quit() —— 那会把正在播放的回放
+                // 硬生生搜掉，现场看起来就完全是「回放播到一半闪退」
+                // （实测：`播放tick=50` 之后紧跟 `[GuiTest] 自动退出游戏` +
+                // `播放停止：application-quit`）。宁可把游戏留在那里让人看到，
+                // 也不要制造一个假崩溃。
+                if (ReplayPlayer.IsActive)
+                {
+                    Plugin.Log?.LogWarning("[GuiTest] 回放正在播放，**不自动退出游戏**"
+                        + "（请检查 [GuiTest]/[SelfTest] 是不是同时开着）");
+                    Note("（回放正在播放，【不】自动退出。请检查 [GuiTest]/[SelfTest] 是否同时开着）");
+                    WriteReport();
+                    return;
+                }
                 Plugin.Log?.LogInfo("[GuiTest] 自动退出游戏");
                 Application.Quit();
             }

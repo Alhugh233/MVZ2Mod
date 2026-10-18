@@ -12,6 +12,17 @@
 #   .\build.ps1 -Pack -NoRuntime       全部：打「只含插件」的轻量包（不带 BepInEx）
 #   .\build.ps1 -Pack -Launch          全部：打包后启动游戏
 #   .\build.ps1 -Mvz2Pack              全部：再打一个 MVZ2ModManager 的模组包（.mvz2pack）
+#   .\build.ps1 -PackRuntime           全部：再打一个 ModRuntime 整合包
+#                                      （BepInEx 环境 + ModManager + 本次构建的全部 mod）
+#   .\build.ps1 -PackRuntime -PackRuntimeBare
+#                                      ModRuntime 包里不放 mod 本体（只环境 + 管理器）
+#   .\build.ps1 -PackRuntime -PackRuntimeLite
+#                                      ModManager 用框架依赖版（包小很多，但目标机需装 .NET 8）
+#
+# 三种包的用途不一样，不是重复：
+#   -Pack         每个 mod 一份自包含 zip，玩家装哪个就装哪份
+#   -Mvz2Pack     只含模组本体，丢给 MVZ2ModManager 导入/还原
+#   -PackRuntime  一份「环境 + 管理器」的底包：先装它，再用管理器装模组包
 #
 # -Mvz2Pack 打的是「除 UI 画廊外的全部 mod」，只含模组本体（不带 BepInEx 运行环境），
 # 专给 MVZ2ModManager 导入；它不能和 -Mod 一起用。
@@ -36,7 +47,16 @@ param(
     [string]$Mvz2PackAuthor = "QoZnoS",
     [switch]$Launch,
     [switch]$PackDevKit,
-    [switch]$NoRuntime
+    [switch]$NoRuntime,
+    # ModRuntime 整合包（BepInEx 环境 + ModManager）。实现见 tools\pack-runtime.ps1。
+    [switch]$PackRuntime,
+    # ModRuntime 里的 ModManager 用框架依赖版（免编译小包，需目标机装 .NET 8 Desktop Runtime）
+    [switch]$PackRuntimeLite,
+    # ModRuntime 包里不放 mod 本体（只要「环境 + 管理器」的底包）
+    [switch]$PackRuntimeBare,
+    # 诊断构建（只对 Replay 有效）：编进 Diagnostics\（探针 / 自测 / 布局 dump）。
+    # 产物仅供排查与自动化自测，**不要发布**。
+    [switch]$Diagnostics
 )
 $ErrorActionPreference = 'Stop'
 . "$PSScriptRoot\tools\build-common.ps1"
@@ -58,6 +78,11 @@ $all = @(
 # New-Mvz2Pack 里直接 throw，不如在这种误用上就地拦住。
 if ($Mvz2Pack -and $Mod -ne 'all') {
     throw "-Mvz2Pack 打的是「除 UI 画廊外的全部 mod」，不能和 -Mod 一起用。"
+}
+
+# 这两个开关只是 -PackRuntime 的修饰符，单独用不会产生任何效果。
+if ((-not $PackRuntime) -and ($PackRuntimeLite -or $PackRuntimeBare)) {
+    Write-Warn2 "-PackRuntimeLite / -PackRuntimeBare 需配合 -PackRuntime 使用，已忽略。"
 }
 
 
@@ -100,6 +125,8 @@ foreach ($m in $selected) {
     if ($m.Key -ne 'dsh') {
         [void]$p.Remove('PackDevKit')
     }
+    # -Diagnostics 只有 Replay 认识（它才有 Diagnostics\ 这个目录），别传给其它 mod。
+    if ($Diagnostics -and $m.Key -eq 'rp') { $p['Diagnostics'] = $true }
 
     Write-Host ""
     Write-Host ("################  " + $m.Title + "  ################") -ForegroundColor Magenta
@@ -169,7 +196,34 @@ if ($Mvz2Pack) {
     }
 }
 
-if ($Pack -or $Mvz2Pack) {
+# ---------- ModRuntime 整合包（BepInEx 环境 + ModManager） ----------
+#
+# 实现在 tools\pack-runtime.ps1，这里只负责「全部构建完之后再打一次包」。
+# 与其它两个开关的关系见文件头的说明。
+if ($PackRuntime) {
+    Write-Host ""
+    Write-Host "################  ModRuntime 整合包  ################" -ForegroundColor Magenta
+
+    $runtimeArgs = @{}
+    if ($PackRuntimeLite) { $runtimeArgs['ModManager'] = 'Framework' }
+    # 默认把本次构建出来的 mod 一起打进去：一份包装完就能玩。
+    if (-not $PackRuntimeBare) { $runtimeArgs['WithMods'] = $true }
+
+    $runtimeScript = Join-Path (Join-Path $PSScriptRoot 'tools') 'pack-runtime.ps1'
+    if (-not (Test-Path $runtimeScript)) {
+        Write-Warn2 ("找不到 " + $runtimeScript)
+        exit 1
+    }
+    try {
+        & $runtimeScript @runtimeArgs
+    } catch {
+        Write-Host ""
+        Write-Warn2 ("ModRuntime 打包失败：" + $_.Exception.Message)
+        exit 1
+    }
+}
+
+if ($Pack -or $Mvz2Pack -or $PackRuntime) {
     Write-Host ""
     Write-Host ("包体输出目录: " + (Join-Path $PSScriptRoot 'dist')) -ForegroundColor Green
 }

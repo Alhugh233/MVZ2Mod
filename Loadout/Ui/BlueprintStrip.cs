@@ -21,7 +21,7 @@ namespace Loadout
     /// 背景 / 图标 / 费用 / 充能圈 / 灰化 / 空框全是同一套 <c>BlueprintViewData</c> 与同一个
     /// <c>Blueprint</c> prefab 节点。自己拼控件永远差一点，直接克隆就对得上。</para>
     ///
-    /// <para>节点路径（实测，0.7.0 test-6）：
+    /// <para>节点路径（实测，0.7.0）：
     /// <code>
     /// Front/BlueprintChoose/Root/BlueprintChoosingPanel                     ← 选卡面板（400x528）
     /// Front/BlueprintChoose/CommandBlockPanelStandalone                    ← 命令方块的「复制面板」（800x600，5x8 网格 + 翻页）

@@ -11,6 +11,7 @@ using MVZ2.Level;
 using MVZ2.Managers;
 using MVZ2.Scenes;
 using MVZ2Logic.Scenes;
+using PVZEngine.Level;
 using UnityEngine;
 using Application = UnityEngine.Application;
 
@@ -122,6 +123,8 @@ namespace Replay
                     report.Add("stage/area  : " + CfgString(ReplayConfig.SelfTestStage, "mvz2:halloween_1")
                         + " / " + CfgString(ReplayConfig.SelfTestArea, "mvz2:halloween"));
                     report.Add("autoRecord  : " + (ReplayConfig.AutoRecord != null && ReplayConfig.AutoRecord.Value));
+                    // v9：把自测探针注册进 ReplayCompat（开关默认关，见 PointerProbeNeed）。
+                    EnsureProbeRegistered();
                     WriteReport();
                     Plugin.Log?.LogInfo("[SelfTest] 开始（" + (playOnly ? "只播放 " + playFileName : "阶段机启动") + "）");
                 }
@@ -318,6 +321,7 @@ namespace Replay
                             SaveGuardCheck();
                             FakeMouseCheck();
                             HeldFlagCheck();
+                            CompatCheck();
                             WriteReport();
                             EnterPhase(Phase.EndPanel);
                             break;
@@ -669,11 +673,27 @@ namespace Replay
                     // 记下文件路径：「导入」测试要用它当源文件（这时候还没有退出关卡）。
                     probeMrepPath = ReplayPlayer.CurrentPath;
 
-                    var ok = ReplayEndPanel.SelfTestExport(ExportProbePath());
                     report.Add("--- 结束面板按钮 ---");
-                    report.Add("  「导出 .mrep」 : " + (ok ? "已导出" : "导出失败")
-                        + " → " + ReplayEndPanel.Describe());
-                    Check(ok, "结束面板的「导出」真的写出了 .mrep");
+                    // 需求：结束面板上的「导出 .mrep」已移除（功能移入回放页的【更多】）。
+                    var opts = ReplayEndPanel.Options;
+                    var hasExport = false;
+                    for (int i = 0; i < opts.Length; i++)
+                    {
+                        if (opts[i] != null && opts[i].IndexOf("导出", StringComparison.Ordinal) >= 0)
+                            hasExport = true;
+                    }
+                    report.Add("  面板按钮 : [" + string.Join(", ", opts) + "]");
+                    Check(!hasExport, "结束面板不再有「导出」按钮（已移入回放页的【更多】）");
+
+                    // 导出机制本身仍然要验（它现在是【更多】面板在调）：
+                    // 不弹原生对话框，直接走 ReplayLibrary.Export。
+                    var ok = false;
+                    var exportErr = (string)null;
+                    try { ok = ReplayLibrary.Export(probeMrepPath, ExportProbePath(), out exportErr); }
+                    catch (Exception e) { exportErr = Short(e); }
+                    report.Add("  导出机制 : " + (ok ? "已写出" : "失败") + " → " + ExportProbePath()
+                        + (ok ? "" : "（" + (exportErr ?? "?") + "）"));
+                    Check(ok, "导出真的能写出 .mrep（【更多】面板靠它）");
                     return;
                 }
 
@@ -683,13 +703,10 @@ namespace Replay
                         return;
                     endStage = 2;
                     endWaitFrame = frames;
-                    // 导出结果写在面板正文里，面板本身还在（输入仍然被拦）。
+                    // 面板本体还在（输入仍然被拦）。
                     var info = ReplayEndPanel.Describe() ?? string.Empty;
-                    report.Add("  导出后 : 面板开着 = " + ReplayEndPanel.IsOpen
-                        + "，描述=" + info);
-                    Check(ReplayEndPanel.IsOpen, "导出后面板仍在（输入仍然被拦）");
-                    Check(info.IndexOf("导出成功", StringComparison.Ordinal) >= 0,
-                        "导出结果写回了面板");
+                    report.Add("  导出后 : 面板开着 = " + ReplayEndPanel.IsOpen + "，描述=" + info);
+                    Check(ReplayEndPanel.IsOpen, "导出（外部写入）后面板仍在（输入仍然被拦）");
                     return;
                 }
 
@@ -706,7 +723,7 @@ namespace Replay
                         endStage = 9;
                         endWaitFrame = frames;
                         endWaitFrameAt = DateTime.Now;
-                        var ok = ReplayEndPanel.SelfTestChoose(1);
+                        var ok = ReplayEndPanel.SelfTestChoose(0);
                         report.Add("  点「重新播放」 : " + (ok ? "已点击" : "面板没开着")
                             + "；播放器状态 = " + ReplayPlayer.Describe());
                         // 真人点击时 MainSceneUI 会先把框体收起来；我们直接调回调，得自己补上
@@ -725,7 +742,7 @@ namespace Replay
                     // ── 第 2 轮：点「退出」────────────────────────────────
                     endStage = 3;
                     endWaitFrameAt = DateTime.Now;
-                    var quit = ReplayEndPanel.SelfTestChoose(2);
+                    var quit = ReplayEndPanel.SelfTestChoose(1);
                     report.Add("  点「退出」 : " + (quit ? "已点击" : "面板没开着")
                         + "；面板已收起 = " + !ReplayEndPanel.IsOpen);
                     // 真人点击时 MainSceneUI 会先收起框体再调回调；我们直接调回调，
@@ -864,9 +881,23 @@ namespace Replay
         private static DateTime endWaitFrameAt;
         /// <summary>进入结束面板阶段的次数：第 1 轮点「重新播放」，第 2 轮点「退出」。</summary>
         private static int endPanelRuns;
+        /// <summary>跳健康忠告页的次数（只在第 1 次写日志，免得刷屏）。</summary>
+        private static int healthWarningSkips;
 
         private static void StepWaitMenu(MainSceneController scene, int page)
         {
+            // 健康游戏忠告页（0.7.1 起才会真的出现）：它要玩家点一下「确定」，
+            // 不跳过的话自测会一直卡在 WaitMenu（实测 15 秒后仍在 HealthWarning）。
+            // 用游戏自己的 DisplayMainmenu() 走正规路径，不做操作系统级的鼠标注入。
+            if (page == (int)MainScenePageType.HealthWarning)
+            {
+                if (healthWarningSkips++ == 0)
+                    Note("停在健康忠告页，调用 DisplayMainmenu() 程序化跳过");
+                try { scene.DisplayMainmenu(); }
+                catch (Exception e) { Note("DisplayMainmenu 失败: " + Short(e)); }
+                return;
+            }
+
             // 标题界面在等玩家点「点击以开始」。用程序化的 DisplayMainmenu() 代替那一下点击
             // ——仍然是游戏自己的代码路径，不是操作系统级的鼠标注入。
             if (page == (int)MainScenePageType.Titlescreen)
@@ -1408,6 +1439,22 @@ namespace Replay
 
         private static void OnLevelEntered(LevelController ctrl)
         {
+            // v9：先趁着**探针还没打开**问一次「这一关需不需要指针轨迹」。
+            // 自测关卡里没有任何会读实时指针的内容，所以答案必须是 false——
+            // 否则「按需录制」这条省体积的设计就没生效（普通关卡会白白多记几千条）。
+            if (!probeEvaluated)
+            {
+                var lvl0 = EngineOf(ctrl);
+                if (lvl0 != null)
+                {
+                    probeEvaluated = true;
+                    needPointerWithoutProbe = ReplayCompat.LevelNeedsPointer(lvl0);
+                    Note("探针前判定：这一关需要指针轨迹 = " + needPointerWithoutProbe + "（预期 false）");
+                }
+            }
+            // 之后把探针打开，让采样真的开始 —— 这样才能验完整条管道。
+            trajectoryProbe = true;
+
             if (!ReplayRecorder.IsArmed)
             {
                 Note("录制未自动开始，手动触发 BeginManual");
@@ -1422,6 +1469,150 @@ namespace Replay
             Note("录制已开始: " + ReplayRecorder.Describe() + " startTick=" + armedAtTick);
             EnterPhase(Phase.Warmup);
         }
+
+        #region v9 兼容性探针
+        /// <summary>自测探针开关（见 <see cref="PointerProbeNeed"/>）。</summary>
+        private static bool trajectoryProbe;
+        /// <summary>「探针生效之前」这一关需不需要指针轨迹（预期 false）。</summary>
+        private static bool needPointerWithoutProbe;
+        private static bool probeEvaluated;
+        private static bool probeRegistered;
+
+        /// <summary>拿关卡引擎（拿不到返回 null）。</summary>
+        private static LevelEngine EngineOf(LevelController ctrl)
+        {
+            try { return ctrl != null ? ctrl.GetEngine() : null; }
+            catch (Exception) { return null; }
+        }
+
+        /// <summary>
+        /// 给 <see cref="ReplayCompat"/> 注册的自测判定。
+        ///
+        /// <para>自测关卡（<c>mvz2:halloween_2</c>）本身没有任何会读实时指针的内容，
+        /// 所以「按实体生效」的按需录制在这里默认**不会**开。为了能验证整条管道
+        /// （判定 → 采样 → 写文件 → 回放读取），自测用一个可开关的判定自己把开关打开；
+        /// 关掉时它返回 false，用来验证「不需要的关卡一条都不多写」。</para>
+        /// </summary>
+        private static bool PointerProbeNeed(LevelEngine level) => trajectoryProbe;
+
+        private static void EnsureProbeRegistered()
+        {
+            if (probeRegistered)
+                return;
+            probeRegistered = true;
+            ReplayCompat.RegisterPointerConsumer(PointerProbeNeed, "自测探针（自测关掉时返回 false）");
+        }
+
+        /// <summary>
+        /// v9 新机制的检查。分两类：
+        /// <list type="bullet">
+        /// <item><b>纯逻辑</b>（不碰 UI）：掩码→相位的边沿推导、选项列表变化时的下标找回。
+        /// 这两条错了的表现非常隐蔽（重装兵器不开火、上锁的箱子选错项）。</item>
+        /// <item><b>管道</b>：补丁真的都挂上了、按需录制真的生效、轨迹真的被写进文件。</item>
+        /// </list>
+        ///
+        /// <para>⚠️ <b>覆盖不到的部分：</b>打砖块/重装兵器/矿车/碾压墙/梦魇与上锁的箱子
+        /// 都在别的关卡里，自测关没有这些实体，所以「挡板跟着轨迹走」这类**效果**
+        /// 要靠另录一局亲自验。这里只能保证管道是通的。</para>
+        /// </summary>
+        private static void CompatCheck()
+        {
+            report.Add("--- 回放的输入兼容（v9：逐 tick 指针轨迹 / 选项对话框）---");
+
+            report.Add("  补丁安装  : " + ReplayHooks.PatchStatus);
+            Check(!ReplayHooks.HasPatchProblems,
+                "所有补丁都挂上了、且形参都绑得上（Harmony 挂失败与形参绑不上都不抛异常，只能这样查）");
+
+            var consumers = ReplayCompat.DescribeConsumers();
+            report.Add("  指针消费者: " + consumers.Count + " 个。" + ReplayCompat.Describe());
+            Check(consumers.Count >= 5,
+                "原版的 4 个「会读实时指针」的内容 + 自测探针都已注册");            if (probeEvaluated)
+            {
+                Check(!needPointerWithoutProbe,
+                    "按需录制：探针关掉时，这一关（没有任何指针消费者）判定为**不需要**轨迹");
+            }
+            else
+            {
+                report.Add("  （只播放模式，没进关卡，按需录制的判定未验证）");
+            }
+
+            string detail;
+            var phaseOk = ReplayPlayer.SelfCheckPointerPhases(out detail);
+            report.Add("  按键相位  : " + detail);
+            Check(phaseOk, "掩码→相位（按下/保持/抬起）的边沿推导正确");
+
+            // ---- 关卡内的减速按钮（ReplaySlowDown）----
+            // 只验「建出来了 + 开关真的改变倍率 + 倍率是加速倍率的倒数」；
+            // 画面对不对（图标镜像、位置在加速按钮正下方）要看 GUI 自测的截图。
+            var ffm = ReplaySlowDown.FastForwardMultiplier;
+            report.Add("  减速按钮  : 已建立=" + ReplaySlowDown.ButtonReady
+                + "；图标已镜像=" + ReplaySlowDown.IconMirrored
+                + "；热键已清空=" + ReplaySlowDown.HotkeyCleared
+                + "；加速倍率=" + ffm.ToString("0.###")
+                + "；减速倍率=" + ReplaySlowDown.Multiplier.ToString("0.###")
+                + "；" + ReplaySlowDown.LastInfo);
+            // 位置对不对只能看数字：按钮应当紧贴在加速按钮**正下方**（x 相同、y 更低、
+            // 且不重叠）。截图只能证明"画出来了"，证明不了这两个数字关系。
+            report.Add("  减速位置  : " + ReplaySlowDown.DescribeLayout());
+            // ⚠️ 这三条只在**功能真的开着**的时候才有意义：`[General] SlowDownButton = false`
+            // 时按钮就是故意不建的，再判它「没建出来」是自测在制造假失败
+            // （实测：整套自测里那 6 个 FAIL 全是这三条 × 播放两轮）。
+            if (!ReplayConfig.SlowDownButtonOn)
+            {
+                report.Add("  [跳过] 减速按钮的三项检查："
+                    + "[General] SlowDownButton = false（配置里就是关的）");
+            }
+            else
+            {
+                Check(ReplaySlowDown.ButtonReady, "关卡内建出了减速按钮（应在加速按钮正下方）");
+                Check(ReplaySlowDown.PlacedCorrectly,
+                    "减速按钮真的在加速按钮正下方（x 对齐、y 更低、不重叠）");
+                Check(ReplaySlowDown.IconMirrored, "减速按钮的图标找到了并做了镜像（找不到也不影响用，但说明 prefab 结构变了）");
+            }
+            Check(Mathf.Abs(ReplaySlowDown.Multiplier * ffm - 1f) < 0.001f,
+                "减速倍率是加速倍率的倒数");
+
+            ReplaySlowDown.Set(true);
+            var slowOn = ReplaySlowDown.Enabled && ReplaySlowDown.Multiplier < 0.999f;
+            ReplaySlowDown.Set(false);
+            var slowOff = !ReplaySlowDown.Enabled;
+            report.Add("  减速开关  : 开启生效=" + slowOn + "；关闭生效=" + slowOff);
+            Check(slowOn && slowOff, "减速开关能开能关（且不注册热键）");
+
+            // ⚠️ 这一条是「tick T 用第 T 条采样」的唯一自动化守门员。
+            // 差一个 tick 的表现是重装兵器多发一颗子弹、之后整局错位 —— 光看代码看不出来。
+            var trackOk = ReplayPointerTrajectory.SelfCheck(out detail);
+            report.Add("  轨迹对应  : " + detail);
+            Check(trackOk, "逐 tick 轨迹的「tick → 采样」对应关系与边沿推导正确（不允许差一个 tick）");
+
+            var dlgOk = ReplayDialogs.SelfCheck(out detail);
+            report.Add("  对话框下标: " + detail);
+            Check(dlgOk, "选项列表与录制时不同时（例如玩家钱不够），仍能按文本找回正确的选项");
+            Check(ReplayDialogs.ClickPathStatus.IndexOf("❌", StringComparison.Ordinal) < 0,
+                "自动应答对话框所需的反射目标解析到了");
+
+            var f = ReplayPlayer.CurrentFile;
+            if (f != null)
+            {
+                report.Add("  轨迹/对话 : " + ReplayPointerTrajectory.DescribePlayback());
+                report.Add("  文件内容  : 指针采样=" + f.PointerSamples.Count
+                    + " 对话框=" + f.Dialogs.Count
+                    + " 起始金币=" + (f.HasStartMoney ? f.StartMoney.ToString() : "无（旧文件）"));
+                // 这一条验的是**录制**侧（探针是否把轨迹写进文件）。
+                // 只播放模式不录制，本来就不该有采样 —— 判它「没采到」是自测在制造假失败。
+                if (playOnly)
+                    report.Add("  [跳过] 指针采样检查：只播放模式不录制（录制版的这条由录制流程自己验）");
+                else
+                    Check(f.PointerSamples.Count > 0,
+                        "探针打开后，逐 tick 指针轨迹真的被采到并写进文件了（按需录制生效）");
+                Check(f.PointerSamples.Count == 0 || f.PointerSamples[0].Tick <= f.LastTick,
+                    "轨迹的 tick 都落在回放区间内");
+            }
+
+            report.Add("  说明      : 本自测关卡里没有打砖块/重装兵器/矿车/碾压墙/选项对话框，"
+                + "所以只验「管道通不通」；那些关卡的**实际效果**要另录一局验证。");
+        }
+        #endregion
 
         /// <summary>注入一个真实输入入口（会经过我们的 Harmony 补丁）。</summary>
         private static void Inject(LevelController ctrl, string item)
@@ -1528,9 +1719,54 @@ namespace Replay
             Check(header.Contains("\"tps\":30"), "header 含 tps=30");
             Check(header.Contains("\"hasKeyframe\":true"), "关键帧抓取成功");
 
-            var keyframe = nonEmpty.Count > 1 ? nonEmpty[1] : "";
-            Check(keyframe.Contains("\"k\":\"keyframe\""), "第 2 行是 keyframe");
+            // ---- 协议（v10）：版本、环境、录制参数自述 ----
+            //
+            // 这一段是**协议能不能被别的工具读**的守门人：只要这些字段是齐的、
+            // 且计数与文件内容对得上，外部工具就能只靠 header + env 行解析一份回放。
+            Check(header.Contains("\"spec\":" + ReplayProtocol.SpecVersion), "header 含 spec 且等于当前规范版本");
+            Check(header.Contains("\"ver\":" + ReplayProtocol.FormatVersion), "header 含 ver 且等于当前格式版本");
+            Check(header.Contains("\"caps\":\""), "header 含 caps");
+            Check(header.Contains("\"samplers\":\""), "header 含 samplers");
+            Check(header.Contains("\"fpt\":"), "header 含 fpt（录制时实际用的指纹间隔）");
+            Check(header.Contains("\"envHash\":\"") && !header.Contains("\"envHash\":\"\""), "header 含非空环境哈希");
+
+            // `debug` 必须与 **配置**一致（自测会在两种模式下都跑，所以不能硬写成 false）。
+            bool debugCfg = CfgBool(ReplayConfig.DebugMode, false);
+            Check(header.Contains("\"debug\":" + Json.Bool(debugCfg)),
+                "header 的 debug 与 [Debug] Enabled（" + debugCfg + "）一致");
+            if (debugCfg)
+            {
+                // 调试模式的三条硬性表现：逐 tick、声明 dbg 能力、跑全部采样器。
+                Check(header.Contains("\"fpt\":1"), "调试模式下 fpt=1（逐 tick 采样）");
+                Check(header.Contains("dbg"), "调试模式下 caps/samplers 里带 dbg");
+                Check(header.Contains("dbg.rngRaw") && header.Contains("dbg.entities")
+                    && header.Contains("dbg.level"), "调试模式下全部调试采样器都在 samplers 里");
+            }
+
+            // 第 2 行必须是 env 摘要；keyframe 必须紧跟 env 块之后（协议 §2.1）。
+            var envSummary = nonEmpty.Count > 1 ? nonEmpty[1] : "";
+            report.Add("  env 摘要: " + Truncate(envSummary, 300));
+            Check(envSummary.Contains("\"k\":\"env\"") && envSummary.Contains("\"t\":\"summary\""),
+                "第 2 行是 env 摘要（协议规定 env 必须在 keyframe 之前）");
+
+            int envEntries = 0, keyframeIndex = -1;
+            for (int i = 0; i < nonEmpty.Count; i++)
+            {
+                if (nonEmpty[i].Contains("\"k\":\"keyframe\""))
+                {
+                    keyframeIndex = i;
+                    break;
+                }
+                if (nonEmpty[i].Contains("\"k\":\"env\"") && nonEmpty[i].Contains("\"kind\":\""))
+                    envEntries++;
+            }
+            var keyframe = keyframeIndex >= 0 ? nonEmpty[keyframeIndex] : "";
+            report.Add("  keyframe 行号: " + (keyframeIndex + 1) + "（env 条目 " + envEntries + " 行）");
+            Check(keyframeIndex > 0, "文件里有 keyframe 行");
             Check(keyframe.Contains("\"state\":\"{"), "关键帧带状态 BSON");
+            Check(envEntries >= 3, "env 块至少有 3 个条目（本体 + 运行环境）");
+            Check(header.Contains("\"envCount\":" + envEntries),
+                "header 的 envCount 与实际的 env 条目行数一致");
 
             int badLines = 0, events = 0, fingerprints = 0;
             var kinds = new Dictionary<string, int>();
@@ -1562,7 +1798,12 @@ namespace Replay
                 {
                     fingerprints++;
                 }
-                else if (k != "keyframe")
+                else if (k == "keyframe" || k == ReplayProtocol.KindEnv
+                    || k == ReplayProtocol.KindPointer || k == ReplayProtocol.KindDialog)
+                {
+                    // 不是动作记录：keyframe / env / ptr / dlg 各有自己的计数项。
+                }
+                else
                 {
                     events++;
                     if (eventSamples.Count < MaxEventsListed)
@@ -1576,6 +1817,21 @@ namespace Replay
             Check(badLines == 0, "所有行都是单行 JSON 对象");
             Check(events >= 1, "至少记录到 1 个动作事件");
             Check(fingerprints >= 1, "至少采样到 1 条状态指纹");
+
+            // 计数一致性（协议 §3.4 要求 header 的计数与实际行数相符）。
+            int ptrLines = kinds.ContainsKey(ReplayProtocol.KindPointer) ? kinds[ReplayProtocol.KindPointer] : 0;
+            int dlgLines = kinds.ContainsKey(ReplayProtocol.KindDialog) ? kinds[ReplayProtocol.KindDialog] : 0;
+            {
+                int evHdr = ReadHeaderInt(header, "eventCount");
+                int fpHdr = ReadHeaderInt(header, "fingerprintCount");
+                int ptrHdr = ReadHeaderInt(header, "ptrCount");
+                int dlgHdr = ReadHeaderInt(header, "dlgCount");
+                report.Add("  header 计数 : ev=" + evHdr + " fp=" + fpHdr + " ptr=" + ptrHdr + " dlg=" + dlgHdr);
+                Check(evHdr == events, "header 的 eventCount 与实际事件行数一致");
+                Check(fpHdr == fingerprints, "header 的 fingerprintCount 与实际指纹行数一致");
+                Check(ptrHdr == ptrLines, "header 的 ptrCount 与实际 ptr 行数一致");
+                Check(dlgHdr == dlgLines, "header 的 dlgCount 与实际 dlg 行数一致");
+            }
 
             report.Add("");
             report.Add("--- 事件样本 ---");
@@ -1690,7 +1946,7 @@ namespace Replay
         /// 把 <see cref="MainScenePageType"/> 的原始值翻成名字，只用于日志与报告文本。
         ///
         /// <para><b>必须走枚举，不能写数字字面量。</b>游戏往 <c>MainScenePageType</c> 里插新页时
-        /// 会把它后面的成员整体顶掉一位 —— 0.7.0 test-11 插了 <c>HealthWarning = 1</c>，
+        /// 会把它后面的成员整体顶掉一位 —— 0.7.0 插了 <c>HealthWarning = 1</c>，
         /// 于是 <c>Splash</c> 1→2、<c>Mainmenu</c> 3→4 …… 全表 +1。
         /// 硬编码 <c>case 1: return "Splash"</c> 这种写法不会报错，只会**静默地整体错位一位**，
         /// 让日志看起来"对得上"（顺序合理）却把每个页面都叫错名字。
@@ -1831,6 +2087,23 @@ namespace Replay
         {
             try { return entry != null ? entry.Value : fallback; }
             catch (Exception) { return fallback; }
+        }
+
+        /// <summary>
+        /// 从 header 那一行里抠一个整数字段出来（自测只在**校验文件**时用，不参与逻辑）。
+        ///
+        /// <para>刻意用正则而不是 <c>FlatJson</c>：后者是 internal 的解析器，
+        /// 自测在这里要做的是「**从文本层面**验证写出来的东西能被读回来」，
+        /// 复用同一份解析器会让「格式写坏了」这件事变成自证清白。</para>
+        /// </summary>
+        private static int ReadHeaderInt(string header, string key)
+        {
+            if (string.IsNullOrEmpty(header))
+                return -1;
+            var m = Regex.Match(header, "\"" + Regex.Escape(key) + "\"\\s*:\\s*(-?[0-9]+)");
+            if (!m.Success)
+                return -1;
+            return int.TryParse(m.Groups[1].Value, out var v) ? v : -1;
         }
 
         private static string DescribeKinds(Dictionary<string, int> kinds)

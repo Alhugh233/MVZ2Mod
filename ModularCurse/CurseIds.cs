@@ -15,7 +15,7 @@ namespace ModularCurse
     {
         public const string Nsp = "modular_curse";
 
-        /// <summary>QC 池 12 条。</summary>
+        /// <summary>癫狂之触 12 条。</summary>
         public static readonly string[] Qc =
         {
             "qc_c1", "qc_c2", "qc_c3", "qc_c4", "qc_c5", "qc_c6",

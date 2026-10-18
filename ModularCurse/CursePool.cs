@@ -13,7 +13,7 @@ namespace ModularCurse
     {
         /// <summary>原版池：只有 mvz2 命名空间的原生诅咒。</summary>
         Vanilla = 0,
-        /// <summary>QC 池：modular_curse 的 qc_c1..qc_c12（QoZnoS 的诅咒）。</summary>
+        /// <summary>癫狂之触：modular_curse 的 qc_c1..qc_c12（QoZnoS 的诅咒）。</summary>
         Qc = 1,
         /// <summary>SC 池：modular_curse 的 sc_c1..sc_c16（奇硅箱的诅咒）。</summary>
         Sc = 2,
@@ -55,7 +55,7 @@ namespace ModularCurse
             return 0;
         }
 
-        /// <summary>短标签（日志与调试用）。</summary>
+        /// <summary>短标签，只给日志与调试用（**不是**界面上显示的名字 —— 那在 <see cref="Name"/>）。</summary>
         public static string Label(CursePool pool)
         {
             switch (pool)
@@ -72,7 +72,7 @@ namespace ModularCurse
         {
             switch (pool)
             {
-                case CursePool.Qc: return "QC 池";
+                case CursePool.Qc: return "癫狂之触";
                 case CursePool.Sc: return "SC 池";
                 case CursePool.Zy: return "咒鵺兼程";
                 default: return "原版池";

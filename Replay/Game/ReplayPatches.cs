@@ -31,7 +31,7 @@ namespace Replay
     /// 所以改挂 5 个调用点 —— 那里的参数都是 int / 枚举 / 强类型引用，读起来零风险，
     /// 而且拿到的正是「语义目标」（行列、实体 ID、卡槽号），本来就是回放最需要的形态。
     ///
-    /// 这 5 个点就是玩家输入影响仿真的全部入口（0.7.0 test-9 枚举，test-10 / test-11 复核签名均未变）。
+    /// 这 5 个点就是玩家输入影响仿真的全部入口（0.7.0 枚举，早期内测版 / 早期内测版 / 0.7.0 复核签名均未变）。
     /// </summary>
     internal static class ReplayPatches
     {
@@ -228,48 +228,142 @@ namespace Replay
             ReplayRecorder.NotifyQuit();
         }
 
+        /// <summary>
+        /// <c>LevelManager.InitLevel</c> 前缀：回放进关卡时接管。
+        ///
+        /// <para>回放不再自己切场景，而是发游戏自己的 <c>/gotolevel</c>（那条链路在 0.7.0 上
+        /// 才不会崩，详见 <see cref="ReplaySceneEntry"/> 与 DESIGN.md）。<c>/gotolevel</c> 的协程在
+        /// 场景加载完之后必然会走到这里，而**这一刻**的控制器正好是
+        /// 「刚 Awake、还没被 Init 过」——唯一能让 <c>LoadGame</c> 成功的状态。</para>
+        ///
+        /// <para>返回 false 跳过原方法：避免它 <c>SaveToFile()</c>（回放不许写存档）
+        /// 与从 <c>.lvl</c> 续关。不是回放发起的 <c>InitLevel</c> 原样放行。</para>
+        /// </summary>
+        public static bool LevelManagerInitLevelPrefix(MVZ2.Level.LevelManager __instance,
+            PVZEngine.NamespaceID areaID, PVZEngine.NamespaceID stageID,
+            MVZ2Logic.Level.LevelExitTarget exitTarget)
+        {
+            Plugin.Log?.LogInfo("[Replay] InitLevel 前缀（接管状态=" + ReplaySceneEntry.State + "）");
+            return ReplaySceneEntry.OnInitLevel(__instance, areaID, stageID, exitTarget);
+        }
+
         /// <summary>主场景每帧（自测 / 播放器的驱动点）。</summary>
         public static void SceneUpdatePostfix(MVZ2.Scenes.MainSceneController __instance)
         {
+            // 分界心跳（排查用；ConveyorGuardLog 关着时什么都不做）。
+            // 用途：崩溃是原生访问冲突、托管侧什么都看不到，只能靠「最后一条标记」夹逼。
+            var bt = ReplayPlayer.CurrentTick;
+            ReplayConveyorGuard.Beat(bt, "frame-in");
+#if DIAGNOSTICS
             ReplaySelfTest.Tick(__instance);
+#endif
+            ReplayConveyorGuard.Beat(bt, "frame-selftest");
+#if DIAGNOSTICS
             ReplayGuiTest.Tick(__instance);
+#endif
+            ReplayConveyorGuard.Beat(bt, "frame-guitest");
             ReplayPlayer.Tick(__instance);
+            ReplayConveyorGuard.Beat(bt, "frame-player");
+            // 减速按钮的看门狗：关卡被重建（场景重载）后按钮会随旧控制器一起消失，
+            // 需要在下一帧补一个（与 LevelHud 的做法一致）。
+            ReplaySlowDown.Tick();
+            ReplayConveyorGuard.Beat(bt, "frame-out");
             // 回放页（插件页子页面）的心跳由 DSHCore.Ui.AddonPages 自己驱动，
             // 这里不再需要调 —— 那是「插件页子页面」这套行为的一部分。
         }
         #endregion
 
-        #region 假鼠标（纯视觉通道）
-        private static Vector2 savedPointerScreen;
+        #region 回放接管的闸门
+        //
+        // 背景（见 DESIGN.md §4.4.17 与 ReplaySceneEntry 的长注释）：
+        // 回放靠游戏自己的指令进关卡（关卡外 /gotolevel、关卡内 /load），
+        // 然后在 ReplaySceneEntry 的轮询里把关键帧 LoadGame 到新控制器上。
+        //
+        // 但 /load 那条链里 LevelController.ReloadLevel() 的
+        //     await LevelManager.GotoLevelSceneAsync();
+        // 续体**是会恢复的，只是很晚**：等我们轮询载完关键帧之后（实测同一帧内），
+        // 它直接调进 LevelController.InitLevel + StartLevelIntro，把关卡整个重建
+        // （currentEntityID 13 → 7、实体变成预览敌人），关键帧白载。
+        //
+        // 而且那一跳**没有**经过 LevelManager.InitLevel 的托管桩（实测它的前缀一次都没打，
+        // 只有启动时那一次 #1），所以只拦 LevelManager.InitLevel 根本拦不住。
+        // 下面的两个前缀直接拦在「真正重建关卡」的方法上：谁调、从哪跳进来都不怕。
 
         /// <summary>
-        /// <c>LevelController.UpdateHeldItemPosition</c> 前缀：把「游戏认为的指针位置」
-        /// 临时换成假鼠标的位置。
+        /// <c>LevelController.InitLevel</c> 的前缀 —— <b>真正重建关卡的那一步</b>。
         ///
-        /// <para><b>为什么挑这个方法：</b>它是手持物（蓝图 / 镐子 / 星之碎片 / 触发器）
-        /// 每帧世界坐标的唯一来源（<c>levelCamera.Camera.ScreenToWorldPoint(指针)</c> →
-        /// <c>ui.SetHeldItemPosition(world)</c>），而它是**纯表现** —— 不参与任何逻辑。
-        /// 指针位置还有几个消费者（<c>MinecartRideable</c> 的整车位置、<c>Snipenser</c> 的
-        /// 射击方向、<c>BreakoutBoard</c>）**会改仿真**，所以只能在这一层换，
-        /// 不能去改 <c>ReplayPlayer.pointerScreen</c> 本身
-        /// （详见 <see cref="FakePointer"/> 的类注释）。</para>
-        ///
-        /// <para>换完由后缀**无条件还原**，所以这个方法之外的代码看到的永远是事件原值，
-        /// 指纹不可能受影响。</para>
+        /// <para>接管中（<see cref="SceneEntryState.Waiting"/>）时就在这里把关键帧载进去
+        /// （此刻控制器刚 Awake、还没被 Init 过碰撞系统，是 <c>LoadGame</c> 唯一能成功的时机），
+        /// 然后返回 false 跳过原函数体；已接管（<see cref="SceneEntryState.Done"/>）时直接跳过，
+        /// 防止迟到的调用把状态冲掉。</para>
         /// </summary>
-        public static void HeldItemPosPrefix()
+        public static bool LevelControllerInitLevelPrefix(LevelController __instance)
         {
-            // 两边都用**录制坐标系**的裸值（Raw*）：
-            // PointerScreen 那个属性是「已换算到当前窗口」的，拿它当输入会再换算一次，越偏越多。
-            savedPointerScreen = ReplayPlayer.RawPointerScreen;
-            if (FakePointer.Active)
-                ReplayPlayer.RawPointerScreen = FakePointer.RawScreenPos;
+            return ReplaySceneEntry.OnControllerInitLevel(__instance);
         }
 
-        /// <summary><c>LevelController.UpdateHeldItemPosition</c> 后缀：还原指针位置。</summary>
-        public static void HeldItemPosPostfix()
+        /// <summary>
+        /// <c>LevelController.StartLevelIntro</c> 的前缀：回放接管过的控制器上跳过它
+        /// （那是「新开一局」的流程：设起始镜头 + 开场对话 + <c>level.BeginLevel()</c>）。
+        /// </summary>
+        public static bool LevelControllerStartLevelIntroPrefix(LevelController __instance)
         {
-            ReplayPlayer.RawPointerScreen = savedPointerScreen;
+            return ReplaySceneEntry.OnStartLevelIntro(__instance);
+        }
+        #endregion
+
+        #region 假鼠标（纯视觉通道）
+
+        /// <summary>
+        /// <c>LevelUI.SetHeldItemPosition(Vector2)</c> 前缀：把「手持物模型的世界坐标」
+        /// 换成**假鼠标**所在位置算出来的世界坐标。
+        ///
+        /// <para><b>为什么挂这里，而不是继续换指针值：</b>手持物模型的位置是
+        /// <c>LevelController.UpdateHeldItemPosition</c> 里
+        /// <c>levelCamera.Camera.ScreenToWorldPoint(Main.InputManager.GetPointerScreenPosition())</c>
+        /// 算出来的，而那条链最终落到 <c>InputHelper.GetPointerPosition</c> ——
+        /// **一个只有一行的静态方法，IL2CPP 完全可以把它内联进调用方**。
+        /// 内联后我们的前缀在那个调用点上根本不会执行，于是「手持蓝图时指针瞬移」
+        /// （其它消费者走的是别的调用点，所以看起来只有手持物不跟随）。</para>
+        ///
+        /// <para>挂 <c>SetHeldItemPosition</c> 就没有这个问题：它是**纯表现**的终点，
+        /// 游戏算完世界坐标之后我们直接换掉，与谁算的、有没有内联都无关。</para>
+        ///
+        /// <para><b>不碰仿真</b>：世界坐标只喂给模型变换。指针值本身（<c>Global.Input</c> /
+        /// 矿车 / 喷瓜 / 打砖块读的那个）仍然是事件原值，指纹不可能受影响。</para>
+        /// </summary>
+        public static void HeldItemWorldPrefix(ref Vector2 worldPos)
+        {
+            // 游戏用 (-1000,-1000) 表示「把模型藏起来」（触屏且没按住时）——
+            // 那种情况必须原样放过，否则手上没东西也会冒出一个模型。
+            if (worldPos.x <= -999f && worldPos.y <= -999f)
+                return;
+            if (!FakePointer.Active)
+                return;
+
+            try
+            {
+                var ctrl = LevelControllerInstance();
+                if (ctrl == null)
+                    return;
+                var cam = ctrl.GetCamera();
+                if (cam == null || cam.Pointer == IntPtr.Zero)
+                    return;
+                var p = FakePointer.ScreenPos;
+                // 与游戏自己的算法完全同一条（它也是 ScreenToWorldPoint(Vector2)，z = 0）。
+                var w = cam.ScreenToWorldPoint(new Vector3(p.x, p.y, 0f));
+                worldPos = new Vector2(w.x, w.y);
+                FakePointer.NoteHeldSync();
+            }
+            catch (Exception) { }
+        }
+
+        private static MVZ2.Level.LevelController LevelControllerInstance()
+        {
+            var main = MainManager.Instance;
+            var lm = main != null ? main.LevelManager : null;
+            var ctrl = lm != null ? lm.GetLevelController() : null;
+            return ctrl != null && ctrl.Pointer != IntPtr.Zero ? ctrl : null;
         }
         #endregion
 
@@ -585,6 +679,51 @@ namespace Replay
             }
         }
 
+        private static string cachedReplayLabel;
+        private static string cachedEndLabel;
+
+        /// <summary>
+        /// 每帧把回放菜单里那两个按钮的文案**再按一遍**（幂等）。
+        ///
+        /// <para><b>为什么不能只靠 <c>UpdateRestartButton</c> / <c>UpdateLeaveLevelButton</c> 的后缀：</b>
+        /// 那两个后缀只在「原版刷新主页控件」的那一瞬间生效。之后还有别的东西会重写这几个字 ——
+        /// 典型是 <c>TextMeshProUGUITranslator</c>（节点被 enable 或切语言时会拿
+        /// <c>Translate()</c> 的结果覆盖 <c>text</c>），以及原版自己的
+        /// <c>UpdateMainPageButtonText</c>。表现就是「菜单打开着，字还是『重新开始 / 返回』」。</para>
+        ///
+        /// <para><b>为什么放在每帧：</b>菜单开着的时候帧数很低（游戏暂停），
+        /// 一次两行字符串赋值的开销可以忽略；而且这样无论谁在什么时候覆盖，下一帧就回正。
+        /// 菜单没开时（绝大多数时间）只有一次 <c>IsOpen()</c> 的原生调用。</para>
+        /// </summary>
+        public static void EnforceMenuLabels()
+        {
+            if (!ReplayPlayer.IsActive)
+                return;
+            try
+            {
+                var ctrl = LevelControllerInstance();
+                if (ctrl == null)
+                    return;
+                var opts = ctrl.optionsDialogController;
+                if (opts == null || opts.Pointer == IntPtr.Zero)
+                    return;
+                if (!opts.IsOpen())
+                    return;
+                var page = FindOptionsMainPage(opts);
+                if (page == null)
+                    return;
+
+                if (cachedReplayLabel == null)
+                    cachedReplayLabel = UiLocale.Get(LabelReplay);
+                if (cachedEndLabel == null)
+                    cachedEndLabel = UiLocale.Get(LabelEndPlay);
+
+                page.SetButtonText(MVZ2.UI.OptionsDialogMainPage.TextButtonType.Restart, cachedReplayLabel);
+                page.SetButtonText(MVZ2.UI.OptionsDialogMainPage.TextButtonType.LeaveLevel, cachedEndLabel);
+            }
+            catch (Exception) { }
+        }
+
         #endregion
     }
 
@@ -630,6 +769,188 @@ namespace Replay
                 return false;
             }
             return true;
+        }
+
+        /// <summary>
+        /// 回放期间**掐掉游戏自己的鼠标轮询**（<c>InputManager.UpdatePointer</c>）。
+        ///
+        /// <para><b>为什么必须掐：</b>那是第二条输入通路（
+        /// <c>UpdatePointer → FlushPointerCaches → POST_POINTER_ACTION</c>）的源头，
+        /// 它每帧读的都是**旁观的真人**的鼠标。不掐的话，回放期间
+        /// 「右键取消手持物」「碾压墙每次按下扣进度」都会被旁观者直接触发 ——
+        /// 既是体验问题，也是**确定性**漏洞（两个人看得不一样）。</para>
+        ///
+        /// <para>只掐 <c>UpdatePointer</c>、不动 <c>UpdateKeys</c>：
+        /// 键盘（暂停 / 加速 / 血条 / Esc）照旧可用，UI 也照旧走 EventSystem。
+        /// 回放自己需要的指针动作由 <c>AfterTick</c> 按轨迹发（见 <see cref="ReplayPointerAction.FirePhases"/>）。</para>
+        /// </summary>
+        public static bool UpdatePointerPrefix()
+        {
+            return !ReplayPlayer.IsPlaying;
+        }
+
+        // ── 按键状态接管 ──────────────────────────────────────────────
+        //
+        // 这些方法都很短，IL2CPP 有可能把里层内联进外层 ⇒ **每一层都挂**，
+        // 播放小结里各自的命中次数能看出哪一层真的生效了（全是 0 就说明被内联了）。
+        // 同时命中是安全的：答案都是从同一个掩码算出来的，重复覆盖不会累加。
+
+        public static bool IsPointerOfPhasePrefix(int pointerId, MVZ2Logic.Inputs.PointerPhase phase, ref bool __result)
+        {
+            // 鼠标的 pointerId 是 -button-1（见 InputHelper）。负数才是鼠标。
+            if (pointerId >= 0)
+                return true;
+            if (ReplayPlayer.TryGetPointerPhase(MVZ2Logic.Inputs.PointerTypes.MOUSE, -pointerId - 1, (int)phase, out var r))
+            {
+                __result = r;
+                return false;
+            }
+            return true;
+        }
+
+        public static bool IsPointerDownByIdPrefix(int pointerId, ref bool __result)
+        {
+            return ById(pointerId, 1, ref __result);
+        }
+
+        public static bool IsPointerHoldingByIdPrefix(int pointerId, ref bool __result)
+        {
+            return ById(pointerId, 2, ref __result);
+        }
+
+        public static bool IsPointerUpByIdPrefix(int pointerId, ref bool __result)
+        {
+            return ById(pointerId, 3, ref __result);
+        }
+
+        private static bool ById(int pointerId, int phase, ref bool __result)
+        {
+            if (pointerId >= 0)
+                return true;
+            if (ReplayPlayer.TryGetPointerPhase(MVZ2Logic.Inputs.PointerTypes.MOUSE, -pointerId - 1, phase, out var r))
+            {
+                __result = r;
+                return false;
+            }
+            return true;
+        }
+
+        public static bool IsPointerDownByButtonPrefix(int type, int button, ref bool __result)
+        {
+            return ByButton(type, button, 1, ref __result);
+        }
+
+        public static bool IsPointerHoldingByButtonPrefix(int type, int button, ref bool __result)
+        {
+            return ByButton(type, button, 2, ref __result);
+        }
+
+        public static bool IsPointerUpByButtonPrefix(int type, int button, ref bool __result)
+        {
+            return ByButton(type, button, 3, ref __result);
+        }
+
+        private static bool ByButton(int type, int button, int phase, ref bool __result)
+        {
+            if (ReplayPlayer.TryGetPointerPhase(type, button, phase, out var r))
+            {
+                __result = r;
+                return false;
+            }
+            return true;
+        }
+    }
+
+    /// <summary>
+    /// 选项对话框的挂钩（详见 <see cref="ReplayDialogs"/>）。
+    ///
+    /// <para><b>为什么挂在 <c>CustomDialog</c> 上而不是调用方：</b>关卡里的对话框
+    /// （<c>SlenderMan.ChooseFate</c> / <c>LockedChest</c> 的赎金 / 对话系统的选项）
+    /// 最终都汇到 <c>MainScene → MainSceneUI → CustomDialog</c> 这一条，
+    /// 挂在这里一处就全盖住了；挂在调用方则要跟每一个 Boss 的行为实现。</para>
+    ///
+    /// <para><b>为什么不用 <c>ref Action&lt;int&gt;</c> 劫持回调：</b>那个委托是
+    /// 游戏原生代码里的，从托管侧读/调都不可靠。改成反射调
+    /// <c>OnButtonRowItemClickCallback</c>（真按钮被点时走的就是它），
+    /// 后面的链路全部照原样发生。</para>
+    /// </summary>
+    internal static class ReplayDialogPatches
+    {
+        /// <summary>
+        /// <c>Il2CppStringArray</c> → <c>string[]</c>。
+        ///
+        /// <para>⚠️ interop 里 <c>string[]</c> 参数的**真实类型**是
+        /// <c>Il2CppInterop.Runtime.InteropTypes.Arrays.Il2CppStringArray</c>。
+        /// 前缀里写成 <c>string[]</c> 时 Harmony **不会报错**，但那个形参拿不到值
+        /// （绑不上就默默给默认值）。自测的绑定校验就是专门用来抳这类问题的。</para>
+        /// </summary>
+        private static string[] ToArray(Il2CppInterop.Runtime.InteropTypes.Arrays.Il2CppStringArray arr)
+        {
+            if (arr == null)
+                return null;
+            var result = new string[arr.Length];
+            for (int i = 0; i < arr.Length; i++)
+                result[i] = arr[i];
+            return result;
+        }
+
+        /// <summary>对话框被创建。</summary>
+        public static void SetDialogPrefix(MVZ2.UI.CustomDialog __instance, string titleText, string descText,
+            Il2CppInterop.Runtime.InteropTypes.Arrays.Il2CppStringArray options)
+        {
+            try
+            {
+                var texts = ToArray(options);
+                if (ReplayPlayer.IsPlaying)
+                {
+                    ReplayDialogs.OnDialogOpened(__instance, titleText, descText, texts);
+                    return;
+                }
+                if (ReplayRecorder.IsArmed)
+                {
+                    ReplayDialogs.RecordOpen(ReplayRecorder.CurrentTickNow, titleText, descText, texts);
+                }
+            }
+            catch (Exception e)
+            {
+                Plugin.Log?.LogWarning("[Replay] 记录/接管对话框出错：" + e.GetType().Name + ": " + e.Message);
+            }
+        }
+
+        /// <summary>某个选项按钮被点（真人点的，或我们反射调进来的）。</summary>
+        public static void OptionClickPrefix(MVZ2.UI.CustomDialog __instance, MVZ2.UI.ButtonRow row, int index)
+        {
+            try
+            {
+                // 回放时我们自己调这个方法，不该记成「玩家的选择」。
+                if (!ReplayRecorder.IsArmed)
+                    return;
+                ReplayDialogs.RecordChoice(row, index);
+            }
+            catch (Exception e)
+            {
+                Plugin.Log?.LogWarning("[Replay] 记录对话框选择出错：" + e.GetType().Name + ": " + e.Message);
+            }
+        }
+
+        /// <summary>
+        /// <c>ButtonRow.UpdateButtons(string[] texts)</c> —— 记下「这一行各按钮的文字」。
+        ///
+        /// <para><b>为什么靠它而不是靠 <c>CustomDialog</c> 的私有字段：</b>
+        /// Il2CppInterop **不会**为私有字段生成托管字段（实测 <c>countPerRow</c> /
+        /// <c>buttonRowList</c> 用 <c>AccessTools.Field</c> 都找不到；它们是**属性**），所以
+        /// 「选了第几项」和「该点第几项」都改成按**选项文字**定位。
+        /// 这个方法拿到了每行的文字，于是「文字 → (行, 列)」可以反查出来，
+        /// 连「每行几项」都不必知道。</para>
+        /// </summary>
+        public static void RowTextsPrefix(MVZ2.UI.ButtonRow __instance,
+            Il2CppInterop.Runtime.InteropTypes.Arrays.Il2CppStringArray buttonTexts)
+        {
+            try
+            {
+                ReplayDialogs.RecordRowTexts(__instance, ToArray(buttonTexts));
+            }
+            catch (Exception) { }
         }
     }
 }

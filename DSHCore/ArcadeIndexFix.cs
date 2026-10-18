@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using HarmonyLib;
 using MVZ2.Managers;
 using MVZ2.Modding;
@@ -19,6 +20,9 @@ namespace DSHCore
     internal static class ArcadeIndexFix
     {
         private static bool applied;
+
+        /// <summary>命名空间 → 已经平移过的 <c>ArcadeMetaList</c> 指针（幂等标记，见 ShiftIndexes）。</summary>
+        private static readonly Dictionary<string, IntPtr> shifted = new Dictionary<string, IntPtr>();
 
         public static void Apply()
         {
@@ -64,6 +68,20 @@ namespace DSHCore
             if (ours == null || ours.metas == null)
                 return;
 
+            // 幂等：同一个 ArcadeMetaList 只平移一次。
+            //
+            // 平移是**加法**，同一个列表被翻两次就变成 +2×offset，于是本 mod 的街机条目
+            // 在 `GetIDListByArcadeOrder` 建出来的数组里留下空洞（而且不报错）。
+            // 用「列表的 native 指针」而不是命名空间作标记，是因为
+            // ResourceManager 重建 ModResource 之后会得到一个**全新的** meta 列表
+            // （那时必须重新平移），而指针能同时区分这两种情况。
+            IntPtr oursPtr;
+            try { oursPtr = ours.Pointer; }
+            catch (Exception) { return; }
+            IntPtr donePtr;
+            if (shifted.TryGetValue(nsp, out donePtr) && donePtr == oursPtr)
+                return;
+
             // 找 vanilla minigame 的最大 Index（ArcadeMetaList 是"整文件所有类型条目"，
             // 但 GetIDListByArcadeOrder 按 type 过滤后建数组 —— 需对同 type 内错开）。
             // 稳妥做法：把本 mod 全部 arcade 条目平移一个"比 vanilla 总数大"的偏移。
@@ -84,6 +102,7 @@ namespace DSHCore
                 meta._Index_k__BackingField = old + offset;
                 changed = true;
             }
+            shifted[nsp] = oursPtr;
             if (changed)
                 Plugin.Log?.LogInfo("[ArcadeIndexFix] arcade indexes for " + nsp
                     + " shifted by +" + offset);

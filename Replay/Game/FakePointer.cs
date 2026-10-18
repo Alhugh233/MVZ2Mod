@@ -117,6 +117,24 @@ namespace Replay
         private static int shownState = -1;   // -1 未定 / 0 隐 / 1 显
         private static string diag = "-";
 
+        // ---- 手持物同步的观测（自测报告用）----
+        // 手持蓝图/工具时我们不画光标（物品模型就是指针），所以「缓动有没有生效」
+        // 只能从「SetHeldItemPosition 被我们改写过多少次」看。
+        private static int heldSyncHits;      // 被假鼠标改写世界坐标的次数
+        private static int holdingTicks;      // 检测到「手上有东西」的 tick 数
+
+        /// <summary>手持物世界坐标被假鼠标改写的次数（0 = 那条通道没生效）。</summary>
+        public static int HeldSyncHits { get { return heldSyncHits; } }
+
+        /// <summary>手上有东西的 tick 数（0 = 这条回放里没拿过蓝图/工具）。</summary>
+        public static int HoldingTicks { get { return holdingTicks; } }
+
+        /// <summary>由 <c>ReplayPatches.HeldItemWorldPrefix</c> 调。</summary>
+        internal static void NoteHeldSync()
+        {
+            heldSyncHits++;
+        }
+
         // 上一次真正摆放时的屏幕点与世界坐标（自测要验它，见 SelfCheckPlacement）。
         // 为什么不在需要时现算：手上有物品时我们不摆放（游戏用物品模型当指针），
         // 那时「当前该在哪」和「上一次摆在哪」是两回事。
@@ -299,6 +317,9 @@ namespace Replay
         {
             End();
             diag = "-";
+            // 这两个是**本次播放**的统计，播放中途不清（收尾报告要读它们）。
+            heldSyncHits = 0;
+            holdingTicks = 0;
             if (f == null)
                 return;
             if (!ReplayConfig.GetFakeMouse())
@@ -523,6 +544,9 @@ namespace Replay
             bool holding = false;
             try { holding = level != null && LogicLevelExt.IsHoldingItem(level); }
             catch (Exception) { }
+
+            if (holding)
+                holdingTicks++;
 
             if (holding || !EnsureNode())
             {
@@ -1232,6 +1256,10 @@ namespace Replay
                 .Append(" 缓动=").Append(ReplayConfig.GetFakeMouseEase())
                 .Append("/").Append(ReplayConfig.GetFakeMouseTicks() == 0 ? "全程" : ReplayConfig.GetFakeMouseTicks() + "tick")
                 .Append(" 精灵重按=").Append(spriteResets).Append(" 颜色重按=").Append(fadeResets)
+                // 手持物跟随：拿过东西的 tick 数 vs 真正被改写的次数。
+                // 前者 > 0 而后者 = 0 ⇒ 那条通道没生效（手持蓝图时指针会瞬移）。
+                .Append(" 手持tick=").Append(holdingTicks)
+                .Append(" 手持跟随=").Append(heldSyncHits)
                 .Append('\n');
             sb.Append("  假鼠标节点: ").Append(nodeInfo).Append('\n');
             sb.Append("  假鼠标精灵: ").Append(uvInfo).Append('\n');

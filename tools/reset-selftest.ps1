@@ -1,11 +1,16 @@
 # Turn the UiGallery self-test off again (a running game would keep loading it).
 # ASCII only (see run-selftest.ps1).
 param(
-    [string]$GameDir = 'E:\Game\PVZ\MVZ2\MVZ2 0.7.0 test-11'
+    [string]$GameDir = ""
 )
 
 $ErrorActionPreference = 'Stop'
 Import-Module Microsoft.PowerShell.Management, Microsoft.PowerShell.Utility
+. "$PSScriptRoot\build-common.ps1"
+
+# 游戏目录从目录配置读（见 run-selftest.ps1 里的说明）。
+$GameDir = Normalize-GameDir $GameDir (Get-DefaultGameDir -RepoRoot (Split-Path -Parent $PSScriptRoot))
+if (-not (Test-GameDir $GameDir)) { throw ("游戏目录无效: " + $GameDir) }
 
 Get-Process MinecraftVSZombies2 -ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue
 

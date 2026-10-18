@@ -1,7 +1,7 @@
 MVZ2 Modular Curse（模块化诅咒） v{VERSION}
 ============================================
 
-适用版本：Minecraft vs Zombies 2（MVZ2） 0.7.0 test-11（x86 / IL2CPP）
+适用版本：Minecraft vs Zombies 2（MVZ2） 0.7.0（x86 / IL2CPP）
 
 【前置要求】
 无需单独安装前置 —— 本包含以下全部：
@@ -12,7 +12,7 @@ MVZ2 Modular Curse（模块化诅咒） v{VERSION}
 
 【包含内容】
 把自定义诅咒接入**原版诅咒系统**，共 44 条诅咒，分三个诅咒池：
-  QC 池  12 条（QoZnoS的诅咒）
+  癫狂之触  12 条（QoZnoS的诅咒）
   SC 池  16 条（奇硅箱的诅咒）
   ZY 池  16 条（咒鵺兼程 / 3q4a的诅咒）
 另有「原版池」= 原版那 7 条诅咒（默认）。

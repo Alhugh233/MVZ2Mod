@@ -11,7 +11,11 @@ using UiLog = Replay.ReplayLog;
 namespace Replay
 {
     /// <summary>
-    /// 回放结束时的面板：<b>导出 .mrep / 重新播放 / 退出</b>。
+    /// 回放结束时的面板：<b>重新播放 / 退出</b>。
+    ///
+    /// <para><b>为什么没有「导出 .mrep」：</b>那个功能已按需求移到回放页的【更多】面板里
+    /// （在关卡里导出既看不到其它回放、也改不了名字）。导出的实现本身在
+    /// <see cref="ReplayExporter"/>，两个界面共用。</para>
     ///
     /// <para><b>为什么重新写一个而不复用 <c>ReplayPage.Confirm</c>：</b>
     /// 那个是「回放列表页」的私有浮层，而这里要的是**关卡内**的弹窗。
@@ -30,9 +34,14 @@ namespace Replay
     internal static class ReplayEndPanel
     {
         private const string Title = "回放结束";
-        private const string ExportButton = "导出 .mrep";
         private const string ReplayButton = "重新播放";
         private const string ExitButton = "退出";
+
+        /// <summary>面板上的按钮（顺序就是点下去返回的 index）。</summary>
+        private static readonly string[] MainOptions = { ReplayButton, ExitButton };
+
+        /// <summary>当前面板上的按钮文案（自测用，断言「导出」真的不在里面了）。</summary>
+        public static string[] Options { get { return MainOptions; } }
 
         private static bool _open;
         private static string _info = "-";
@@ -60,7 +69,6 @@ namespace Replay
 
             _shows++;
             _open = true;
-            _note = null;
             _info = "已弹出（reason=" + reason + "，第 " + _shows + " 次）";
             try
             {
@@ -136,20 +144,19 @@ namespace Replay
                 return;
             }
 
-            var options = new[] { ExportButton, ReplayButton, ExitButton };
+            var options = MainOptions;
             var onSelect = new Action<int>(index =>
             {
+                // 选中项与 index 的对应就是按下标取 MainOptions（下表只在日志/报告里用）。
                 var picked = index >= 0 && index < options.Length ? options[index] : ("#" + index);
                 _info = "选了「" + picked + "」";
                 // 注意：**不在这里把 _open 置 false** ——
-                // 「导出」随后会把面板重弹一次（带上结果），中间那一下不应该把输入拦挡松开。
                 // 真正结束（重播 / 退出）由各自的处理函数自己调 Close()。
                 try
                 {
                     switch (index)
                     {
-                        case 0: DoExport(); break;
-                        case 1: DoReplay(); break;
+                        case 0: DoReplay(); break;
                         default: DoExit(); break;
                     }
                 }
@@ -166,122 +173,6 @@ namespace Replay
             scene.ShowDialog(UiLocale.Get(Title), BuildDesc(reason), UiLocale.GetAll(options), onSelect);
         }
 
-        /// <summary>
-        /// 「导出 .mrep」：弹游戏**原生的「另存为」对话框**，写到玩家自己挑的位置。
-        ///
-        /// <para>与「主菜单 → 切换存档 → 导出」用的是同一个系统对话框。
-        /// 以前是配置一个固定目录直接拷过去 —— 玩家既不知道拷到哪了，
-        /// 也没法自己选位置，所以改成原生的这个。</para>
-        ///
-        /// <para><b>结果为什么不是另弹一个提示框：</b>游戏的对话框是**排队显示**的，
-        /// 「面板 → 提示 → 再弹回面板」这种链式弹窗很快就踩到排队时序（实测会出现
-        /// 「面板已经换了、旧的那个还挂在屏幕上」）。所以导出结果直接写成面板正文里的一行，
-        /// 只重弹**同一个**面板，整条链上始终只有一个对话框。</para>
-        ///
-        /// <para><b>对话框是阻塞式</b>的（StandaloneFileBrowser 在 Windows 上是系统公用对话框），
-        /// 弹着的时候整个游戏主线程都停在那儿 —— 游戏自己的导入导出也是这个行为，一致即可。</para>
-        /// </summary>
-        private static void DoExport()
-        {
-            var path = ReplayPlayer.CurrentPath;
-            if (string.IsNullOrEmpty(path))
-            {
-                _note = UiLocale.Get("没有可导出的文件。");
-                _info = _info + "；没有可导出的文件";
-                ShowMain(ReplayPlayer.StopReason);
-                return;
-            }
-
-            var suggestion = SafeName(BareName(path));
-            string dest = null;
-            string err = null;
-            bool ok = false;
-
-            try
-            {
-                // 直接调游戏用的那个原生文件对话框（「切换存档 → 导出」走的也是它）。
-                //
-                // ⚠️ 为什么不走 `FileHelper.SaveExternalFile`：那是个 `async Task<string>`，
-                //    在 interop 里变成 `Il2CppSystem.Threading.Tasks.Task<string>`
-                //    （**不派生自** System.Threading.Tasks.Task，没有 GetAwaiter，await 不了）。
-                //    而 SFB.SaveFilePanel 本身就是**同步返回**路径的，正是我们要的语义。
-                dest = SFB.StandaloneFileBrowser.SaveFilePanel("", "", suggestion, "mrep");
-            }
-            catch (Exception e)
-            {
-                err = "打开保存对话框失败：" + e.GetType().Name + "：" + e.Message;
-            }
-
-            if (string.IsNullOrEmpty(dest))
-            {
-                // 玩家点了「取消」：把面板弹回来，只多一行说明。
-                _note = UiLocale.Get("已取消导出。");
-                _info = _info + "；导出取消";
-                ShowMain(ReplayPlayer.StopReason);
-                return;
-            }
-
-            try { ok = ReplayLibrary.Export(path, dest, out err); }
-            catch (Exception e) { ok = false; err = e.GetType().Name + "：" + e.Message; }
-
-            _note = ok ? UiLocale.Get("已导出到：") + dest : UiLocale.Get("导出失败：") + (err ?? UiLocale.Get("未知原因。"));
-            _info = _info + (ok ? "；导出成功 → " + dest : "；导出失败：" + (err ?? "?"));
-            ShowMain(ReplayPlayer.StopReason);
-        }
-
-        /// <summary>
-        /// 自测用：**不开原生对话框**，直接导出到指定路径，其余流程（结果写进面板正文
-        /// → 面板重弹）与玩家点击完全一致。
-        ///
-        /// <para>为什么需要它：原生「另存为」对话框是系统级的、阻塞式的，自动化测试里
-        /// 一弹就再也回不来了（整个测试进程挂死）。所以只把「选路径」那一步换掉。</para>
-        /// </summary>
-        public static bool SelfTestExport(string destPath)
-        {
-            if (!_open)
-                return false;
-            var path = ReplayPlayer.CurrentPath;
-            string err;
-            var ok = ReplayLibrary.Export(path, destPath, out err);
-            _note = ok ? UiLocale.Get("已导出到：") + destPath : UiLocale.Get("导出失败：") + (err ?? UiLocale.Get("未知原因。"));
-            _info = _info + (ok ? "；导出成功 → " + destPath : "；导出失败：" + (err ?? "?"));
-            ShowMain(ReplayPlayer.StopReason);
-            return ok;
-        }
-
-        /// <summary>把可能带非法字符的名字清成能放进文件对话框的样子。</summary>
-        private static string SafeName(string name)
-        {
-            if (string.IsNullOrEmpty(name))
-                return "replay";
-            foreach (var c in System.IO.Path.GetInvalidFileNameChars())
-                name = name.Replace(c, '_');
-            return name;
-        }
-
-        /// <summary>
-        /// 去掉 <c>.mrep</c> / <c>.json</c> 这一串尾巴，只留裸名字。
-        /// <c>ReplayPlayer.CurrentPath</c> 多半是 <c>x.mrep.json</c>，
-        /// 直接 <c>GetFileNameWithoutExtension</c> 会得到 <c>x.mrep</c>，
-        /// 再交给「另存为」就变成 <c>x.mrep.mrep</c> 了。
-        /// </summary>
-        private static string BareName(string path)
-        {
-            try
-            {
-                var n = System.IO.Path.GetFileName(path ?? string.Empty);
-                if (n.EndsWith(".json", StringComparison.OrdinalIgnoreCase))
-                    n = n.Substring(0, n.Length - 5);
-                if (n.EndsWith(".mrep", StringComparison.OrdinalIgnoreCase))
-                    n = n.Substring(0, n.Length - 5);
-                return n;
-            }
-            catch (Exception)
-            {
-                return "replay";
-            }
-        }
-
         private static void DoReplay()
         {
             var msg = ReplayPlayer.RestartCurrent();
@@ -293,9 +184,6 @@ namespace Replay
             ReplayPlayer.EndToReplayPage();
             _info = _info + "；已请求结束播放并回到回放页";
         }
-
-        /// <summary>上一次操作（目前只有导出）的反馈，拼在面板正文的最后一行。</summary>
-        private static string _note;
 
         /// <summary>
         /// 钉住当前这次弹窗的托管委托。
@@ -337,11 +225,8 @@ namespace Replay
                   .Append(bad == 0 ? " ✅" : UiLocale.Format("（不一致 {0}）❌", bad));
             }
 
-            // 上一次操作的反馈（导出结果）直接写在正文里 —— 见 DoExport 的说明：
-            // 再弹一个提示框会踩到游戏对话框的排队时序。
-            if (!string.IsNullOrEmpty(_note))
-                sb.Append('\n').Append(_note);
-
+            // ⚠ 收尾时**不再**有任何「上一次操作的反馈」要写进正文 ——
+            // 导出已经搬走了，这里只剩两个立刻生效的按钮。
             return sb.ToString();
         }
 

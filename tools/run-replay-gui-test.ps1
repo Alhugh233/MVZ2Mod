@@ -12,8 +12,11 @@
 #   * ASCII only (a .ps1 with Chinese and no BOM is read as GBK by PowerShell 5.1).
 #   * The [SelfTest] section is turned OFF here: it is a different state machine
 #     and this one quits the game when it is done.
-#   * Report: <游戏目录>\BepInEx\_replay_gui.txt
-#     Shots : <游戏目录>\BepInEx\_rp_shot0_page.png / _rp_shot1_confirm.png / _rp_shot2_closed.png
+#   * Report: <game dir>\BepInEx\_replay_gui.txt
+#     Shots : <game dir>\BepInEx\_rp_shot*.png
+#             (*_page = replay list, *_detail = the "More" sub-layer with the
+#              rename input field, *_confirm = delete confirmation,
+#              *_closed = Addons index after the page is closed)
 # =====================================================================
 param(
     [string]$GameDir = '',
@@ -95,3 +98,12 @@ if (Test-Path -LiteralPath $report) {
 } else {
     Write-Host 'no report produced'
 }
+
+# Turn the switch back off.
+#
+# It used to be left on, which is a trap: this test calls Application.Quit() when
+# it is done, so the NEXT run of run-replay-selftest.ps1 (which does not touch the
+# [GuiTest] section) would get killed mid-playback by the leftover GUI test --
+# the现场 looks exactly like "the replay crashes at tick N".
+Set-Section $false
+Write-Host 'GUI self-test disabled again ([GuiTest] / [SelfTest] sections removed).'

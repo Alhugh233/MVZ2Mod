@@ -270,6 +270,64 @@ namespace Replay
         public static readonly string[] RngStreamNames =
             { "level", "entity", "effect", "round", "spawn", "conveyor", "misc" };
 
+        /// <summary>
+        /// 指纹行里的**附加字段**（协议 v10 起允许任意键）。
+        ///
+        /// <para>它同时服务两件事：① 调试模式的内置字段（<c>rx</c>/<c>ei</c>/<c>lk</c>）；
+        /// ② 第三方采样器用 <c>x_</c> 前缀写的自定义字段。</para>
+        ///
+        /// <para>播放时的比对是**通用**的：凡是录制侧指纹里出现、且不属于
+        /// <see cref="BuiltinKeys"/> 的键，都要求回放侧一致 ——
+        /// 于是「新加一种指纹」不需要在播放侧补一行比较代码。</para>
+        /// </summary>
+        public readonly List<KeyValuePair<string, string>> Extra =
+            new List<KeyValuePair<string, string>>();
+
+        /// <summary>写一条附加字段（同名覆盖）。</summary>
+        public void SetExtra(string key, string value)
+        {
+            if (string.IsNullOrEmpty(key))
+                return;
+            for (int i = 0; i < Extra.Count; i++)
+            {
+                if (Extra[i].Key == key)
+                {
+                    Extra[i] = new KeyValuePair<string, string>(key, value);
+                    return;
+                }
+            }
+            Extra.Add(new KeyValuePair<string, string>(key, value));
+        }
+
+        /// <summary>读一条附加字段；没有返回 null。</summary>
+        public string ExtraOf(string key)
+        {
+            for (int i = 0; i < Extra.Count; i++)
+            {
+                if (Extra[i].Key == key)
+                    return Extra[i].Value;
+            }
+            return null;
+        }
+
+        /// <summary>内置字段的键名（这些由强类型成员承载，读文件时不进 <see cref="Extra"/>）。</summary>
+        public static readonly string[] BuiltinKeys =
+        {
+            "t", "k", "en", "w", "fl", "cl", "ec", "eh", "ed", "r",
+            "r0", "r1", "r2", "r3", "r4", "r5", "r6",
+        };
+
+        /// <summary>是不是内置键（内置键由强类型字段承载，不进 <see cref="Extra"/>）。</summary>
+        public static bool IsBuiltinKey(string key)
+        {
+            for (int i = 0; i < BuiltinKeys.Length; i++)
+            {
+                if (BuiltinKeys[i] == key)
+                    return true;
+            }
+            return false;
+        }
+
         public override string ToString()
         {
             return "t=" + Tick + " en=" + Enemies + " w=" + Wave + " fl=" + Flags + " cl=" + Cleared
@@ -278,12 +336,48 @@ namespace Replay
         }
     }
 
+    /// <summary>
+    /// 回放里的一次**选项对话框**（v9 起记录）。
+    ///
+    /// <para>梦魇的「选择命运」和上锁的箱子的「赎金」都会 <c>PauseGame</c> 然后弹一个
+    /// 多选对话框等真人点。回放里必须自己答完，否则逻辑 tick 永远不前进。</para>
+    ///
+    /// <para><b>为什么除了下标还要记文本：</b>上锁的箱子的选项是**按当前金币/碎片动态生成**的
+    /// （钱够才有「付钱」那一项）。金币来自全局存档、不在关卡关键帧里，所以
+    /// 「录的时候有钱、放的时候没钱」会让选项个数都不一样 —— 只靠下标会选错甚至越界。
+    /// 记下所选那一项的文本，回放时优先按文本定位。</para>
+    /// </summary>
+    internal sealed class ReplayDialogRecord
+    {
+        public int Tick;
+        public string Title;
+        public string Desc;
+        public string[] Options = Array.Empty<string>();
+        /// <summary>玩家选的是第几项（-1 = 录制结束时也没选，例如中途退出了）。</summary>
+        public int Chosen = -1;
+        /// <summary>所选那一项的**文本**（跨选项列表差异的定位依据）。</summary>
+        public string ChosenName;
+
+        public override string ToString()
+        {
+            return "dlg@" + Tick + " 选项=" + Options.Length + " 选=" + Chosen;
+        }
+    }
+
     /// <summary>一个已载入内存的回放文件。</summary>
     internal sealed class ReplayFile
     {
         public string Path;
 
+        /// <summary>格式版本（header 的 <c>ver</c>）。读者**只据此**决定能不能播。</summary>
         public int Version;
+
+        /// <summary>规范版本（header 的 <c>spec</c>）。只作人读信息。</summary>
+        public int SpecVersion;
+
+        /// <summary>写文件的 mod 版本（header 的 <c>mod</c>）。</summary>
+        public string ModVersion;
+
         public string Game;
         public string Stage;
         public string Area;
@@ -295,6 +389,44 @@ namespace Replay
         public bool HasKeyframe;
         public int EventCountInHeader;
         public int FingerprintCountInHeader;
+
+        // ---- 协议 v10 新增的 header 字段 ----
+
+        /// <summary>引擎版本（header 的 <c>unity</c>）。</summary>
+        public string Unity;
+
+        /// <summary>平台位数（header 的 <c>plat</c>）。</summary>
+        public string Platform;
+
+        /// <summary>录制时的环境哈希（header 的 <c>envHash</c>）。</summary>
+        public string EnvHash;
+
+        /// <summary>录制时的环境条目数（header 的 <c>envCount</c>）。</summary>
+        public int EnvCount;
+
+        /// <summary>录制时用的指纹间隔（header 的 <c>fpt</c>）。0 / 缺失 = 未知。</summary>
+        public int FingerprintInterval;
+
+        /// <summary>是不是**调试模式**文件（header 的 <c>debug</c>）。</summary>
+        public bool Debug;
+
+        /// <summary>本文件用到的可选特性（header 的 <c>caps</c>，逗号分隔）。</summary>
+        public string Caps = string.Empty;
+
+        /// <summary>录制时启用的采样器（header 的 <c>samplers</c>，逗号分隔）。</summary>
+        public string Samplers = string.Empty;
+
+        /// <summary>header 里**有没有** <c>samplers</c> 这个键（旧文件没有，用于协议自检）。</summary>
+        public bool HasSamplersField;
+
+        /// <summary>动作事件里有没有带手持标记（<c>itg</c>/<c>evk</c>）的 —— 由实际内容推出，不信 caps。</summary>
+        public bool HasHeldFlagsInEvents;
+
+        /// <summary>录制结束原因（header 的 <c>end</c>）。</summary>
+        public string EndReason;
+
+        /// <summary>录制开始时间（header 的 <c>created</c>）。</summary>
+        public string Created;
 
         /// <summary>
         /// 录制那一刻的**窗口尺寸**（v7 起记录）。
@@ -316,16 +448,61 @@ namespace Replay
         public readonly List<ReplayFingerprint> Fingerprints = new List<ReplayFingerprint>();
         public readonly List<string> Warnings = new List<string>();
 
+        /// <summary>
+        /// 逐 tick 的指针轨迹（v9 起记录，见 <see cref="ReplayPointerTrajectory"/>）。
+        /// 只有「这一关里存在会读实时指针的内容」时才有内容。
+        /// </summary>
+        public readonly List<ReplayPointerTrajectory.Sample> PointerSamples =
+            new List<ReplayPointerTrajectory.Sample>();
+
+        /// <summary>回放里出现过的选项对话框（v9 起记录，见 <see cref="ReplayDialogs"/>）。</summary>
+        public readonly List<ReplayDialogRecord> Dialogs = new List<ReplayDialogRecord>();
+
+        /// <summary>环境条目（v10 起记录，见 <see cref="ReplayEnvironment"/>）。</summary>
+        internal readonly List<ReplayEnvEntry> EnvEntries = new List<ReplayEnvEntry>();
+
+        /// <summary>环境摘要行里的字段（schema 解析用；<see cref="ReplayEnvironment"/> 才是终态）。</summary>
+        internal string EnvSummaryGame;
+        internal string EnvSummaryUnity;
+        internal string EnvSummaryPlatform;
+        internal int EnvSummaryTps;
+
+        /// <summary>
+        /// 录制开始那一刻的**全局金币**（v9 起记录，header 的 <c>mn</c>）。
+        ///
+        /// <para>金币不在关卡关键帧里（它是全局存档的钱），但它会参与关卡逻辑的**分支**：
+        /// 上锁的箱子按「钱够不够」决定要不要生成「付钱」那一项。回放时用这个值给金币影子播种，
+        /// 才能让这些分支与录制时一致（见 <see cref="ReplaySaveGuard.SeedMoney"/>）。</para>
+        /// </summary>
+        public bool HasStartMoney;
+        public int StartMoney;
+
+        /// <summary>
+        /// 录制时的环境（游戏版本 / 引擎 / 平台 / 全部已装 mod）。协议 v10 起有；
+        /// 旧文件是空壳（只有 header 里的 <c>game</c>），此时 <see cref="HasEnv"/> 为假。
+        /// </summary>
+        public ReplayEnvironment Environment = new ReplayEnvironment();
+
+        /// <summary>文件里有没有 <c>env</c> 记录（旧文件没有）。</summary>
+        public bool HasEnv;
+
+        /// <summary>播放策略（**由文件决定**，见 <see cref="ReplayPlaybackPolicy"/>）。</summary>
+        public ReplayPlaybackPolicy Policy = new ReplayPlaybackPolicy();
+
         /// <summary>能不能播：必须有起始关键帧（否则无法重建关卡状态）。</summary>
         public bool CanPlay => HasKeyframe && !string.IsNullOrEmpty(KeyframeBson)
             && !string.IsNullOrEmpty(Stage) && !string.IsNullOrEmpty(Area);
 
         public string Describe()
         {
-            return "ver=" + Version + " 关卡=" + Stage + " 面积=" + Area + " 难度=" + Difficulty
+            return "ver=" + Version + "（" + ReplayProtocol.SpecVersion + " 版规范）"
+                + " 关卡=" + Stage + " 面积=" + Area + " 难度=" + Difficulty
                 + " 种子=" + Seed + " tick=" + StartTick + ".." + LastTick
                 + " 关键帧=" + (HasKeyframe ? (KeyframeTick + "(" + KeyframeBson.Length + "字符)") : "无")
-                + " 事件=" + Events.Count + " 指纹=" + Fingerprints.Count;
+                + " 事件=" + Events.Count + " 指纹=" + Fingerprints.Count
+                + " 指针采样=" + PointerSamples.Count + " 对话框=" + Dialogs.Count
+                + " 环境=" + (HasEnv ? Environment.Hash : "无")
+                + (Debug ? " [调试文件]" : string.Empty);
         }
 
         #region 载入
@@ -379,13 +556,23 @@ namespace Replay
                 error = "header 解析失败（" + herr + "）";
                 return null;
             }
-            if (GetString(head, "magic") != "mrep")
+            if (GetString(head, "magic") != ReplayProtocol.Magic)
             {
-                error = "不是 .mrep 文件（magic=" + GetString(head, "magic") + "）";
+                error = "不是 " + ReplayProtocol.Magic + " 文件（magic=" + GetString(head, "magic") + "）";
                 return null;
             }
 
+            // 格式版本先判：比本 mod 支持的更新就直接拒绝（缺字段与「字段含义变了」是两回事，
+            // 前者能降级读取，后者会静默播错）。
             file.Version = GetInt(head, "ver", 0);
+            if (!ReplayProtocol.CanRead(file.Version))
+            {
+                error = "无法读取这份回放：" + ReplayProtocol.VersionPolicy(file.Version);
+                return null;
+            }
+
+            file.SpecVersion = GetInt(head, "spec", 0);
+            file.ModVersion = GetString(head, "mod");
             file.Game = GetString(head, "game");
             file.Stage = GetString(head, "stage");
             file.Area = GetString(head, "area");
@@ -399,6 +586,52 @@ namespace Replay
             file.FingerprintCountInHeader = GetInt(head, "fingerprintCount", 0);
             file.ScreenW = GetFloat(head, "sw", 0f);
             file.ScreenH = GetFloat(head, "sh", 0f);
+            if (head.ContainsKey("mn"))
+            {
+                file.HasStartMoney = true;
+                file.StartMoney = GetInt(head, "mn", 0);
+            }
+
+            // ---- 协议 v10 的 header 字段（旧文件没有 → 一律按「旧行为」取值）----
+            file.Unity = GetString(head, "unity");
+            file.Platform = GetString(head, "plat");
+            file.EnvHash = GetString(head, "envHash");
+            file.EnvCount = GetInt(head, "envCount", 0);
+            file.FingerprintInterval = GetInt(head, "fpt", 0);
+            file.Debug = GetBool(head, "debug", false);
+            file.Caps = GetString(head, "caps") ?? string.Empty;
+            file.HasSamplersField = head.ContainsKey("samplers");
+            file.Samplers = file.HasSamplersField ? GetString(head, "samplers") : null;
+            file.EndReason = GetString(head, "end");
+            file.Created = GetString(head, "created");
+
+            // 旧文件没有任何 v10 字段 → 至少把「有指针轨迹 / 有对话框」按计数补上，
+            // 这样播放策略在旧文件上也能拿到正确的能力集（caps 只是声明，计数才是事实）。
+            if (string.IsNullOrEmpty(file.Caps))
+            {
+                var caps = new System.Collections.Generic.List<string>();
+                if (GetInt(head, "ptrCount", 0) > 0) caps.Add(ReplayProtocol.CapPointer);
+                if (GetInt(head, "dlgCount", 0) > 0) caps.Add(ReplayProtocol.CapDialog);
+                if (file.ScreenW > 0f && file.ScreenH > 0f) caps.Add(ReplayProtocol.CapViewport);
+                file.Caps = ReplayProtocol.JoinCaps(caps.ToArray());
+            }
+            if (file.FingerprintInterval <= 0)
+            {
+                // 旧文件没记间隔：从 header 的指纹条数与 tick 跨度粗估一个，
+                // 只用于「文件自述自检」的提示，不参与任何语义。
+                int span = file.LastTick - file.StartTick;
+                if (file.FingerprintCountInHeader > 1 && span > 0)
+                    file.FingerprintInterval = span / (file.FingerprintCountInHeader - 1);
+            }
+            if (file.Samplers == null)
+            {
+                // 旧文件：按「当时的默认行为」推一份采样器清单。
+                var s = new System.Collections.Generic.List<string>
+                {
+                    "state.basic", "state.entities", "state.rng",
+                };
+                file.Samplers = string.Join(",", s.ToArray());
+            }
 
             // ---- 之后每行一个对象 ----
             int badLines = 0;
@@ -416,15 +649,39 @@ namespace Replay
                 }
 
                 var kind = GetString(obj, "k");
-                if (kind == "keyframe")
+                if (kind == ReplayProtocol.KindEnv)
+                {
+                    // v10：环境记录。**一类两形**：有 id = 一个条目，没有 = 摘要。
+                    if (obj.ContainsKey("id"))
+                    {
+                        file.EnvEntries.Add(new ReplayEnvEntry
+                        {
+                            Id = GetString(obj, "id"),
+                            Name = GetString(obj, "name"),
+                            Version = GetString(obj, "ver"),
+                            Kind = GetString(obj, "kind"),
+                            DataVersion = obj.ContainsKey("dv") ? GetInt(obj, "dv", -1) : -1,
+                            Note = GetString(obj, "note"),
+                            Hashable = GetBool(obj, "h", true),
+                        });
+                    }
+                    else
+                    {
+                        file.EnvSummaryGame = GetString(obj, "game");
+                        file.EnvSummaryUnity = GetString(obj, "unity");
+                        file.EnvSummaryPlatform = GetString(obj, "plat");
+                        file.EnvSummaryTps = GetInt(obj, "tps", 0);
+                    }
+                }
+                else if (kind == ReplayProtocol.KindKeyframe)
                 {
                     file.KeyframeTick = GetInt(obj, "tick", 0);
                     file.KeyframeBson = GetString(obj, "state");
                     file.HasKeyframe = file.HasKeyframe && !string.IsNullOrEmpty(file.KeyframeBson);
                 }
-                else if (kind == "fp")
+                else if (kind == ReplayProtocol.KindFingerprint)
                 {
-                    file.Fingerprints.Add(new ReplayFingerprint
+                    var fp = new ReplayFingerprint
                     {
                         Tick = GetInt(obj, "t", 0),
                         Enemies = GetInt(obj, "en", 0),
@@ -436,6 +693,40 @@ namespace Replay
                         EntityDefs = GetString(obj, "ed"),
                         RngStreams = ReadRngStreams(obj),
                         Rng = GetString(obj, "r"),
+                    };
+                    // v10：附加字段（调试字段 / 第三方采样器字段 / 更新版本加的新字段）。
+                    // **不认识的键一律收进 Extra**，这样即使本 mod 不认识它，
+                    // 播放时也能做「逐字比对」（见 CompareFingerprints）。
+                    foreach (var kv in obj)
+                    {
+                        if (ReplayFingerprint.IsBuiltinKey(kv.Key))
+                            continue;
+                        fp.Extra.Add(new KeyValuePair<string, string>(kv.Key, kv.Value));
+                    }
+                    file.Fingerprints.Add(fp);
+                }
+                else if (kind == ReplayProtocol.KindPointer)
+                {
+                    // v9：逐 tick 指针轨迹（不是「动作事件」，所以不进 Events）。
+                    file.PointerSamples.Add(new ReplayPointerTrajectory.Sample
+                    {
+                        Tick = GetInt(obj, "t", 0),
+                        X = GetFloat(obj, "sx", 0f),
+                        Y = GetFloat(obj, "sy", 0f),
+                        Mask = GetInt(obj, "mb", 0),
+                    });
+                }
+                else if (kind == ReplayProtocol.KindDialog)
+                {
+                    // v9：选项对话框（由 ReplayDialogs 按帧驱动应答，不进 tick 注入队列）。
+                    file.Dialogs.Add(new ReplayDialogRecord
+                    {
+                        Tick = GetInt(obj, "t", 0),
+                        Title = GetString(obj, "title"),
+                        Desc = GetString(obj, "desc"),
+                        Options = ReplayDialogs.Split(GetString(obj, "op")),
+                        Chosen = GetInt(obj, "sel", -1),
+                        ChosenName = GetString(obj, "selName"),
                     });
                 }
                 else
@@ -522,6 +813,41 @@ namespace Replay
 
             // 稳定按 tick 排序（文件本来就是顺序写的，这里只是防御手工编辑过的文件）。
             StableSortByTick(file.Events);
+
+            // 「有没有手持标记」按**实际内容**推，不信 caps：
+            // caps 是录制时的声明，可能因为这一局里根本没有蓝图事件而空有声明。
+            for (int i = 0; i < file.Events.Count; i++)
+            {
+                if (file.Events[i].HasHeldFlags)
+                {
+                    file.HasHeldFlagsInEvents = true;
+                    break;
+                }
+            }
+
+            // ---- 环境：把条目 + 摘要拼成终态对象 ----
+            file.HasEnv = file.EnvEntries.Count > 0 || !string.IsNullOrEmpty(file.EnvSummaryGame);
+            file.Environment = ReplayEnvironment.FromRecords(
+                file.EnvEntries,
+                !string.IsNullOrEmpty(file.EnvSummaryGame) ? file.EnvSummaryGame : file.Game,
+                !string.IsNullOrEmpty(file.EnvSummaryUnity) ? file.EnvSummaryUnity : file.Unity,
+                !string.IsNullOrEmpty(file.EnvSummaryPlatform) ? file.EnvSummaryPlatform : file.Platform,
+                file.EnvSummaryTps > 0 ? file.EnvSummaryTps : file.Tps);
+
+            // header 里声明的环境哈希优先（那是录制时算的，比重新算更能说明「当时是什么环境」）。
+            if (!string.IsNullOrEmpty(file.EnvHash)
+                && !string.Equals(file.EnvHash, file.Environment.Hash, StringComparison.Ordinal))
+            {
+                file.Warnings.Add("header 的环境哈希 " + file.EnvHash + " 与 env 行重算的 "
+                    + file.Environment.Hash + " 不一致（文件可能被手工编辑过）");
+            }
+            if (file.Version >= ReplayProtocol.FormatVersion && !file.HasEnv)
+                file.Warnings.Add("这是 v" + file.Version + " 文件，但没有 env 记录");
+
+            // ---- 播放策略：**完全由文件决定** ----
+            file.Policy = ReplayPlaybackPolicy.FromFile(file);
+            for (int i = 0; i < file.Policy.SelfCheckWarnings.Count; i++)
+                file.Warnings.Add("协议自检：" + file.Policy.SelfCheckWarnings[i]);
 
             if (!file.CanPlay)
                 error = "这个回放没有可用的起始关键帧，无法播放。";

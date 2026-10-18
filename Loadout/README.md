@@ -2,7 +2,7 @@
 
 用可视化面板替代原版调试控制台的输入窗口。测试工具，**最大兼容性优先**。
 
-- 适配：MVZ2 0.7.0 test-11 / Windows x86 / IL2CPP metadata v31.1 / BepInEx be.788
+- 适配：MVZ2 0.7.0 / Windows x86 / IL2CPP metadata v31.1 / BepInEx be.788
 - 前置：**硬依赖 [DSHCore](../DSHCore/README.md)**（全部 UI 都建立在 `DSHCore.Ui` 之上）
 - 需求来源：仓库根的 `Loadout.txt`（符号约定：`[]`复选框 `__`输入框 `<>`带补齐的输入框 `{}`按钮 `|...|`内容列表）
 - 设计论证：[`DSHCore/UI_GUIDE.md`](../DSHCore/UI_GUIDE.md)（怎么做）、[`DSHCore/UI_RESEARCH.md`](../DSHCore/UI_RESEARCH.md)（为什么）

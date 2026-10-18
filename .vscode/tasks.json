@@ -99,7 +99,7 @@
 		},
 		{
 			"label": "构建: ModularCurse",
-			"detail": "模块化诅咒（QC 池 + SC 池）",
+			"detail": "模块化诅咒（癫狂之触 + SC 池）",
 			"type": "shell",
 			"command": "powershell",
 			"args": [

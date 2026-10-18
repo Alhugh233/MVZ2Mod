@@ -47,8 +47,8 @@ namespace ModularCurse
         private static void Mod()
         {
             // 显示名的源串是英文名（English 那半边由 UiOptions.DeclareMod 的 chinese 参数负责）
-            T.En("模块化诅咒（QC 池 + SC 池）",
-                "Modular curses (QC / SC / ZY pools)");
+            T.En("模块化诅咒（癫狂之触 + SC 池）",
+                "Modular curses (Touch Of Insanity + SC)");
         }
 
         // ------------------------------------------------------------------
@@ -58,18 +58,18 @@ namespace ModularCurse
         private static void CurseNames()
         {
             T.EnAllWith(LogicStrings.CONTEXT_CURSE_NAME,
-                "怪物的大脑", "The Creature's Brain",
-                "梦魇的触手", "Nightmare's Tentacle",
-                "凋灵的头颅", "Wither's Skull",
-                "巨人的肉块", "The Giant's Flesh",
-                "红龙的鳞片", "Red Dragon's Scale",
-                "上锁箱子的锁链", "Locked Chest's Chains",
-                "克拉肯的护板", "Kraken's Backplate",
-                "QC-C8", "QC-C8",
-                "QC-C9", "QC-C9",
-                "QC-C10", "QC-C10",
-                "QC-C11", "QC-C11",
-                "QC-C12", "QC-C12",
+                "受伤", "Injury",
+                "凡庸", "Normality",
+                "凋萎", "Wither",
+                "霉运", "Bad Luck",
+                "灼伤", "Burn",
+                "偏差认知", "Biased Cognition",
+                "睡眠不佳", "Poor Sleep",
+                "呼唤", "Beckon",
+                "黏液", "Slimed",
+                "愚行", "Folly",
+                "贪婪", "Greed",
+                "进阶之灾", "Ascenders Bane",
                 "怪人的肋骨", "Freak's Ribs",
                 "梦魇碎片", "Nightmare Fragment",
                 "恶咒之星", "Hex Star",
@@ -209,7 +209,7 @@ namespace ModularCurse
         {
             T.EnAll(
                 "原版池", "Vanilla pool",
-                "QC 池", "QC pool",
+                "癫狂之触", "Touch Of Insanity",
                 "SC 池", "SC pool",
                 "咒鵺兼程", "3q4a's pool",
                 "原版诅咒", "Vanilla curses",

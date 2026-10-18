@@ -1,5 +1,4 @@
 using System;
-using System.IO;
 using MVZ2.Level;
 using MVZ2.Managers;
 using MVZ2Logic.Resources;
@@ -12,32 +11,22 @@ namespace ModularCurse
     /// <summary>
     /// 诅咒池的图标。
     ///
-    /// 三个池的图标来源：
+    /// 四个池的图标来源：
     ///   - 原版池：**直接用原版诅咒入口按钮上那颗图标**（`ui/level/curse.png`）。
     ///     运行时从按钮子节点 <c>Image</c> 上把 <c>sprite</c> 取过来，
     ///     所以永远与按钮图标是同一张贴图（按钮换皮也跟着变）；
-    ///   - QC / SC 池：随 mod 一起发布的 PNG，放在
+    ///   - QC / SC / ZY 池：随 mod 一起发布的 PNG，放在
     ///     <c>StreamingAssets/Mods/modular_curse/Content/sprites/</c>。
+    ///     载入与注册统一交给 <see cref="CurseSprites"/>（见那里的命名约定）。
     ///
     /// 渲染方式也照抄按钮：按钮那颗图标不是白图，而是**给 Image 上一层紫色 tint**
     /// （prefab 里 <c>m_Color = (0.635, 0, 1, 1)</c>）。这里把同一个颜色读出来，
     /// 同样以 tint 的方式作用在池图标的 Image 上 —— 于是"紫色滤镜"与原版一致。
     ///
-    /// 为什么 QC/SC 要自己 RegisterSprite：
-    ///   0.7.0 的图片走 Addressables 的 SpriteManifest，磁盘上的 mod 资源目录
-    ///   只被 DSHCore 用于 XML metas，图片不会自动进资源库。所以这里读 PNG →
-    ///   <c>Texture2D</c> → <c>Sprite.Create</c> →
-    ///   <c>ResourceManager.RegisterSprite(SpriteReference, Sprite)</c>
-    ///   —— 写进去的正是 <c>ResourceManager.GetSprite</c> 查询的那张表
-    ///   （两边都用不带 tags 的 <c>SpriteLookupKey</c>），在游戏侧等同于"内嵌进游戏"。
-    ///
     /// 懒加载：需要 MainManager.Instance 与诅咒入口按钮，所以第一次进选卡界面时才准备。
     /// </summary>
     internal static class CursePoolIcons
     {
-        /// <summary>mod 资源里的相对目录（相对 StreamingAssets/Mods/&lt;nsp&gt;）。</summary>
-        private const string SpriteDir = "Content/sprites/";
-
         /// <summary>原版诅咒入口按钮里那颗图标所在的子节点名。</summary>
         private const string EntranceIconNode = "Image";
 
@@ -68,6 +57,10 @@ namespace ModularCurse
                 var main = MainManager.Instance;
                 if (main == null)
                     return;
+                // 逐条诅咒的图标也要一起注册（幂等；正常情况下 PostInit 已经做过）。
+                CurseSprites.RegisterAll();
+                // 此时资源已全部加载完，可以真正查一次"图标会不会显示"。
+                CurseMetaApplier.LogIconDiag();
                 if (!TakeFromEntranceButton(ctl))
                     vanillaIcon = LoadFallbackVanilla();
                 if (vanillaIcon == null)
@@ -146,47 +139,13 @@ namespace ModularCurse
             return null;
         }
 
+        /// <summary>池图标（文件名相对 Content/sprites/）。</summary>
         private static Sprite LoadPng(string file, string spriteName)
         {
-            var path = Dir() + file;
-            if (!File.Exists(path))
-            {
-                Plugin.Log?.LogWarning("[CursePool] 找不到图标文件: " + path);
-                return null;
-            }
-            var bytes = File.ReadAllBytes(path);
-            var texture = new Texture2D(2, 2, TextureFormat.RGBA32, false);
-            if (!ImageConversion.LoadImage(texture, bytes))
-            {
-                Plugin.Log?.LogWarning("[CursePool] 解析 PNG 失败: " + file);
-                return null;
-            }
-            texture.wrapMode = TextureWrapMode.Clamp;
-            texture.filterMode = FilterMode.Bilinear;
-            texture.hideFlags = HideFlags.DontUnloadUnusedAsset;
-            var sprite = Sprite.Create(texture,
-                new Rect(0f, 0f, texture.width, texture.height),
-                new Vector2(0.5f, 0.5f), 100f);
-            sprite.name = spriteName;
-            sprite.hideFlags = HideFlags.DontUnloadUnusedAsset;
-
-            // 注册进游戏的资源库：之后任何代码都能用
-            // new SpriteReference(new NamespaceID("modular_curse", spriteName), 0) 取到它。
-            var main = MainManager.Instance;
-            if (main != null && main.ResourceManager != null)
-            {
-                var spriteRef = new SpriteReference(new NamespaceID(CurseIds.Nsp, spriteName), 0);
-                main.ResourceManager.RegisterSprite(spriteRef, sprite);
-            }
+            var sprite = CurseSprites.TryLoad(file, spriteName);
+            if (sprite == null)
+                Plugin.Log?.LogWarning("[CursePool] 找不到图标文件: " + file);
             return sprite;
-        }
-
-        private static string Dir()
-        {
-            var root = Application.streamingAssetsPath;
-            if (string.IsNullOrEmpty(root))
-                root = ".";
-            return root + "/Mods/" + CurseIds.Nsp + "/" + SpriteDir;
         }
 
         private static string F(float v)

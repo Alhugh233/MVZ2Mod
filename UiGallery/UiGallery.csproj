@@ -48,7 +48,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <!-- 0.7.0 test-4 类型代理程序集（预生成，见 runtime/BepInEx/interop） -->
+    <!-- 0.7.0 类型代理程序集（预生成，见 runtime/BepInEx/interop） -->
     <Reference Include="$(RuntimeInteropDir)*.dll">
       <Private>false</Private>
     </Reference>

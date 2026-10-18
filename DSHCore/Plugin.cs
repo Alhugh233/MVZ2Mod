@@ -62,6 +62,10 @@ namespace DSHCore
             // 0.5) 把 /dshlog 接进游戏的调试控制台。
             DebugCommands.Apply();
 
+            // 0.6) 快速启动（跳过开场动画）。**默认关闭**，只给 mod 作者迭代用；
+            //      关着的时候连补丁都不挂，行为与官方完全一致。
+            QuickStart.Apply(Config);
+
             // 1) 修 ClassInjector 无法处理「基类泛型虚方法」与「System.String 被重写成
             //    Il2CppSystem.String」这两处限制。必须在任何注入类 RegisterTypeInIl2Cpp
             //    之前应用（依赖本库的 mod 都在其后加载）。

@@ -14,15 +14,20 @@
 #   <GameDir>\BepInEx\_selftest.txt   full report (self-test log lines + pixel diffs)
 # =====================================================================
 param(
-    [string]$GameDir = 'E:\Game\PVZ\MVZ2\MVZ2 0.7.0 test-11',
+    [string]$GameDir = "",
     [int]$TimeoutSec = 300,
     [switch]$NoLaunch
 )
 
 $ErrorActionPreference = 'Stop'
 Import-Module Microsoft.PowerShell.Management, Microsoft.PowerShell.Utility
+. "$PSScriptRoot\build-common.ps1"
 
 $repo = Split-Path -Parent $PSScriptRoot
+# 游戏目录从 Directory.Build.local.props 的 GameDir 读（或 $env:MVZ2_GAME_DIR），
+# 不要写死绝对路径：游戏本体一更新目录名就变，写死只会静默地去测另一个安装。
+$GameDir = Normalize-GameDir $GameDir (Get-DefaultGameDir -RepoRoot $repo)
+if (-not (Test-GameDir $GameDir)) { throw ("游戏目录无效: " + $GameDir) }
 $cfg = Join-Path $GameDir 'BepInEx\config\qoznos.mvz2.uigallery.cfg'
 $log = Join-Path $GameDir 'BepInEx\LogOutput.log'
 $err = Join-Path $GameDir 'BepInEx\ErrorLog.log'
@@ -54,8 +59,11 @@ $done = $NoLaunch
 while (-not $done -and (Get-Date) -lt $deadline) {
     Start-Sleep -Seconds 3
     if (Test-Path -LiteralPath $log) {
+        # 游戏刚启动时游戏还没写、或 BepInEx 正把文件截断重写，Get-Content -Raw 会返回 $null；
+        # 直接 .Contains() 会抛 "You cannot call a method on a null-valued expression"，
+        # 整个等待循环就此中断（自测其实还在跑，报告却停在旧状态）。
         $text = Get-Content -LiteralPath $log -Raw -Encoding UTF8
-        if ($text.Contains('SELFTEST_DONE')) { $done = $true; break }
+        if ($null -ne $text -and $text.Contains('SELFTEST_DONE')) { $done = $true; break }
     }
     if ($null -eq (Get-Process MinecraftVSZombies2 -ErrorAction SilentlyContinue)) { break }
 }

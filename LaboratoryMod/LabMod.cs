@@ -6,6 +6,7 @@ using MVZ2Logic.Games;
 using MVZ2Logic.Commands;
 using MVZ2Logic.Modding;
 using MVZ2Logic.Saves;
+using MVZ2Logic.Serialization;
 using PVZEngine;
 using PVZEngine.Callbacks;
 using PVZEngine.Level;
@@ -24,6 +25,14 @@ namespace LaboratoryMod
     public class LabMod : Mod
     {
         public const string spaceName = "mvz2_lab";
+
+        /// <summary>
+        /// 本 mod 存档数据格式版本，写进 <c>SerializableModSaveData.version</c>。
+        /// 读档时 <c>version &gt; SAVE_DATA_VERSION</c> 就抛 <c>NewerSaveDataException</c>
+        /// （与官方 VanillaMod 同款语义，见 SaveManager 的存档回退逻辑）。
+        /// 旧存档（早期内测版时期写下的）version=0，仍然读得进来。
+        /// </summary>
+        private const int SAVE_DATA_VERSION = 1;
 
         /// <summary>注入类标准绑定 ctor（Il2CppInterop 官方模式）。</summary>
         public LabMod(IntPtr ptr) : base(ptr)
@@ -62,6 +71,13 @@ namespace LaboratoryMod
             // 不能调 base.OnInit(game)（递归）。
             // 关卡定义由 LoadStagesPatch 创建（官方 LoadDefinitionProperties 已跳过，
             // 见 LoadStagesPatch.LoadDefPropsPrefix）。此处仅日志。
+            //
+            // 存档用 LogicSaveData，得把它的可序列化 DTO 登记进 BSON 类映射 ——
+            // 官方 VanillaMod 也是在自己的 OnInit 里 RegisterSerializableType<...>()。
+            // 漏了这一步的症状是读档时 "Unknown discriminator value
+            // 'SerializableLogicSaveData'"，而且因为 SaveManager.WriteSaveData 写完会
+            // 「读回来验证一次」，验证失败会直接**整份存档都不写**。
+            RegisterSerializableType<SerializableLogicSaveData>();
             Plugin.Log?.LogInfo("[LabMod] OnInit(game) called");
         }
 
@@ -352,11 +368,36 @@ namespace LaboratoryMod
             return new LogicSaveData(spaceName);
         }
 
-        public override ModSaveData LoadSaveData(string json)
+        // 存档接口在 0.7.0 由「只读的 LoadSaveData(string)」改成对称的一对
+        // SerializeSaveData / DeserializeSaveData（改名 + 新增，老方法被删，override 它会 CS0115）。
+        //
+        // 实现照抄官方 VanillaMod：走 Mod 基类的受保护 helper（Serialize / Deserialize）
+        // 与 LogicSaveData 自己的 ToSerializable / DeserializeFrom，
+        // **不要自己拼 BSON** —— SerializeHelper 维护的是一套「游戏自己知道」的
+        // 序列化配置（SerializeHelper.init 里注册的那一堆类 + 临时挂的 Convention），
+        // 外部自己调 BsonSerializer 读不回来（实测报 Unknown discriminator）。
+        public override string SerializeSaveData(ModSaveData saveData)
         {
-            Plugin.Log?.LogInfo("[LabMod] LoadSaveData called");
-            // 本 Mod 不存储自定义数据，读档返回空存档即可。
-            return new LogicSaveData(spaceName);
+            var seri = saveData.ToSerializable();
+            seri.version = SAVE_DATA_VERSION;
+            return seri.ToBson();
+        }
+
+        public override ModSaveData DeserializeSaveData(string json)
+        {
+            var seri = Deserialize<SerializableLogicSaveData>(json);
+            if (seri.version > SAVE_DATA_VERSION)
+            {
+                // 官方 VanillaMod 在这一行抛 MVZ2.Saves.NewerSaveDataException，让
+                // SaveManager / 主菜单提示「存档来自更高的版本」。托管侧 throw 不了它 ——
+                // interop 生成的 NewerSaveDataException 不继承 System.Exception，
+                // `throw new NewerSaveDataException()` 直接 CS0029 编译不过。
+                // 因此退化成「明确告警 + 尽力读」：本 mod 只在**改了存档格式**时才会
+                // 抬高 SAVE_DATA_VERSION，所以真出现这行日志就意味着该看一看了。
+                Plugin.Log?.LogWarning("[LabMod] 存档 version=" + seri.version
+                    + " 高于本 mod 支持的 " + SAVE_DATA_VERSION + "，按兼容方式继续读取");
+            }
+            return LogicSaveData.DeserializeFrom(seri);
         }
     }
 }

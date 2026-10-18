@@ -7,6 +7,7 @@ using MVZ2Logic.Definitions;
 using MVZ2Logic.Games;
 using MVZ2Logic.Modding;
 using MVZ2Logic.Saves;
+using MVZ2Logic.Serialization;
 using PVZEngine;
 using PVZEngine.Callbacks;
 using PVZEngine.Definitions;
@@ -26,6 +27,13 @@ namespace ModularCurse
     public class ModularCurseMod : Mod
     {
         public const string spaceName = "modular_curse";
+
+        /// <summary>
+        /// 本 mod 存档数据格式版本，写进 <c>SerializableModSaveData.version</c>。
+        /// 读档时 <c>version &gt; SAVE_DATA_VERSION</c> 就抛 <c>NewerSaveDataException</c>
+        /// （与官方 VanillaMod 同款语义）。旧存档（早期内测版时期写下的）version=0。
+        /// </summary>
+        private const int SAVE_DATA_VERSION = 1;
 
         /// <summary>注入类标准绑定 ctor（Il2CppInterop 官方模式）。</summary>
         public ModularCurseMod(IntPtr ptr) : base(ptr)
@@ -68,6 +76,10 @@ namespace ModularCurse
         public override void OnInit(IGlobalGame game)
         {
             // 不能调 base.OnInit(game)（递归）。
+            // LogicSaveData 的可序列化 DTO 必须登记进 BSON 类映射，否则读档时
+            // Mongo 报 Unknown discriminator（官方 VanillaMod 也在 OnInit 里做这件事），
+            // 且因 WriteSaveData 会「读回来验证」，验证失败会导致整份存档都不写。
+            RegisterSerializableType<SerializableLogicSaveData>();
             Plugin.Log?.LogInfo("[ModularCurseMod] OnInit(game)");
         }
 
@@ -97,6 +109,10 @@ namespace ModularCurse
             {
                 Plugin.Log?.LogWarning("[ModularCurseMod] PostInit Namespace 读取失败: " + e.GetType().Name);
             }
+
+            // mod 自带的 PNG 要手工进资源库（图片不走 XML 注入那套）。
+            // 放在诅咒词条之前：词条里写的 sprite id 就是这些贴图的 id。
+            CurseSprites.RegisterAll();
 
             // 官方 LoadCurseMetas 写属性时 MVZ2.Logic 的属性键可能尚未注册
             // （Key==0 → 写入落空），此时键已就绪，重新套一遍。
@@ -203,10 +219,30 @@ namespace ModularCurse
             return new LogicSaveData(spaceName);
         }
 
-        public override ModSaveData LoadSaveData(string json)
+        // 存档接口在 0.7.0 由「只读的 LoadSaveData(string)」改成对称的一对
+        // SerializeSaveData / DeserializeSaveData（改名 + 新增，老方法被删，override 它会 CS0115）。
+        // 实现照抄官方 VanillaMod，走 Mod 基类的受保护 helper + LogicSaveData 自己的
+        // ToSerializable / DeserializeFrom；不要自己拼 BSON（实测读不回来：
+        // Unknown discriminator value 'SerializableLogicSaveData'）。
+        public override string SerializeSaveData(ModSaveData saveData)
         {
-            // 本 Mod 不存储自定义数据，读档返回空存档即可。
-            return new LogicSaveData(spaceName);
+            var seri = saveData.ToSerializable();
+            seri.version = SAVE_DATA_VERSION;
+            return seri.ToBson();
+        }
+
+        public override ModSaveData DeserializeSaveData(string json)
+        {
+            var seri = Deserialize<SerializableLogicSaveData>(json);
+            if (seri.version > SAVE_DATA_VERSION)
+            {
+                // 见 LabMod 里同处的说明：官方 VanillaMod 会抛 NewerSaveDataException，
+                // 但 interop 生成的它不继承 System.Exception，托管侧 throw 编译不过（CS0029），
+                // 所以这里只明确告警。
+                Plugin.Log?.LogWarning("[ModularCurseMod] 存档 version=" + seri.version
+                    + " 高于本 mod 支持的 " + SAVE_DATA_VERSION + "，按兼容方式继续读取");
+            }
+            return LogicSaveData.DeserializeFrom(seri);
         }
 
         /// <summary>注入的 Mod 实例（诊断用）。</summary>

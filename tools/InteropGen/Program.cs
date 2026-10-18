@@ -17,11 +17,11 @@ using Mono.Cecil.Rocks;
 //      [Il2CppInteropGen] Unstripping methods... Restored 14078 methods
 //    把被 IL2CPP 裁剪掉的 Unity 重载补回来；本工具不会，产物缺这些方法
 //    （典型：UnityEngine.Component.GetComponentInChildren<T>(bool)）。
-//    拿本工具的产物当编译引用，会让依赖这些重载的 mod 编译失败 —— 用 0.7.0 test-9 跑也一样，
+//    拿本工具的产物当编译引用，会让依赖这些重载的 mod 编译失败 —— 用 0.7.0 跑也一样，
 //    所以那是本工具的差异，不是游戏版本差异。
 //    ⇒ 正式 interop 一律用 BepInEx 在目标游戏目录里生成（UpdateInteropAssemblies=true 启动一次）；
 //      本工具只当「快速签名查询 / 应急」用。
-var gameDir = args.Length > 0 ? args[0] : @"E:\Game\PVZ\MVZ2\MVZ2 0.7.0 test-11";
+var gameDir = args.Length > 0 ? args[0] : @"E:\Game\PVZ\MVZ2\MVZ2 0.7.0";
 
 // 调试模式：打印指定 dll 中某类型的所有构造器
 if (args.Length >= 3 && args[0] == "check")

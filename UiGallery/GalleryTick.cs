@@ -489,7 +489,10 @@ namespace UiGallery
                 Row("", "图形化控制台面板（调试工具，替代原版控制台输入窗）",
                     "Graphical console panel (a debug tool that replaces the vanilla console input window)"),
                 Row("", "回放", "Replay"),
-                Row("", "按时间", "By time"),
+                // 排序按钮的六档文案（回放页）。**别用已经不存在的旧文案**：
+                // 以前这里是 "按时间"→"By time"，但那套文案已被「排序：时间↑」取代，
+                // 这条判据就会永远报失败（探的是一句谁也取不到的串）。
+                Row("", "排序：", "Sort: "),
                 Row("", "基础", "Basic"),
                 Row("", "共 {0} 个", "{0} replays"),
             };

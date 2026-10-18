@@ -23,6 +23,110 @@ namespace Replay
         public static ConfigEntry<bool> PointerAction;
         public static ConfigEntry<int> MaxReplays;
 
+        // ---- 回放播放期间关卡内的辅助按钮（见 ReplaySlowDown.cs）----
+        public static ConfigEntry<bool> SlowDownButton;
+
+        public static ConfigEntry<bool> SaveGuard;
+        public static ConfigEntry<bool> RestoreMusic;
+        public static ConfigEntry<bool> SaveGuardBlockWrites;
+        public static ConfigEntry<bool> SaveGuardDataPatches;
+        public static ConfigEntry<int> KeyframeDelayFrames;
+
+#if DIAGNOSTICS
+        // ---- 以下均为**诊断 / 自测**专用（Diagnostics\ 那份代码的配置）----
+        // 发布构建里连这一段都不存在（见 Replay.csproj 的 DIAGNOSTICS 编译开关）。
+
+        // ---- 传送带关卡播放崩溃的守卫（见 Game\ReplayConveyorGuard.cs）----
+        // ⚠️ 它目前**只在诊断构建里安装**（`ReplayPlayer` 里那个 `Ensure()` 在 #if DIAGNOSTICS 内）：
+        // 它接管的是 ConveyorBlueprintController.UpdateFixed，属于「重写游戏逻辑」而
+        // 不是「只是看看」，尚未在正式版上传送带关卡完成验证（该项已明确推迟）。
+        // 因此发布构建里没有它、也就不该在发布 cfg 里留下一个不起作用的开关。
+        public static ConfigEntry<bool> ConveyorGuard;
+        public static ConfigEntry<bool> ConveyorGuardLog;
+#endif
+
+        /// <summary>减速按钮开关（配置缺失时当作开）。</summary>
+        public static bool SlowDownButtonOn
+        {
+            get { return SlowDownButton == null || SlowDownButton.Value; }
+        }
+
+#if DIAGNOSTICS
+        /// <summary>传送带守卫开关（配置缺失时当作开）。</summary>
+        public static bool ConveyorGuardOn
+        {
+            get { return ConveyorGuard == null || ConveyorGuard.Value; }
+        }
+
+        /// <summary>传送带探针的逐步骤标记（排查用；配置缺失时当作开）。</summary>
+        public static bool ConveyorGuardLogOn
+        {
+            get { return ConveyorGuardLog == null || ConveyorGuardLog.Value; }
+        }
+#endif
+
+        /// <summary>回放期间启用「不许改动存档」的护栏（配置缺失时当作开）。</summary>
+        public static bool SaveGuardOn
+        {
+            get { return SaveGuard == null || SaveGuard.Value; }
+        }
+
+        /// <summary>护栏里「拦下统计/解锁等其它存档写入」那一半（缺失时当作开）。</summary>
+        public static bool SaveGuardBlockWritesOn
+        {
+            get { return SaveGuardBlockWrites == null || SaveGuardBlockWrites.Value; }
+        }
+
+        /// <summary>
+        /// 护栏里「直连 <c>LogicSaveData</c>」那两个金币补丁（缺失时当作**关**）。
+        ///
+        /// <para>实测：在 0.7.0 正式版上，只要护栏真的拦下 <c>LogicSaveData.GetMoney</c>，
+        /// 播放就会崩在 Addressables 资源解析里的 <c>RuntimeType.IsAssignableFrom</c>
+        /// （<c>GameAssembly.dll</c> <c>0x0141b822</c>，进程直接消失）。
+        /// 只挂 <c>LogicSaveExt.*</c>（公开面）那一层时不再崩 —— 而游戏绝大多数地方
+        /// 走的正是公开面，所以默认关掉这一层是划算的。</para>
+        /// </summary>
+        public static bool SaveGuardDataPatchesOn
+        {
+            get { return SaveGuardDataPatches != null && SaveGuardDataPatches.Value; }
+        }
+
+        /// <summary>载入关键帧时是否恢复音乐（配置缺失时当作开）。</summary>
+        public static bool RestoreMusicOn
+        {
+            get { return RestoreMusic == null || RestoreMusic.Value; }
+        }
+
+        /// <summary>
+        /// 把 Addressables 类型过滤器 <c>System.Object</c> 改写成 <c>null</c>
+        /// （配置缺失时当作开）—— 它是修闪退的，默认开。
+        /// </summary>
+        /// <remarks>
+        /// ⚠️ 0.7.0 正式版实测：<b>只要给 <c>ResourceLocationMap.Locate</c> 挂上任何一个补丁，
+        /// 游戏自己的访问违例就会变成 CoreCLR 内部错误</b>（Windows 事件 id 从 1000 变 1023）。
+        /// 也就是说这个拦截点根本不能用 —— 相关代码已整份删除（需要时从 git 历史取回），
+        /// 结论记录在 docs/DESIGN.md §11.4。
+        /// </remarks>
+        public const bool AddressablesLocatePatchAbandoned = true;
+
+        /// <summary>
+        /// 关卡场景加载完之后、载入关键帧之前**再等多少帧**（默认 0）。
+        ///
+        /// <para>0.7.0 正式版上播放回放会崩在 Addressable 的资源依赖解析里
+        /// （<c>RuntimeType.IsAssignableFrom</c>）。关键帧一载入，游戏就要去
+        /// Addressables 拿蓝图的贴图/模型，而那时关卡场景自己的资源目录可能还没就绪 ——
+        /// 多等几帧能让它先稳定下来。这个开关用来验证/规避那段时间差。</para>
+        /// </summary>
+        public static int KeyframeDelayFramesValue
+        {
+            get { return KeyframeDelayFrames != null ? KeyframeDelayFrames.Value : 0; }
+        }
+
+        // ---- 回放的输入兼容（见 ReplayPointerTrajectory.cs / ReplayDialogs.cs）----
+        public static ConfigEntry<bool> PointerTrajectory;
+        public static ConfigEntry<float> DialogHoldSeconds;
+        public static ConfigEntry<bool> DialogAutoAnswer;
+
         // ---- 回放页 / 结束面板（见 Ui/ReplayPage.cs、Ui/ReplayEndPanel.cs）----
 
         // ---- 视觉（见 FakePointer.cs）----
@@ -32,7 +136,8 @@ namespace Replay
         public static ConfigEntry<float> FakeMouseScale;
         public static ConfigEntry<bool> FakeMouseGameCursor;
 
-        // ---- 自测（见 ReplaySelfTest.cs）----
+#if DIAGNOSTICS
+        // ---- 自测（见 Diagnostics\ReplaySelfTest.cs）----
         public static ConfigEntry<bool> SelfTest;
         public static ConfigEntry<string> SelfTestStage;
         public static ConfigEntry<string> SelfTestArea;
@@ -54,13 +159,28 @@ namespace Replay
         public static ConfigEntry<int> SelfTestPlayShotTick;
         public static ConfigEntry<int> SelfTestPlayMenuTick;
 
-        // ---- GUI 自测（见 Ui/ReplayGuiTest.cs）----
+        // ---- GUI 自测（见 Diagnostics\ReplayGuiTest.cs）----
         public static ConfigEntry<bool> GuiTest;
         public static ConfigEntry<int> GuiTestHoldFrames;
         public static ConfigEntry<bool> GuiTestAutoQuit;
+#endif
         // ---- 指令 ----
         /// <summary>是否注册 <c>/replay</c> 控制台指令。默认关（见 <see cref="GetCommands"/>）。</summary>
         public static ConfigEntry<bool> Commands;
+
+        // ---- 调试模式（协议里的「调试文件」；**只给回放 mod 开发用**，默认全关）----
+        /// <summary>调试模式总开关。打开后逐 tick 采指纹且字段尽量全（见 <see cref="ReplayRecordOptions"/>）。</summary>
+        public static ConfigEntry<bool> DebugMode;
+        /// <summary>调试模式下逐 tick 采样。</summary>
+        public static ConfigEntry<bool> DebugEveryTick;
+        /// <summary>调试模式下把 7 条 RNG 流的原始状态写进指纹。</summary>
+        public static ConfigEntry<bool> DebugRawRng;
+        /// <summary>调试模式下把每个实体的明细写进指纹。</summary>
+        public static ConfigEntry<bool> DebugEntityDetail;
+        /// <summary>调试模式下把关卡内部标量写进指纹。</summary>
+        public static ConfigEntry<bool> DebugLevelScalars;
+        /// <summary>调试模式下实体明细的条数上限（0 = 不限）。</summary>
+        public static ConfigEntry<int> DebugEntityLimit;
 
         private static string resolvedOutputDir;
         private static bool keywordFallbackLogged;
@@ -120,7 +240,7 @@ namespace Replay
                 + "  save     = <存档根>/user<N>/replays            （默认）\n"
                 + "  savemod  = <存档根>/user<N>/<空间名>/replays    （与 user.dat、level/ 同级）\n"
                 + "  saveroot = <存档根>/replays\n"
-                + "  game     = <游戏根>/BepInEx/replays             （旧行为）\n"
+                + "  game     = <游戏根>/replays\n"
                 + "也可以直接给路径：绝对路径原样用，相对路径以游戏根目录为基准。\n"
                 + "存档根 = %USERPROFILE%/AppData/LocalLow/Cuerzor/<游戏名>/userdata。");
 
@@ -128,6 +248,26 @@ namespace Replay
                 "General", "FingerprintInterval", 150,
                 D("每多少逻辑 tick（30 tick = 1 秒）采样一条状态指纹，用于校验回放一致性。\n"
                 + "设为 0 关闭采样。", R(0, 3000)));
+
+            PointerTrajectory = cfg.Bind(
+                "General", "PointerTrajectory", true,
+                "录制/重放**逐 tick 的指针轨迹**。\n"
+                + "有一类关卡内容不看指针事件的参数、而是每帧直接问「鼠标现在在哪、哪个键按着」：\n"
+                + "  打砖块挡板（每 tick 跟到指针处）、重装兵器（朝向 + 按住才开火）、\n"
+                + "  矿车（目标点每 tick 由指针决定）、碾压墙（每次按下扣进度）。\n"
+                + "这些行为没有轨迹就重现不了（甚至完全失效）。\n"
+                + "只有「这一关确实存在会读指针的内容」时才真的录，普通关卡一条都不会多写。\n"
+                + "第三方 mod 可以用 ReplayCompat.RegisterPointerConsumer 注册自己的内容。");
+
+            DialogAutoAnswer = cfg.Bind(
+                "General", "DialogAutoAnswer", true,
+                "回放里的**选项对话框**（梦魇的「选择命运」、上锁的箱子的「赎金」）自动按录制时的选择答完。\n"
+                + "关掉的话这些对话框会停下来等真人点（逻辑 tick 也会一直停在那里）。");
+
+            DialogHoldSeconds = cfg.Bind(
+                "General", "DialogHoldSeconds", 2f,
+                D("自动应答前先把对话框**显示**多少秒（让人看清回放里弹的是什么）。\n"
+                + "设为 0 则完全不等。", new AcceptableValueRange<float>(0f, 30f)));
 
             FullFingerprint = cfg.Bind(
                 "General", "FullFingerprint", true,
@@ -167,9 +307,10 @@ namespace Replay
                 + "少这一次取消，会让后续一次点卡从「选卡」变成「取消手持物」，于是那个器械放不下去。");
 
             MaxReplays = cfg.Bind(
-                "General", "MaxReplays", 50,
+                "General", "MaxReplays", 20,
                 D("最多保留多少个回放（超出后自动删掉**最旧的**）。\n"
                 + "每写出一份回放就会清一次；回放页面里也会显示当前数量。\n"
+                + "**在回放页里改过名的回放不计入这个上限，也不会被自动清理。**\n"
                 + "设为 0 = 不限制。统计范围是 OutputDir（默认 save）指定的位置。", R(0, 100000)));
 
             Commands = cfg.Bind(
@@ -178,6 +319,77 @@ namespace Replay
                 + "默认**关着**：那是个排障入口，普通玩家用「主菜单 → 更多选项 → 插件 → 回放」就够了，\n"
                 + "开着只会让控制台多出一条与游戏本身无关的指令。\n"
                 + "关着的时候敲 /replay 会按原版流程报「找不到指令」。");
+
+            SlowDownButton = cfg.Bind(
+                "General", "SlowDownButton", true,
+                "播放回放时，在关卡里的加速按钮**正下方**放一个减速按钮。\n"
+                + "它只存在于回放播放期间（正常游玩时会自己拆掉）—— 看回放时\n"
+                + "按加速键会一路快进，想看清楚某一拍就得有个减速。\n"
+                + "关掉它就完全不碰关卡 UI（排障用：若怀疑这个按钮惹事，可以先关掉它）。");
+
+#if DIAGNOSTICS
+            ConveyorGuard = cfg.Bind(
+                "General", "ConveyorGuard", true,
+                "传送带关卡（第 11 天这类挂 ConveyorStageBehaviour 的关卡）在回放里的崩溃守卫。\n"
+                + "症状：播放到第一次传送带刷新（约第 120 tick）时整个游戏直接没了，\n"
+                + "BepInEx\\ErrorLog.log 里什么都没有（= 原生访问冲突，不是托管异常）。\n"
+                + "开着时本 mod 自己接管 ConveyorBlueprintController.UpdateFixed 的那几行，\n"
+                + "取不到关卡部件就整套跳过，绝不带着空引用去碰原生代码。\n"
+                + "逻辑照抄 0.7.0 源码，行为不变。");
+
+            ConveyorGuardLog = cfg.Bind(
+                "General", "ConveyorGuardLog", false,
+                "传送带守卫的**逐步骤标记**（排查用）。\n"
+                + "打开后每次 UpdateFixed 都会往日志里写 1 行，最多 4000 行。\n"
+                + "它的用处是「崩溃前最后一条标记」= 崩在哪一句：\n"
+                + "  fixed#1 进入 → #2 model → #3 base → #4 部件 → #5 速度 → #6 前一个蓝图 → #7 完成。\n"
+                + "平时关着：那是排查工具，不是给玩家看的。");
+#endif
+
+            // ⚠️ 这里原先还有两个探针的配置项（AddressablesProbe / TypeGuard）。
+            // 2026-10-16 随探针代码一起删除 —— 它们分别给 Addressables 的
+            // ResourceLocationMap.Locate 与 Il2CppSystem.RuntimeType.IsAssignableFrom
+            // 挂前缀，**只要挂上就让进程以 .NET Runtime id=1023（coreclr internal error）死掉**，
+            // 而那个 id 意味着「崩在补丁里」，比游戏自己的访问违例更难查。
+            // 结论与被证伪的猜想见 docs/DESIGN.md §11.4。
+
+            SaveGuard = cfg.Bind(
+                "General", "SaveGuard", true,
+                "回放期间启用「不许改动存档」的护栏（金币 / 统计 / 解锁都只进影子）。\n"
+                + "关掉它回放就**可能把录制里的钱和统计写进你的存档**，正常情况下不要关。\n"
+                + "（补丁一直都会装，只是护栏不生效—— 排障用。）");
+
+            SaveGuardBlockWrites = cfg.Bind(
+                "General", "SaveGuardBlockWrites", true,
+                "护栏里「拦下统计 / 解锁 / 进度等其它存档写入」那一半。\n"
+                + "关掉它只保留金币那一半（游戏表现更像原版，但回放重演会往存档里累加统计）。\n"
+                + "默认开着。");
+
+            SaveGuardDataPatches = cfg.Bind(
+                "General", "SaveGuardDataPatches", false,
+                "护栏里「直连 LogicSaveData.GetMoney / SetMoney」那两个金币补丁。\n"
+                + "⚠️ 0.7.0 正式版上**开着会让播放崩溃**：\n"
+                + "   崩溃点 GameAssembly.dll 0x0141b822 = RuntimeType.IsAssignableFrom，\n"
+                + "   调用链 ResourceManager.ProvideResource → ResourceLocationMap.Locate。\n"
+                + "只挂 LogicSaveExt（Global.Saves.* 的公开面）那一层就不会崩，\n"
+                + "而游戏绝大多数地方走的正是公开面，所以默认关掉这一层：\n"
+                + "存档隔离照样生效，只是「少数绕过公开面直接摸 LogicSaveData 的写法」拦不到。");
+
+            RestoreMusic = cfg.Bind(
+                "General", "RestoreMusic", true,
+                "载入关键帧时一并恢复**音乐**（曲目 / 播放位置 / 音量）。\n"
+                + "关掉它回放就没有背景音乐（关卡音效不受影响）。\n"
+                + "做成开关是因为 0.7.0 正式版上「播放回放闪退」的崩溃现场落在\n"
+                + "Addressables 解析 main_assets_mainmusic_*.bundle 的依赖上 ——\n"
+                + "也就是关键帧里那一句 musicID 触发的资源加载。");
+
+            KeyframeDelayFrames = cfg.Bind(
+                "General", "KeyframeDelayFrames", 0,
+                "关卡场景加载完之后、载入关键帧之前**再等多少帧**（0 = 不等）。\n"
+                + "0.7.0 正式版上播放回放会崩在 Addressables 的资源依赖解析里；\n"
+                + "关键帧一载入游戏就要去拿蓝图贴图/模型，而那时关卡场景自己的资源目录\n"
+                + "可能还没就绪。多等几帧能让它先稳定下来。\n"
+                + "30 tick ≈ 1 秒。一般保持 0；只有遇到「一进关卡就闪退」才考虑调大。");
 
             // ---------------- 视觉 ----------------
             FakeMouse = cfg.Bind(
@@ -221,6 +433,7 @@ namespace Replay
                 + "游戏贴图取不到时会自动退回自绘箭头；这个开关只是给「贴图在你那里看着不对」时的退路。");
 
             // ---------------- 自测 ----------------
+#if DIAGNOSTICS
             SelfTest = cfg.Bind(
                 "SelfTest", "Enabled", false,
                 "打开内置自测：启动后自动执行\n"
@@ -339,6 +552,46 @@ namespace Replay
             GuiTestAutoQuit = cfg.Bind(
                 "GuiTest", "AutoQuit", true,
                 "GUI 自测跑完后自动退出游戏，方便脚本化。");
+#endif
+
+            // ---------------- 调试模式（协议里的「调试文件」）----------------
+            //
+            // ⚠️ 这一段**只给回放 mod 自己的开发/排障用**，普通玩家不要开：
+            //    逐 tick 一条指纹 + 每个实体的明细，文件会大一到两个数量级。
+            //
+            // 协议里「录制行为取决于配置文件」的那一半就落在这里：这些开关只影响**写出来的文件**；
+            // 播放时要不要采这些额外字段，看的是文件 header 的 debug 标记，跟本段配置无关。
+            DebugMode = cfg.Bind(
+                "Debug", "Enabled", false,
+                "【回放 mod 开发用】调试模式：逐 tick 采一条状态指纹，并且指纹里带上\n"
+                + "原始 RNG 状态、每个实体的明细、关卡内部标量 —— 尽可能多的可核对数据。\n"
+                + "用途：定位「回放从第几个 tick 起与实战不符、是谁先变」这类问题。\n"
+                + "⚠️ 文件会大一到两个数量级，且**不是给玩家用的**，默认关闭。");
+
+            DebugEveryTick = cfg.Bind(
+                "Debug", "EveryTick", true,
+                "【调试】逐 tick 采指纹（关掉 = 仍按 [General] FingerprintInterval）。\n"
+                + "逐 tick 才能把「分歧首次出现」定位到唯一那个 tick。");
+
+            DebugRawRng = cfg.Bind(
+                "Debug", "RawRng", true,
+                "【调试】指纹里带 7 条 RNG 流的**原始 4×int32 状态**（rx 字段）。\n"
+                + "分流哈希只能说「spawn 流跑偏了」，原始值能说「它在第几次 Next 之后偏的」。");
+
+            DebugEntityDetail = cfg.Bind(
+                "Debug", "EntityDetail", true,
+                "【调试】指纹里带**每个实体的明细**（ei 字段）：id / 定义 / 血量 / 坐标 / 分层。\n"
+                + "集合哈希只能说「实体集合变了」，明细能说「哪个实体的哪个量先变」。");
+
+            DebugLevelScalars = cfg.Bind(
+                "Debug", "LevelScalars", true,
+                "【调试】指纹里带**关卡内部标量**（lk 字段）：levelTime / currentEntityID /\n"
+                + "waveState / 实体回收池长度 / 当前种子包 id 等（这些在引擎上是私有的，只能从序列化里读）。\n"
+                + "用处：currentEntityID 差 1 就说明「多/少生成过一个实体」。");
+
+            DebugEntityLimit = cfg.Bind(
+                "Debug", "EntityLimit", 0,
+                D("实体明细最多写多少个实体（0 = 不限）。实体很多时用它保护文件大小。", R(0, 100000)));
         }
 
         /// <summary>
@@ -369,22 +622,19 @@ namespace Replay
                 // 缓存下来就会继续写到上一个用户的目录里。
                 var keyword = ResolveLocationKeyword(raw);
                 if (keyword != null)
-                {
-                    TryMigrateLegacyReplays(keyword);
                     return keyword;
-                }
 
                 // 游戏还没初始化完（例如 Plugin.Load 阶段那行日志）。
                 // ⚠️ 这里**绝不能**当成相对路径去拼，否则会得到 `<游戏根>/save` 这种
                 // 看着像路径、实际是乱码目录的东西。等真正写盘时游戏早就起来了，
-                // 那时关键字一定能解析成功；现在退到旧位置只是为了有个合理值可打印。
+                // 那时关键字一定能解析成功；现在只是要有个合理值可打印。
                 if (!keywordFallbackLogged)
                 {
                     keywordFallbackLogged = true;
                     Plugin.Log?.LogWarning("[Replay] 输出目录关键字 '" + raw
-                        + "' 暂时解析不了（游戏未初始化），先用 BepInEx/replays 顶着；写盘时会重新解析。");
+                        + "' 暂时解析不了（游戏未初始化），先用游戏根下的 replays 顶着；写盘时会重新解析。");
                 }
-                return Path.Combine(GameRoot(), "BepInEx", "replays");
+                return Path.Combine(GameRoot(), "replays");
             }
 
             if (resolvedOutputDir != null)
@@ -396,23 +646,16 @@ namespace Replay
             }
             catch (Exception)
             {
-                resolvedOutputDir = Path.Combine(root, "BepInEx", "replays");
+                resolvedOutputDir = Path.Combine(root, "replays");
             }
             return resolvedOutputDir;
         }
 
-        /// <summary>旧的位置（&lt;游戏根&gt;/BepInEx/replays），用于兼容与迁移。</summary>
-        public static string LegacyOutputDir()
-        {
-            return Path.Combine(GameRoot(), "BepInEx", "replays");
-        }
-
         /// <summary>
-        /// 允许搜索回放的位置：当前位置优先，再兜旧位置。
+        /// 回放文件所在目录（**只有一个**）。
         ///
-        /// <para>为什么不只搜当前位置：输出目录改成跟着存档走后，旧文件会「突然消失」。
-        /// 一次性迁移（见 <see cref="TryMigrateLegacyReplays"/>）之外还留一个搜索兜底，
-        /// 这样即便迁移因权限/占用失败，老回放依然找得到、放得了。</para>
+        /// <para>早期版本支持「当前位置 + 旧位置（<c>BepInEx/replays</c>）双目录搜索」与一次性迁移，
+        /// 现在已移除：只有一个目录，谁在里头得事先放好。</para>
         /// </summary>
         public static System.Collections.Generic.List<string> OutputSearchDirs()
         {
@@ -420,80 +663,7 @@ namespace Replay
             var cur = ResolveOutputDir();
             if (!string.IsNullOrEmpty(cur))
                 list.Add(cur);
-            var legacy = LegacyOutputDir();
-            if (!string.IsNullOrEmpty(legacy) && !SamePath(legacy, cur))
-                list.Add(legacy);
             return list;
-        }
-
-        private static bool SamePath(string a, string b)
-        {
-            if (string.IsNullOrEmpty(a) || string.IsNullOrEmpty(b))
-                return false;
-            try
-            {
-                return string.Equals(Path.GetFullPath(a).TrimEnd('\\', '/'),
-                                     Path.GetFullPath(b).TrimEnd('\\', '/'),
-                                     StringComparison.OrdinalIgnoreCase);
-            }
-            catch (Exception)
-            {
-                return false;
-            }
-        }
-
-        private static bool legacyMigrationTried;
-
-        /// <summary>
-        /// 把旧位置里的回放文件搬到新位置。只在第一次成功解析出关键字路径时跑一次
-        /// （游戏没初始化时解析不出路径，而那正是 Plugin.Load 阶段）。
-        ///
-        /// <para>只搬 <c>.mrep</c> / <c>.mrep.json</c>，**不覆盖**、**不删**：
-        /// 目标已存在就跳过，出错只记日志。</para>
-        /// </summary>
-        private static void TryMigrateLegacyReplays(string newDir)
-        {
-            if (legacyMigrationTried)
-                return;
-            legacyMigrationTried = true;
-            try
-            {
-                var legacy = LegacyOutputDir();
-                if (SamePath(legacy, newDir) || !Directory.Exists(legacy))
-                    return;
-                Directory.CreateDirectory(newDir);
-                int moved = 0, skipped = 0;
-                foreach (var f in Directory.GetFiles(legacy))
-                {
-                    var name = Path.GetFileName(f);
-                    if (!name.EndsWith(".mrep", StringComparison.OrdinalIgnoreCase)
-                        && !name.EndsWith(".mrep.json", StringComparison.OrdinalIgnoreCase))
-                        continue;
-                    var dst = Path.Combine(newDir, name);
-                    if (File.Exists(dst))
-                    {
-                        skipped++;
-                        continue;
-                    }
-                    try
-                    {
-                        File.Move(f, dst);
-                        moved++;
-                    }
-                    catch (Exception)
-                    {
-                        skipped++;
-                    }
-                }
-                if (moved > 0 || skipped > 0)
-                    Plugin.Log?.LogInfo("[Replay] 回放目录已改到存档目录：搬走 " + moved
-                        + " 个，跳过 " + skipped + " 个 -> " + newDir);
-            }
-            catch (Exception e)
-            {
-                Plugin.Log?.LogWarning("[Replay] 迁移旧回放目录失败（不影响使用，旧位置仍可搜索）："
-                    + e.GetType().Name + ": " + e.Message);
-            }
         }
 
         private static bool IsLocationKeyword(string raw)
@@ -536,7 +706,7 @@ namespace Replay
                         return root != null ? Path.Combine(root, "replays") : null;
                     }
                 case "game":
-                    return Path.Combine(GameRoot(), "BepInEx", "replays");
+                    return Path.Combine(GameRoot(), "replays");
                 default:
                     return null;
             }
@@ -611,13 +781,17 @@ namespace Replay
         public static string Describe()
         {
             var interval = FingerprintInterval != null ? FingerprintInterval.Value : 0;
+            var selftest = "off";
+#if DIAGNOSTICS
+            selftest = (SelfTest != null && SelfTest.Value) ? "on" : "off";
+#endif
             return "auto=" + (AutoRecord != null && AutoRecord.Value)
                 + " dir=" + ResolveOutputDir()
                 + " fp=" + (interval > 0 ? interval.ToString() + "tick" : "off")
                 + " max=" + GetMaxReplays()
                 + " cmd=" + GetCommands()
                 + " autosave=" + GetAutoSave()
-                + " selftest=" + (SelfTest != null && SelfTest.Value);
+                + " selftest=" + selftest;
         }
 
         /// <summary>

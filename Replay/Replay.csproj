@@ -27,6 +27,34 @@
     <DebugType>portable</DebugType>
   </PropertyGroup>
 
+  <!--
+    ── 诊断 / 自测代码的编译开关 ─────────────────────────────────────────
+    Diagnostics\ 下面全是**排查与自测用**的代码（崩溃探针、自动化验收、
+    布局 dump），发布版本一个字节都不该带出去：
+
+      默认（发布）  .\build.ps1
+                    → Diagnostics\**\*.cs 整个不参与编译，DIAGNOSTICS 未定义
+      诊断构建      .\build.ps1 -Diagnostics
+                    → 编进来并定义 DIAGNOSTICS（ReplayConfig 的自测/探针配置段、
+                      以及 Game\ 里那些 #if DIAGNOSTICS 的调用点才会一起进来）
+
+    为什么要编译期隔离而不是「配置项关掉就算了」：探针本身就会改变行为
+    ——例如给 IsAssignableFrom 挂前缀、给 Addressables 的 Locate 挂前缀，
+    在 0.7.0 上都会把「游戏自己的访问违例」变成「进程静默消失」，
+    留在 DLL 里就是一颗随时会响的雷。
+  -->
+  <PropertyGroup>
+    <Diagnostics Condition="'$(Diagnostics)' == ''">false</Diagnostics>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(Diagnostics)' == 'true'">
+    <DefineConstants>$(DefineConstants);DIAGNOSTICS</DefineConstants>
+  </PropertyGroup>
+
+  <ItemGroup Condition="'$(Diagnostics)' != 'true'">
+    <Compile Remove="Diagnostics\**\*.cs" />
+  </ItemGroup>
+
   <ItemGroup>
     <!-- BepInEx 6 核心程序集（与 runtime/ 内版本完全一致） -->
     <Reference Include="BepInEx.Core">
@@ -48,7 +76,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <!-- 0.7.0 test-9 类型代理程序集（预生成，见 runtime/BepInEx/interop） -->
+    <!-- 0.7.0 类型代理程序集（预生成，见 runtime/BepInEx/interop） -->
     <Reference Include="$(RuntimeInteropDir)*.dll">
       <Private>false</Private>
     </Reference>

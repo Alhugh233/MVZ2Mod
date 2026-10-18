@@ -99,6 +99,23 @@ namespace Replay
         }
 
         /// <summary>
+        /// 用**录制时的金币**给影子播种（v9 起，回放开始前调一次）。
+        ///
+        /// <para><b>这不是存档隔离，而是确定性。</b>金币会参与关卡逻辑的**分支**：
+        /// 上锁的箱子按「钱够不够」决定要不要生成「付钱」那一项，于是同一次对话的
+        /// 选项个数都可能不同 —— 回放按录制下标去选就会选错、甚至越界。
+        /// 默认的「第一次读时用真存档播种」在「玩家看回放时身上没那么多钱」时就会踩到这个坑。</para>
+        ///
+        /// <para>旧文件没有这个字段（<see cref="ReplayFile.HasStartMoney"/> 为 false）时不调，
+        /// 退回原来的「按真存档播种」，行为不变。</para>
+        /// </summary>
+        public static void SeedMoney(int money)
+        {
+            shadowMoney = Clamp(money);
+            shadowValid = true;
+        }
+
+        /// <summary>
         /// 自测用：临时把护栏关掉执行一段取值的代码。
         ///
         /// <para>「读**真存档**里的金币」只能这么做：护栏开着的时候所有公开 API 返回的都是影子，

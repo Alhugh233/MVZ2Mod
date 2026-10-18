@@ -5,18 +5,22 @@
 #   .\build.ps1 -Clean            先清 bin/ obj/ 再构建
 #   .\build.ps1 -KeepGame         不结束正在运行的游戏
 #   .\build.ps1 -Launch           构建完启动游戏
+#   .\build.ps1 -Diagnostics      诊断构建：编进 Diagnostics\（探针 / 自测 / 布局 dump）
 #
 # 说明：
-#   - 编译引用来自 runtime\（仓库内那份 test-11 的 BepInEx core + interop）。
+#   - 编译引用来自 runtime\（仓库内那份 BepInEx core + interop）。
 #   - DSHCore 前置的引用方式由 ..\Directory.Build.props 决定。
 #   - 本 mod 没有需要部署的资源（没有 assets\），只有插件 DLL。
+#   - ⚠️ -Diagnostics 出来的 DLL 只是为了排查/自测，**不要发布**：
+#     Diagnostics\ 里的探针（如给 Addressables 的 Locate 挂前缀）会让游戏崩。
 # =====================================================================
 param(
     [string]$GameDir = "",
     [switch]$SkipBuild,
     [switch]$Clean,
     [switch]$KeepGame,
-    [switch]$Launch
+    [switch]$Launch,
+    [switch]$Diagnostics
 )
 $ErrorActionPreference = 'Stop'
 . "$PSScriptRoot\..\tools\build-common.ps1"
@@ -42,7 +46,12 @@ Stop-GameProcess -Keep:$KeepGame
 
 # ---------- 2. 构建（含前置 DSHCore） ----------
 Write-Step "[2/3] 构建 Replay.csproj -c Debug"
-Invoke-DotnetBuild -Csproj $csproj -Dotnet $dotnet -GameDir $GameDir -Clean:$Clean -SkipBuild:$SkipBuild
+$props = @()
+if ($Diagnostics) {
+    $props += 'Diagnostics=true'
+    Write-Warn2 "诊断构建（-Diagnostics）：Diagnostics\ 会编进来，产物仅供排查/自测"
+}
+Invoke-DotnetBuild -Csproj $csproj -Dotnet $dotnet -GameDir $GameDir -Clean:$Clean -SkipBuild:$SkipBuild -Properties $props
 if (-not (Test-Path $pluginDll)) { throw ("插件产物不存在：" + $pluginDll) }
 $dll = Get-Item $pluginDll
 Write-Ok ("DLL: " + $dll.Length + " bytes  " + $dll.LastWriteTime)

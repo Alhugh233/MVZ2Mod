@@ -4,7 +4,16 @@
 > 三个相互独立的 mod 共用一个 BepInEx / IL2CPP 构建环境与工具链。
 
 > ⚠️ 本项目为社区制作的**非官方**内容，与游戏原作者无关。
-> ⚠️ 全部仅适配 **0.7.0 test-11**（Windows **x86** / IL2CPP / Unity 2022.3.62f3）。
+> ⚠️ 全部仅适配 **0.7.0 rc-1**（Windows **x86** / IL2CPP / Unity 2022.3.62f3）。
+>
+> **rc-1 适配状态**：6 个 mod 全部编译 / 部署通过，内容注册与存档往返都已在 rc-1 上实测；
+> **Replay 的录制与播放都已在 rc-1 上跑通且保真**（曾定位并修掉三处：
+> 存档护栏在切场景期间不得启用、`/load` 的 async 续体迟到恢复后重建关卡 → 加两道闸门、
+> 关键帧载入改为轮询接管；见 [`Replay/DESIGN.md`](Replay/DESIGN.md) §4.4.15 / §4.4.16 / §4.4.17）。
+> 自测现有 `指纹核对 1/1 ✅ 全部一致` 与 `tick 210/210`、`事件 5/5`。
+> Replay 的文件格式已规范化为**协议 v10**：字段级规范见 [`Replay/PROTOCOL.md`](Replay/PROTOCOL.md)。
+> 回放页已做过一轮体验改进（单键循环排序、清理回放、更多/重命名、目录索引、按风险黄/红标、
+> 关卡内减速按钮），见 [`Replay/DESIGN.md`](Replay/DESIGN.md) §4.6。
 
 ---
 
@@ -179,6 +188,21 @@ MVZ2 Loadout = Graphical Console
 > 既能填 `save` / `savemod` / `saveroot` / `game`，也能填任意路径）——
 > 列成下拉框会让自定义路径没法填，所以它保持文本框。
 
+### 仅供 mod 作者：跳过开场动画
+
+`DSHCore` 的 `qoznos.mvz2.core.cfg` 里有一个 **`[QuickStart] SkipIntro`**（**默认 `false`**）。
+把它改成 `true` 后，开场的**健康警告页**（约 11.5 秒）与**「Cuerzor 制作」报幕页**（约 2.5 秒）
+会直接换成标题页，启动后立刻可点。
+
+做法是在 `MainSceneController.DisplayPage` 的前置补丁里把目标页参数改写成标题页，然后让原方法照常执行
+—— 只改参数、不跳过原方法，所以除「少这两个页面」以外官方流程一点没变（关着的时候连补丁都不挂）。
+
+> 收益比看上去的小：开场动画和资源加载**本来就是并行的**，真正省下的只有两者之差
+> （本机实测约 **6.3 秒**，机器越好、加载越快省得越多）。
+>
+> 这不是游戏自带的 `MainManager.IsFastMode()` —— 那个开关实测会让游戏卡死，所以没用它。
+> 详情见 [`DSHCore/README.md`](DSHCore/README.md)。
+
 ---
 
 ## 环境要求
@@ -189,7 +213,7 @@ MVZ2 Loadout = Graphical Console
 | 操作系统 | Windows                                                        |
 | 脚本环境 | PowerShell 5.1+                                                |
 | 构建     | [.NET 6 SDK](https://dotnet.microsoft.com/download/dotnet/6.0) |
-| 游戏     | MVZ2**0.7.0 test-11**，Windows x86 版                           |
+| 游戏     | MVZ2**0.7.0 rc-1**，Windows x86 版                           |
 | 编译引用 | `runtime\`（可选）**或游戏目录本身**，见下                     |
 
 ### 告诉构建你的游戏装在哪
@@ -202,7 +226,7 @@ Copy-Item Directory.Build.local.props.example Directory.Build.local.props
 notepad Directory.Build.local.props        # 把 <GameDir> 改成你的游戏目录
 
 # 方式 B：环境变量
-setx MVZ2_GAME_DIR "E:\Game\PVZ\MVZ2\MVZ2 0.7.0 test-11\"
+setx MVZ2_GAME_DIR "E:\Game\PVZ\MVZ2\MVZ2 0.7.0 rc-1\"
 ```
 
 > 结尾的反斜杠不能少。没配置也能构建，只是**不会自动部署**到游戏。

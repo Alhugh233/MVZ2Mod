@@ -48,10 +48,9 @@ namespace Replay
             Idle = 0,
             GotoScene = 1,
             WaitScene = 2,
-            LoadGame = 3,
-            Playing = 4,
-            Ended = 5,
-            Failed = 6,
+            Playing = 3,
+            Ended = 4,
+            Failed = 5,
         }
 
         #region 状态
@@ -70,6 +69,9 @@ namespace Replay
         private static IntPtr oldControllerPointer;
         private static float phaseStart;
         private static string failReason;
+
+        /// <summary>最后一次失败的说明（<see cref="ReplaySceneEntry"/> 要用它回报原因）。</summary>
+        internal static string FailureReason => failReason;
 
         // 统计
         private static int injectedCount;
@@ -108,6 +110,24 @@ namespace Replay
         private static int fpMatched;
         private static int fpMismatch;
         private static int fpIndexForCheck;
+
+        /// <summary>
+        /// 「文件里有、但我们这次没能算出来」的指纹字段数。
+        ///
+        /// <para>协议允许文件带本 mod 不认识的指纹字段（别的版本 / 第三方采样器写的）。
+        /// 那些字段**不可能**被核对，所以既不能算「一致」也不能算「不一致」——
+        /// 单独计数并在小结里说明，否则会被误读成「全都对上了」。</para>
+        /// </summary>
+        private static int fpUnverifiedFields;
+        private static readonly List<string> fpUnverifiedNames = new List<string>();
+
+        /// <summary>本次播放核对的策略（**由文件推导**，见 <see cref="ReplayPlaybackPolicy"/>）。</summary>
+        private static ReplayRecordOptions verifyOptions;
+
+        /// <summary>播放开始时的环境差异（录制环境 vs 当前环境）。空 = 一致。</summary>
+        private static readonly List<string> envDiff = new List<string>();
+        private static readonly List<string> envDataVersionDiff = new List<string>();
+
         private static int tickLimit;
         private static int recoveredCount;
         /// <summary>连同定义都找不到、最后用「记录坐标就近」兜底的次数。</summary>
@@ -154,7 +174,45 @@ namespace Replay
         private static int pointerQueries;
 
         /// <summary>
-        /// 当前「游戏认为的指针位置」（已换算到当前窗口，与 <c>Input.mousePosition</c> 同制）。
+        /// 本 tick 有没有逐 tick 轨迹数据覆盖（<see cref="ReplayPointerTrajectory.TickCovered"/> 的缓存）。
+        ///
+        /// <para>接管指针**一律以它为准**，不要用「整条文件里有没有轨迹」：
+        /// 按需录制意味着一个文件的轨迹可能只覆盖后半段（例如 2-11 的碾压墙要等 Boss 出场才生成），
+        /// 前半段没有数据时绝不能凭空造输入。</para>
+        /// </summary>
+        private static bool trackCovered;
+
+        /// <summary>
+        /// 按键状态（位掩码）—— **没有轨迹时**从录制的事件推出来的兜底值。
+        ///
+        /// <para><b>为什么不能省掉它（这里踩过大坑）：</b>游戏的
+        /// <c>LevelPointerInteractionHandler.UpdateHoldAndStreak()</c>
+        /// （由 <c>GridView</c> / <c>EntityController</c> 每帧调用）会自己发
+        /// <c>Stay</c> / <c>Hold</c> / <c>Streak</c>，其中 <c>Streak</c> 的判据就是
+        /// <c>InputHelper.IsPointerHolding(pointerId)</c>。
+        /// 录制侧**不会**把这些每帧刷屏的交互记进文件，所以回放时必须由**事件推出来的掩码**
+        /// 把「鼠标一直按着」这件事维持住 —— 否则拖动（<c>Down → … → Up</c>）中间的
+        /// 那几个 tick 会变成「没按」，拖动直接断掉（实测会让一次放置失败）。</para>
+        ///
+        /// <para>有轨迹时一律以轨迹为准，见 <see cref="CurrentPointerMask"/>。</para>
+        /// </summary>
+        private static int eventMask;
+
+        /// <summary>本 tick 结束时的按键掩码 / 上一 tick 结束时的按键掩码（无轨迹时用）。</summary>
+        private static int maskNow;
+        private static int maskPrev;
+        /// <summary>本 tick **开始**时的掩码 —— 当作「上一 tick」（见 <see cref="AfterTick"/>）。</summary>
+        private static int cycleStartMask;
+
+        /// <summary>
+        /// 当前指针位置（**已换算到当前窗口**）。
+        ///
+        /// <para>两种来源，优先级从高到低：</para>
+        /// <list type="number">
+        /// <item>正在派发某个带坐标的事件 → 用**那个事件**的位置（一定要用事件原值：
+        /// 魔人经卷/剑的落点就是在按下那一刻由这里定下来的）；</item>
+        /// <item>其余时刻 → 用逐 tick 轨迹的位置（打砖块挡板、重装兵器朝向每帧读的就是这个）。</item>
+        /// </list>
         ///
         /// <para>⚠️ 这是**事件原值**，会被 <c>Global.Input</c> 的那几个查询读到，
         /// 而其中 <c>MinecartRideable</c> / <c>Snipenser</c> / <c>BreakoutBoard</c>
@@ -163,6 +221,94 @@ namespace Replay
         /// （见 <see cref="FakePointer"/> 的类注释）。</para>
         /// </summary>
         public static Vector2 PointerScreen => ReplayViewport.ToCurrent(pointerScreen);
+
+        /// <summary>当前按键状态（给 <c>InputHelper.IsPointerHolding</c> 之类的接管用）。</summary>
+        public static int CurrentPointerMask => trackCovered
+            ? ReplayPointerTrajectory.CurrentMask
+            : maskNow;
+
+        /// <summary>
+        /// 回放时接管「某个键现在按着吗 / 刚按下 / 刚抬起」。
+        ///
+        /// <para><b>为什么必须接管：</b><c>InputHelper.IsPointerOfPhase</c> 读的是
+        /// <c>Input.GetMouseButton*</c> —— 也就是**旁观者**的鼠标。不接管的话：
+        /// 重装兵器在回放里永远不会开火（它要 <c>IsPointerHolding(MOUSE,0)</c>），
+        /// 而旁观者按住左键又会让它乱开火。</para>
+        ///
+        /// <para><b>本 tick 没有轨迹数据时退回「事件推出来的掩码」</b>（<see cref="eventMask"/>），
+        /// **不是**退回实时输入 —— 后者会让旁观者的鼠标决定回放表现，
+        /// 而且拖动/长按这类「中间没有事件」的段落会整个断掉。</para>
+        ///
+        /// <para>只对 <c>MOUSE</c> 回答 —— 触摸/键盘的指针本来不在回放的范围里（录的是电脑端）。</para>
+        /// </summary>
+        /// <param name="phaseValue">与 <c>MVZ2Logic.Inputs.PointerPhase</c> 同值（None=0/Press=1/Hold=2/Release=3）。</param>
+        public static bool TryGetPointerPhase(int type, int button, int phaseValue, out bool result)
+        {
+            result = false;
+            if (phase != Phase.Playing)
+                return false;
+            if (type != MVZ2Logic.Inputs.PointerTypes.MOUSE)
+                return false;
+            if (button < 0 || button > 2)
+                return false;
+
+            int nowMask, prevMask;
+            if (trackCovered)
+            {
+                nowMask = ReplayPointerTrajectory.CurrentMask;
+                prevMask = ReplayPointerTrajectory.PreviousMask;
+            }
+            else
+            {
+                nowMask = maskNow;
+                prevMask = maskPrev;
+            }
+            int bit = 1 << button;
+            result = ReplayPointerTrajectory.EdgeOf((prevMask & bit) != 0, (nowMask & bit) != 0, phaseValue);
+            return true;
+        }
+
+        /// <summary>
+        /// 自测：验证「掩码 → 相位」这套边沿逻辑，以及**回放期间必须接管按键状态**这件事。
+        /// 这几条错了的表现非常隐蔽：重装兵器不会开火、右键取消会连续触发。
+        /// </summary>
+        internal static bool SelfCheckPointerPhases(out string detail)
+        {
+            var sb = new StringBuilder(160);
+            bool ok = true;
+
+            // 0 → 1：刚按下
+            ok &= Expect(sb, ReplayPointerTrajectory.EdgeOf(false, true, 1), true, "0→1 算 Press");
+            ok &= Expect(sb, ReplayPointerTrajectory.EdgeOf(false, true, 2), true, "0→1 也算 Hold（按住期间为真）");
+            ok &= Expect(sb, ReplayPointerTrajectory.EdgeOf(false, true, 3), false, "0→1 不算 Release");
+
+            // 1 → 1：一直按着
+            ok &= Expect(sb, ReplayPointerTrajectory.EdgeOf(true, true, 1), false, "1→1 不再是 Press（只触发一次）");
+            ok &= Expect(sb, ReplayPointerTrajectory.EdgeOf(true, true, 2), true, "1→1 仍是 Hold");
+            ok &= Expect(sb, ReplayPointerTrajectory.EdgeOf(true, true, 3), false, "1→1 不是 Release");
+
+            // 1 → 0：松开
+            ok &= Expect(sb, ReplayPointerTrajectory.EdgeOf(true, false, 1), false, "1→0 不是 Press");
+            ok &= Expect(sb, ReplayPointerTrajectory.EdgeOf(true, false, 2), false, "1→0 不再是 Hold");
+            ok &= Expect(sb, ReplayPointerTrajectory.EdgeOf(true, false, 3), true, "1→0 算 Release");
+
+            // 0 → 0：没按
+            ok &= Expect(sb, ReplayPointerTrajectory.EdgeOf(false, false, 2), false, "0→0 不按");
+            ok &= Expect(sb, ReplayPointerTrajectory.EdgeOf(false, false, 0), false, "None 恒假");
+
+            var masks = "（左=" + ReplayPointerTrajectory.BitLeft
+                + " 右=" + ReplayPointerTrajectory.BitRight
+                + " 中=" + ReplayPointerTrajectory.BitMiddle + "）";
+            detail = sb.ToString().TrimEnd('；', ' ') + " " + masks;
+            return ok;
+        }
+
+        private static bool Expect(StringBuilder sb, bool actual, bool want, string what)
+        {
+            bool ok = actual == want;
+            sb.Append(ok ? "OK " : "✗ ").Append(what).Append("；");
+            return ok;
+        }
 
         /// <summary>
         /// 未换算的指针位置（**录制时坐标系**）。
@@ -203,7 +349,6 @@ namespace Replay
         private static MethodInfo mClickStarshard;
         private static MethodInfo mClickTrigger;
         private static MethodInfo mDialogResume;
-        private static MethodInfo mGotoLevelSceneAsync;
         private static MethodInfo mFromBson;
         #endregion
 
@@ -339,6 +484,9 @@ namespace Replay
         public static int TotalEventCount => file != null ? file.Events.Count : 0;
         public static int VerifiedComparisons => fpCompared;
         public static int VerifiedMismatches => fpMismatch;
+
+        /// <summary>本次播放中**第一次**出现状态不一致的 tick（0 = 没出现过）。</summary>
+        public static int FirstMismatchTick => fpMismatchTicks.Count > 0 ? fpMismatchTicks[0] : 0;
         public static bool FinishedCleanly => phase == Phase.Ended;
         public static bool FailedNow => phase == Phase.Failed;
         public static int SkippedNoEntity => skippedNoEntity;
@@ -365,8 +513,6 @@ namespace Replay
                 case Phase.GotoScene:
                 case Phase.WaitScene:
                     return "正在进入关卡场景 " + name;
-                case Phase.LoadGame:
-                    return "正在恢复关键帧 " + name;
                 case Phase.Playing:
                     return "播放中 " + name
                         + " tick=" + currentTick + "/" + (file != null ? file.LastTick : 0)
@@ -439,12 +585,72 @@ namespace Replay
                     sb.Append(" …（已达上限 400）");
                 sb.Append('\n');
             }
+
+            // ---- 协议 / 环境（协议 v10）----
+            //
+            // 这一段回答的是「这份回放是按什么规范录的、当时的游戏环境是什么、现在差在哪」。
+            // 它必须进小结：环境差异是「回放与实战不符」最常见的解释之一，
+            // 而从画面上完全看不出来。
+            if (file != null)
+            {
+                sb.Append("  协议      : ")
+                  .Append(file.Policy != null ? file.Policy.Describe() : "-").Append('\n');
+                if (file.HasEnv)
+                    sb.Append("  录制环境  : ").Append(file.Environment.Describe()).Append('\n');
+                else
+                    sb.Append("  录制环境  : （v")
+                      .Append(file.Version).Append(" 文件没有环境记录，只能看到游戏版本 ")
+                      .Append(file.Game ?? "?").Append("）\n");
+
+                if (envDataVersionDiff.Count > 0)
+                {
+                    // 这一类不是「略有偏差」而是「必然失败」：游戏读档时会直接判存档不匹配。
+                    sb.Append("  ⚠ 内容 mod 关卡数据版本不同（关键帧可能载不进去）：\n");
+                    for (int i = 0; i < envDataVersionDiff.Count; i++)
+                        sb.Append("    · ").Append(envDataVersionDiff[i]).Append('\n');
+                }
+                if (envDiff.Count > 0)
+                {
+                    sb.Append("  ⚠ 环境差异 ").Append(envDiff.Count)
+                      .Append(" 项（只提示，不阻止播放）：\n");
+                    for (int i = 0; i < envDiff.Count && i < 10; i++)
+                        sb.Append("    · ").Append(envDiff[i]).Append('\n');
+                    if (envDiff.Count > 10)
+                        sb.Append("    · …还有 ").Append(envDiff.Count - 10).Append(" 项\n");
+                }
+                if (file.Warnings.Count > 0)
+                {
+                    for (int i = 0; i < file.Warnings.Count; i++)
+                        sb.Append("  ⚠ 文件自检: ").Append(file.Warnings[i]).Append('\n');
+                }
+            }
+            if (fpUnverifiedFields > 0)
+            {
+                // 「没法核对」必须单独说 —— 否则「指纹 3/3 一致」会被读成「全都验证过了」。
+                sb.Append("  ⚠ 有 ").Append(fpUnverifiedFields)
+                  .Append(" 个指纹字段没法核对（文件里有、本 mod 算不出来）：")
+                  .Append(string.Join("、", fpUnverifiedNames.ToArray()));
+                if (fpUnverifiedFields > fpUnverifiedNames.Count)
+                    sb.Append(" 等");
+                sb.Append('\n');
+            }
             for (int i = 0; i < errors.Count; i++)
                 sb.Append("  ! ").Append(errors[i]).Append('\n');
             if (pointerQueries > 0)
                 sb.Append("  Global.Input 指针位置查询被改写 ").Append(pointerQueries).Append(" 次\n");
             if (ReplayPointerAction.Enabled)
-                sb.Append("  回放的指针动作（POST_POINTER_ACTION）").Append(ReplayPointerAction.Fired).Append(" 次\n");
+            {
+                sb.Append("  回放的指针动作（POST_POINTER_ACTION）").Append(ReplayPointerAction.Fired).Append(" 次");
+                if (ReplayPointerAction.FiredFromTrack > 0)
+                    sb.Append("，其中由逐 tick 轨迹派发 ").Append(ReplayPointerAction.FiredFromTrack).Append(" 次");
+                sb.Append('\n');
+            }
+            // v9：逐 tick 轨迹与选项对话框。这两条是「打砖块/重装兵器/矿车/碾压墙」和
+            // 「梦魇与上锁的箱子」能正确重现的前提，所以必须报出「到底有没有数据、被用了几次」。
+            sb.Append("  指针轨迹  : ").Append(ReplayPointerTrajectory.DescribePlayback())
+                .Append("；按键掩码最后=").Append(CurrentPointerMask)
+                .Append("（有轨迹时以轨迹为准，否则由事件推出）\n");
+            sb.Append("  选项对话框: ").Append(ReplayDialogs.Describe()).Append('\n');
             // 「重演一局不许改动存档」这条护栏必须报出来：补丁没挂上 / 影子一次都没命中，
             // 都说明存档还在被回放改（而这从游戏表现上完全看不出来）。
             sb.Append("  存档护栏  : 补丁 ").Append(ReplayHooks.SaveGuardStatus)
@@ -466,8 +672,6 @@ namespace Replay
                 return "[replay] " + err;
 
             EnsureMethods();
-            if (mGotoLevelSceneAsync == null)
-                return "[replay] 找不到 MainSceneController.GotoLevelSceneAsync，无法进入关卡场景。";
 
             // 播放期间不能再录制（否则注入的动作会被记成新回放）。
             try
@@ -504,11 +708,22 @@ namespace Replay
             stopReason = null;
             elapsedSeconds = 0f;
             fpReports.Clear();
+            fpUnverifiedFields = 0;
+            fpUnverifiedNames.Clear();
+            envDiff.Clear();
+            envDataVersionDiff.Clear();
+            verifyOptions = BuildVerifyOptions(f);
+            CheckEnvironment(f);
             errors.Clear();
             failReason = null;
             bound = null;
             injecting = false;
             pointerScreen = Vector2.zero;
+            trackCovered = false;
+            eventMask = 0;
+            maskNow = 0;
+            maskPrev = 0;
+            cycleStartMask = 0;
             pointerQueries = 0;
             waitFrames = 0;
             tickLimit = GetTickLimit();
@@ -517,14 +732,40 @@ namespace Replay
             ReplayHud.Reset();
             ReplayProbe.Reset();
             ReplayPointerAction.Reset();
+            ReplaySceneEntry.Reset();
 
             // 存档护栏：回放里挣的/花的钱只进影子，统计与解锁等一律不写。
             // 补丁**故意延迟到这里才装**（游戏早就初始化完了，反射 MVZ2Logic 的类型是安全的）。
+            //
+            // ⚠️ 但**只装补丁，不开护栏**：0.7.0 上实测，护栏在「进关卡场景」这段时间里
+            // 处于开启状态会让进程直接死掉（Fatal error. 0xC0000005）。
+            // 现场（临时直写文件的诊断，每次都 flush）：
+            //     GotoScene: begin
+            //     guard: Data.GetMoney        <-- 此后无任何输出
+            // 也就是崩在「回放自己的前缀返回 false、丢掉逻辑存储层 GetMoney 的原方法」这一步。
+            // 关掉护栏（前缀直接 return true）就不会崩，而**只装补丁不开护栏**也没问题 ——
+            // 所以启用被挪到了关卡进入完成的那个时刻（见 WaitScene → Phase.Playing）。
             ReplayHooks.EnsureSaveGuardHooks();
-            ReplaySaveGuard.Begin();
+#if DIAGNOSTICS
+            // 只留传送带守卫（它接管的是 UpdateFixed 那几行，实测无害）。
+            // 原先这里还有三个探针（Addressables 定位记录 / Locate 改写 / IsAssignableFrom 守卫），
+            // 2026-10-16 全部删除 —— 它们挂上任何一个都会让进程以 .NET Runtime id=1023
+            // （coreclr internal error）死掉。见 docs/DESIGN.md §11.4。
+            ReplayConveyorGuard.Ensure();
+#endif
+            // v9：用**录制时的金币**给影子播种。金币不在关卡关键帧里，但它会参与关卡逻辑的
+            // **分支**（上锁的箱子按「钱够不够」决定要不要生成「付钱」那一项），
+            // 不播种的话「玩家看回放时没那么多钱」会让选项列表都不一样。
+            //
+            // 注意：这里只是**记住**要播种的值，真正给影子赋值要等护栏启用时（下一段）。
             // 把「录制时的窗口尺寸」记下来：事件里的 sx/sy 是像素，
             // 换个窗口尺寸再播就指向别的格子了（见 ReplayViewport）。
             ReplayViewport.Capture(f);
+
+            // v9：逐 tick 指针轨迹 + 选项对话框。两者都没有（旧文件 / 普通关卡）时
+            // 自动退回「按事件派发」与「对话框交给玩家」的老行为。
+            ReplayPointerTrajectory.LoadPlayback(f.PointerSamples);
+            ReplayDialogs.BeginPlayback(f);
 
             FakePointer.Begin(f);
             ReplayEndPanel.Close();
@@ -536,6 +777,22 @@ namespace Replay
             var sb = new StringBuilder();
             sb.Append("[replay] 开始播放：").Append(System.IO.Path.GetFileName(f.Path)).Append('\n');
             sb.Append("  ").Append(f.Describe()).Append('\n');
+            // 播放策略**来自文件**（不是配置）：把它打出来，用户与排障时都能一眼看到
+            // 「这份回放声称该怎么播」。
+            sb.Append("  协议      : ").Append(f.Policy.Describe()).Append('\n');
+            if (f.HasEnv)
+                sb.Append("  录制环境  : ").Append(f.Environment.Describe()).Append('\n');
+            if (envDataVersionDiff.Count > 0)
+                sb.Append("  ⚠ 内容 mod 关卡数据版本不同：")
+                  .Append(string.Join("；", envDataVersionDiff.ToArray())).Append('\n');
+            if (envDiff.Count > 0)
+            {
+                sb.Append("  ⚠ 环境与录制时不同（仍会播放）：\n");
+                for (int i = 0; i < envDiff.Count && i < 6; i++)
+                    sb.Append("    · ").Append(envDiff[i]).Append('\n');
+                if (envDiff.Count > 6)
+                    sb.Append("    · …还有 ").Append(envDiff.Count - 6).Append(" 项\n");
+            }
             for (int i = 0; i < f.Warnings.Count; i++)
                 sb.Append("  ! ").Append(f.Warnings[i]).Append('\n');
             sb.Append("  （正在进入关卡场景，稍等）");
@@ -554,10 +811,14 @@ namespace Replay
             ReplayHud.Hide();
             FakePointer.End();
             ReplayViewport.Clear();
+            ReplayDialogs.EndPlayback();
+            ReplayPointerTrajectory.ResetPlayback();
             ReplaySaveGuard.End();
+            ReplaySceneEntry.Reset();
             bound = null;
             cursor = 0;
             lastSummary = BuildSummary();
+            RecordHealth(false);
             Plugin.Log?.LogInfo("[Replay] 播放停止：" + reason + "，耗时 " + elapsedSeconds.ToString("F1") + " 秒");
             if (was != Phase.Playing)
                 return "[replay] 播放已中止（阶段 " + was + "）：" + reason;
@@ -571,8 +832,12 @@ namespace Replay
             ReplayHud.Hide();
             FakePointer.End();
             ReplayViewport.Clear();
+            ReplayDialogs.EndPlayback();
+            ReplayPointerTrajectory.ResetPlayback();
             ReplaySaveGuard.End();
+            ReplaySceneEntry.Reset();
             bound = null;
+            RecordHealth(true);
             Plugin.Log?.LogError("[Replay] 播放失败：" + reason);
             try { Global.Debugs?.Print("[replay] 播放失败：" + reason + "\n"); } catch (Exception) { }
         }
@@ -584,7 +849,7 @@ namespace Replay
             // 那时 bound 还是 null（或指向别的东西），不能因此把刚开头的播放掐掉。
             if (bound == null || ctrl == null || bound.Pointer != ctrl.Pointer)
                 return;
-            if (phase != Phase.Playing && phase != Phase.LoadGame)
+            if (phase != Phase.Playing)
                 return;            Plugin.Log?.LogWarning("[Replay] 播放中的关卡被销毁（Dispose）——"
                 + " 阶段=" + phase + " 已跑 " + currentTick + "/" + (file != null ? file.LastTick : 0)
                 + " 注入=" + injectedCount + "/" + (file != null ? file.Events.Count : 0)
@@ -602,7 +867,21 @@ namespace Replay
         {
             try
             {
+                if (IsPlaying)
+                    ReplayConveyorGuard.Beat(CurrentTick, "scene-tick");
                 DrivePhase(scene);
+                if (IsPlaying)
+                    ReplayConveyorGuard.Beat(CurrentTick, "scene-tick-after");
+
+                // 回放的选项对话框是**阻塞式**的（游戏自己 PauseGame 了，逻辑 tick 不再前进），
+                // 所以它的自动应答必须靠**帧**驱动，不能挂在 tick 上。
+                if (IsPlaying)
+                    ReplayDialogs.OnFrame();
+
+                // 菜单里「重新播放 / 结束播放」的文案：每帧按一遍。
+                // 只在菜单真的开着时才动手（见 EnforceMenuLabels 的说明）。
+                if (IsPlaying)
+                    ReplayPatches.EnforceMenuLabels();
             }
             catch (Exception e)
             {
@@ -653,14 +932,68 @@ namespace Replay
                         catch (Exception) { }
                         Plugin.Log?.LogInfo("[Replay] 请求进入关卡场景（旧控制器 = "
                             + (oldControllerPointer == IntPtr.Zero ? "无" : "0x" + oldControllerPointer.ToInt64().ToString("X"))
-                            + "，等它被换掉再 LoadGame）");
+                            + "）");
+
+                        // 进关卡**走游戏自己的控制台指令**。
+                        //
+                        // ⚠️ 为什么不用 IGlobalScene.GotoLevelCoroutine()（0.7.0 起会崩）：
+                        // 那条路是 managed → il2cpp_runtime_invoke → 原生 async 场景加载，
+                        // 在 0.7.0 上必崩（Fatal error. 0xC0000005，现场见 ErrorLog）：
+                        //     at IL2CPP.il2cpp_runtime_invoke
+                        //     at DMD<SceneLoadingManager::LoadSceneAsync>
+                        //     at DMD<MVZ2.Level.LevelManager::GotoLevelSceneAsync>
+                        //     at IGlobalScene.GotoLevelCoroutine
+                        //     at ReplayPlayer.DrivePhase
+                        // 而**同一条** SceneLoadingManager.LoadSceneAsync 链路，只要整条都留在
+                        // il2cpp 原生侧（指令 → 协程 → GotoLevelCoroutine）就完全正常 ——
+                        // 游戏自己的「开始关卡」「继续关卡」「重新开始」都走它。
+                        // 所以这里让游戏自己去调：把它当**唯一受支持的场景切换入口**。
+                        //
+                        // 代价：指令在场景加载完之后会顺带跑 LevelManager.InitLevel()
+                        // （把关卡 Init 出来 / 从 `.lvl` 续关），控制器就不再是「刚 Awake 的干净状态」，
+                        // 直接 LoadGame 会撞碰撞系统的键。所以关键帧的载入改由
+                        // ReplayPatches 对 LevelManager.InitLevel 的**前缀接管**完成
+                        // （见 ReplaySceneEntry / OnLevelManagerInitLevel）。
+                        if (file == null)
+                        {
+                            Fail("没有正在播放的回放文件");
+                            return;
+                        }
+                        if (ParseId(file.Area) == null || ParseId(file.Stage) == null)
+                        {
+                            Fail("关卡 id 不合法：" + file.Area + " / " + file.Stage);
+                            return;
+                        }
+
+                        // 挑指令：**已经在关卡里**时不能再 `/gotolevel`（它自己会抛
+                        // 「COMMAND_CANNOT_BE_CALLED_IN_LEVEL」），改用游戏自己的
+                        // 「重新开始」——`/load` → LevelController.ReloadLevel()：
+                        //     Saves.SaveToFile() → Dispose() → GotoLevelSceneAsync()
+                        //     → LevelManager.InitLevel(startAreaID, startStageID, exitTarget)
+                        // 最后那一步照样被我们的前缀接管，所以关键帧仍然是我们的。
+                        bool inLevel;
                         try
                         {
-                            mGotoLevelSceneAsync.Invoke(scene, null);
+                            var cur = main.LevelManager != null ? main.LevelManager.GetLevelController() : null;
+                            inLevel = cur != null && cur.Pointer != IntPtr.Zero;
+                        }
+                        catch (Exception) { inLevel = false; }
+
+                        var gotoCommand = inLevel
+                            ? "/load"
+                            : ("/gotolevel " + file.Stage + " " + file.Area);
+                        try
+                        {
+                            ReplaySceneEntry.Begin(ParseId(file.Area), ParseId(file.Stage));
+                            Plugin.Log?.LogInfo("[Replay] 执行 " + gotoCommand + " 进关卡");
+                            main.DebugManager.ExecuteCommand(gotoCommand, 1);
+                            Plugin.Log?.LogInfo("[Replay] " + gotoCommand + " 已返回（接管状态="
+                                + ReplaySceneEntry.State + "）");
                         }
                         catch (Exception e)
                         {
-                            Fail("调用 GotoLevelSceneAsync 失败：" + Describe(e));
+                            ReplaySceneEntry.Abort();
+                            Fail("进关卡指令失败：" + Describe(e));
                             return;
                         }
                         phaseStart = Time.realtimeSinceStartup;
@@ -672,33 +1005,56 @@ namespace Replay
                     {
                         if (Time.realtimeSinceStartup - phaseStart > WaitSceneTimeoutSec)
                         {
-                            Fail("等待关卡场景就绪超时");
+                            Fail("等待关卡场景就绪超时 —— /gotolevel 没跑到 LevelManager.InitLevel，"
+                                + "或场景加载卡住了");
                             return;
                         }
-                        var ctrl = main.LevelManager != null ? main.LevelManager.GetLevelController() : null;
-                        if (ctrl == null || ctrl.Pointer == IntPtr.Zero)
+
+                        // 关键帧的载入由 ReplaySceneEntry **自己轮询**完成：
+                        // 0.7.0 上 `/load` 的 `await UnloadSceneAsync(旧场景)` 续体不会恢复，
+                        // 所以不能只等 LevelManager.InitLevel 的前缀（见 ReplaySceneEntry 的长注释）。
+                        ReplaySceneEntry.Tick();
+
+                        if (ReplaySceneEntry.State == SceneEntryState.Waiting)
                             return;
-                        // 必须等**新**控制器。只见「有控制器」是不够的 —— 场景切换期间旧控制器
-                        // 一直在场，那时 LoadGame 会撞碰撞系统的键（详见 GotoScene 里的注释）。
-                        if (oldControllerPointer != IntPtr.Zero && ctrl.Pointer == oldControllerPointer)
+                        if (ReplaySceneEntry.State == SceneEntryState.Failed)
+                        {
+                            Fail("载入关键帧失败：" + ReplaySceneEntry.Failure);
                             return;
-                        // 场景刚 Awake，再等几帧让 Awake_* 全部跑完、
-                        // 并让 GotoLevelSceneAsync 把旧场景卸掉，与游戏自己的
-                        // GotoLevelCoroutine → InitLevel 之间那一帧边界一致。
+                        }
+                        if (ReplaySceneEntry.State != SceneEntryState.Done)
+                        {
+                            Fail("内部状态错误：WaitScene 时 ReplaySceneEntry = " + ReplaySceneEntry.State);
+                            return;
+                        }
+
+                        // 载入完成后再等几帧，让 StartLevelIntro / Awake_* 收尾。
                         waitFrames++;
                         if (waitFrames < 3)
                             return;
-                        Plugin.Log?.LogInfo("[Replay] 关卡场景已就绪（新控制器 = 0x" + ctrl.Pointer.ToInt64().ToString("X") + "）");
-                        phase = Phase.LoadGame;
-                        break;
-                    }
 
-                case Phase.LoadGame:
-                    {
-                        if (!LoadKeyframe(main))
-                            return;
+                        Plugin.Log?.LogInfo("[Replay] 关卡已按关键帧恢复（控制器 = 0x"
+                            + (bound != null && bound.Pointer != IntPtr.Zero
+                                ? bound.Pointer.ToInt64().ToString("X") : "?")
+                            + "），开始按 tick 播放");
+
+                        // 现在才启用存档护栏（理由见 Start 里的长注释：0.7.0 上在进关卡期间
+                        // 开启护栏会让进程直接死掉，而只装补丁不开护栏是安全的）。
+                        if (ReplayConfig.SaveGuardOn)
+                        {
+                            ReplaySaveGuard.Begin();
+                            if (file != null && file.HasStartMoney)
+                                ReplaySaveGuard.SeedMoney(file.StartMoney);
+                        }
+                        else
+                        {
+                            Plugin.Log?.LogWarning("[Replay] [General] SaveGuard = false："
+                                + "护栏未启用（回放可能会改动存档）");
+                        }
+
                         phase = Phase.Playing;
                         phaseStart = Time.realtimeSinceStartup;
+                        ReplayConveyorGuard.Beat(0, "=== 进入 Playing ===");
                         break;
                     }
             }
@@ -711,7 +1067,7 @@ namespace Replay
         ///
         /// <para>游戏有两条路会弹它并 <c>PauseGame()</c>：</para>
         /// <list type="number">
-        /// <item>我们播放关键帧之后（<see cref="LoadKeyframe"/>）；</item>
+        /// <item>我们播放关键帧之后（<see cref="ApplyKeyframeTo"/>）；</item>
         /// <item><b>游戏自己</b>从关卡存档续关 —— 存档路径
         /// <c>…\userdata\userN\mvz2\level\&lt;stage&gt;.lvl</c>，由
         /// <c>LevelManager.InitLevel</c> 发现 <c>HasLevelState</c> 后走 <c>LoadLevel</c>。</item>
@@ -752,14 +1108,55 @@ namespace Replay
             }
         }
 
-        private static bool LoadKeyframe(MainManager main)
+        /// <summary>
+        /// 把回放的关键帧载入到**指定的**关卡控制器上。
+        ///
+        /// <para>调用点是 <see cref="ReplaySceneEntry.OnInitLevel"/> —— 也就是
+        /// <c>LevelManager.InitLevel</c> 的前缀里，游戏自己「关卡刚开始」那一刻：
+        /// 控制器刚从新加载的场景里 Awake 出来，**还没被 <c>LevelController.InitLevel()</c>
+        /// 填过碰撞系统**，正好满足 <c>LoadGame</c> 的要求。</para>
+        ///
+        /// <para>⚠️ 不能把关键帧载到「已经 Init 过」的控制器上：<c>CreateFromSerializable</c> →
+        /// <c>ReadCollisionFromSerializable</c> 会 <c>entities.Add(id)</c> 撞键并抛
+        /// <c>ArgumentException: Key: [N, BuiltinCollisionEntity]</c>，而那个异常只落在
+        /// Unity 的 Player.log 里（不进 BepInEx 日志），<c>LoadGame</c> 只是返回 false。</para>
+        /// </summary>
+        /// <summary>
+        /// 把关键帧 BSON 里的音乐字段剔掉（<c>[General] RestoreMusic = false</c> 时用）。
+        ///
+        /// <para>只动 <c>musicID</c> / <c>musicTime</c> / <c>musicVolume</c> 三个键：
+        /// 它们对应 <c>SerializableLevelController</c> 上的三个同名字段，
+        /// 置成 null / 0 / 1 之后游戏反序列化时会跳过「切曲目」这一步，
+        /// 也就不会去 Addressables 加载 <c>main_assets_mainmusic_*.bundle</c>。</para>
+        /// </summary>
+        private static string StripMusic(string bson)
         {
-            var ctrl = main.LevelManager != null ? main.LevelManager.GetLevelController() : null;
+            if (string.IsNullOrEmpty(bson))
+                return bson;
+            var s = System.Text.RegularExpressions.Regex.Replace(
+                bson, "\"musicID\"\\s*:\\s*\"[^\"]*\"", "\"musicID\" : null");
+            s = System.Text.RegularExpressions.Regex.Replace(
+                s, "\"musicTime\"\\s*:\\s*[-0-9.eE]+", "\"musicTime\" : 0");
+            s = System.Text.RegularExpressions.Regex.Replace(
+                s, "\"musicVolume\"\\s*:\\s*[-0-9.eE]+", "\"musicVolume\" : 1");
+            return s;
+        }
+
+        internal static bool ApplyKeyframeTo(LevelController ctrl, NamespaceID area, NamespaceID stage,
+            MVZ2Logic.Level.LevelExitTarget exitTarget)
+        {
             if (ctrl == null || ctrl.Pointer == IntPtr.Zero)
             {
                 Fail("关卡控制器不存在");
                 return false;
             }
+            if (file == null)
+            {
+                Fail("没有正在播放的回放文件");
+                return false;
+            }
+
+            Plugin.Log?.LogInfo("[Replay] 开始载入关键帧");
 
             SerializableLevelController seri;
             try
@@ -779,7 +1176,17 @@ namespace Replay
                 // 注意：FromBson<T> 在 interop 里是**泛型方法**，而它背后的
                 // MethodInfoStoreGeneric_… 类是 internal 的，不能直接引用，
                 // 所以这里靠反射把泛型实参补上再调。
-                seri = (SerializableLevelController)mFromBson.Invoke(null, new object[] { file.KeyframeBson });
+                //
+                // 关掉 RestoreMusic 时先把音乐字段从 BSON 里剔掉：关键帧里的 musicID
+                // 会让游戏去 Addressables 加载 main_assets_mainmusic_*.bundle，
+                // 而 0.7.0 正式版的崩溃现场恰好就落在那次加载的依赖解析上。
+                var bson = file.KeyframeBson;
+                if (!ReplayConfig.RestoreMusicOn)
+                {
+                    bson = StripMusic(bson);
+                    Plugin.Log?.LogInfo("[Replay] [General] RestoreMusic = false：关键帧里的音乐字段已剔除");
+                }
+                seri = (SerializableLevelController)mFromBson.Invoke(null, new object[] { bson });
             }
             catch (Exception e)
             {
@@ -791,21 +1198,25 @@ namespace Replay
                 Fail("关键帧反序列化返回 null");
                 return false;
             }
-
-            var area = ParseId(file.Area);
-            var stage = ParseId(file.Stage);
-            if (area == null || stage == null)
-            {
-                Fail("关卡 id 不合法：" + file.Area + " / " + file.Stage);
-                return false;
-            }
+            Plugin.Log?.LogInfo("[Replay] 关键帧反序列化完成");
 
             bool ok;
             try
             {
                 ctrl.SetActive(true);
                 ctrl.SetStartStage(area, stage);
+                var main = MainManager.Instance;
+                if (main == null)
+                {
+                    Fail("MainManager 不可用");
+                    return false;
+                }
                 ok = ctrl.LoadGame(seri, main.Game, area, stage);
+                Plugin.Log?.LogInfo("[Replay] LoadGame 返回 " + ok);
+                // 原本 InitLevel 的最后一步（我们跳过了它的函数体，所以要补上）。
+                // 它决定「退出关卡后去哪」，属于关卡运行时状态的一部分。
+                ctrl.SetExitTarget(exitTarget);
+                Plugin.Log?.LogInfo("[Replay] SetExitTarget 完成");
             }
             catch (Exception e)
             {
@@ -937,6 +1348,35 @@ namespace Replay
                 int tick = ToTick(lvl.GetLevelTime());
                 currentTick = tick;
 
+                // v9：把「这一 tick **内部**」的指针状态定下来。
+                //
+                // ⚠️ 时序（这里曾经差了一整个 tick，后果是重装兵器多发一颗子弹）：
+                // Unity 的 Input 在**一帧内是常量**，而采样点与逻辑 tick 在同一帧：
+                //     帧 F：Input = I(F)
+                //       GameUpdater.Update() → 跑 tick T（tick 内读 Input 看到的就是 I(F)）
+                //       采样点（tick 后）     → sample@T = I(F)
+                //     即 **tick T 内部读到的输入 == sample@T**。
+                // 所以这里用「第 T 条」采样，而不是「第 T−1 条」。
+                //
+                // ⚠️ 并且要**在 tick 逻辑之前**把 POST_POINTER_ACTION 发出去：
+                // 打砖块挡板是**绝对赋值**（`position = ScreenToLawnPositionByY(screenPos, 32)`），
+                // 游戏里它在逻辑 tick 之前就已经被摆到 I(F) 了。若拖到 tick 之后才摆，
+                // 挡板就慢一帧、珠子会在另一个 tick 落空（实测：录制 `breakout_pearl=2`、回放只剩 1）。
+                // 放在前缀里连同事件一起发，恰好就是「先输入层、再路由事件」的顺序。
+                trackCovered = ReplayPointerTrajectory.BeginTick(tick,
+                    out var trackScreen, out var trackPrev, out var trackCur);
+                if (trackCovered)
+                {
+                    var trackNow = ReplayViewport.ToCurrent(trackScreen);
+                    ReplayPointerAction.FirePhases(MainManager.Instance,
+                        trackNow.x, trackNow.y, trackPrev, trackCur);
+                }
+
+                // 没有轨迹数据时的兜底：本 tick **开始**时的按键状态当作「上一 tick」。
+                // （本轮的事件会在 Dispatch 里通过 UpdateEventMask 追加进来，
+                //   到 AfterTick 时 eventMask 就是「本 tick 结束时」。）
+                cycleStartMask = eventMask;
+
                 // 先推进假鼠标（纯视觉），再派发事件 —— 这样「到站」的那一刻
                 // 正好就是动作发生的那一个 tick。
                 FakePointer.Tick(bound, engine, tick);
@@ -972,8 +1412,26 @@ namespace Replay
                 int tick = ToTick(lvl.GetLevelTime());
                 currentTick = tick;
 
+                // 逐 tick 心跳（写独立文件 + AutoFlush）：崩溃前最后一行 = 真正的死亡 tick。
+                // 见 ReplayConveyorGuard 里「为什么不能只靠 BepInEx 日志」。
+                ReplayConveyorGuard.Beat(tick, "playing");
+
+                // v9：按键状态的**兜底**：本 tick 没有轨迹数据时，`TryGetPointerPhase` /
+                // `CurrentPointerMask` 会把这两个值当作本轮答案，而游戏的
+                // `UpdateHoldAndStreak()` 每帧都要问「鼠标还按着吗」——
+                // 拖动（Down → … → Up）中间那几个 tick 一旦变成「没按」，拖动就断了。
+                //
+                // 有轨迹时不需要这两行（那边直接读 `ReplayPointerTrajectory`）。
+                if (!trackCovered)
+                {
+                    maskPrev = cycleStartMask;
+                    maskNow = eventMask;
+                }
+
                 CheckFingerprints(lvl, tick);
+                ReplayConveyorGuard.Beat(tick, "after-fp-in");
                 ReplayHud.SetProgress(tick, file.LastTick);
+                ReplayConveyorGuard.Beat(tick, "playing-after");
 
                 // 调试用：只播到指定 tick 就收尾。
                 if (tickLimit > 0 && tick >= tickLimit)
@@ -1237,6 +1695,59 @@ namespace Replay
         /// <summary>最近一次「按定义找实体」的结果描述（排障用）。</summary>
         private static string lastNearestInfo;
 
+        /// <summary>
+        /// 把本次播放的结果写进回放健康记录（列表里名字的颜色、下次播放前的弹窗）。
+        ///
+        /// <para><b>规则</b>（需求）：出现任何问题 → <b>红</b>；
+        /// 没问题且已经跑到总时长的一半以上 → <b>白</b>；
+        /// 跑得不够久（提前退出/中途被停）→ **不动**，保留上次的判断 ——
+        /// 没看到的事不能当成「没问题」。</para>
+        ///
+        /// <para>写盘是读-改-写整个索引文件，但一次播放只会在收尾时调一次，开销可忽略。</para>
+        /// </summary>
+        private static void RecordHealth(bool failed)
+        {
+            try
+            {
+                var n = CurrentName;
+                if (string.IsNullOrEmpty(n))
+                    return;
+                var dir = ReplayConfig.ResolveOutputDir();
+                if (string.IsNullOrEmpty(dir))
+                    return;
+
+                if (failed || fpMismatch > 0)
+                {
+                    // 出过问题 → 红标，并**清掉**之前的「已验证」记录
+                    // （不一样的环境/数据没法互相担保）。
+                    ReplayIndex.UpdateHealth(dir, n, ReplayHealth.Bad, fpMismatch, FirstMismatchTick, null);
+                    return;
+                }
+
+                int st = file != null ? file.StartTick : 0;
+                int lt = file != null ? file.LastTick : 0;
+                // 降级门槛：跑到总时长的 **20%** 且一条指纹都没错，就认为「这条在当前环境里能正常播」。
+                //
+                // 原来是 50%，实测太严：一条两万 tick 的回放要跑满一万 tick 才算数，
+                // 而玩家看一眼就走了 —— 结果黄标永远降不下来（用户实测反馈）。
+                // 20% 仍能覆盖「关键帧载入 + 前几波」那段最容易翻车的地方。
+                if (lt > st && currentTick >= st + (lt - st) / 5)
+                {
+                    // 跑到门槛以上、一条指纹都没错 → 白标，并记住「是在这个环境下验证的」。
+                    // 列表据此把「环境不同 / 旧格式」这类静态推断的黄标降级。
+                    var env = ReplayLibrary.CurrentEnvHash();
+                    if (string.IsNullOrEmpty(env))
+                        env = ReplayInfo.VerifiedEnvUnknown;
+                    ReplayIndex.UpdateHealth(dir, n, ReplayHealth.Ok, 0, 0, env);
+                }
+            }
+            catch (Exception e)
+            {
+                Plugin.Log?.LogWarning("[Replay] 写回放健康度失败："
+                    + e.GetType().Name + ": " + e.Message);
+            }
+        }
+
         private static void FinishPlayback(string reason)
         {
             // 只允许「还在跑的时候」收尾一次。重复调用（例如结束面板开着的时候又触发一遍）
@@ -1248,6 +1759,7 @@ namespace Replay
             stopReason = reason;
             elapsedSeconds = Time.realtimeSinceStartup - phaseStart;
             lastSummary = BuildSummary();
+            RecordHealth(false);
 
             // 收尾时把 REC 标签和假鼠标收掉 —— 和 Stop()/Fail() 保持一致。
             // （不回放期间它们本来还在屏幕上留着，REC 会一直停在最后一帧的数字上。）
@@ -1319,6 +1831,7 @@ namespace Replay
 
         private static int GetTickLimit()
         {
+#if DIAGNOSTICS
             try
             {
                 return ReplayConfig.SelfTestPlayTickLimit != null
@@ -1327,6 +1840,79 @@ namespace Replay
             catch (Exception)
             {
                 return 0;
+            }
+#else
+            // 发布构建里没有自测（Diagnostics\ 整份不编译），也就没有「停在第 N tick」这个开关。
+            return 0;
+#endif
+        }
+
+        /// <summary>
+        /// 核对用的采样策略：**从文件推导**，不看配置。
+        ///
+        /// <para>规则很简单 —— 文件说自己是调试文件，我们就把调试采样器也跑起来，
+        /// 这样那些 <c>rx</c>/<c>ei</c>/<c>lk</c> 字段才有人去算、才比得上。
+        /// 反过来，普通文件只跑常规采样器（多算也不会被比 —— 比对只认**文件里有**的键）。</para>
+        ///
+        /// <para><c>FullFingerprint</c> 一律给 true：多算出来的字段不会进比对（见
+        /// <see cref="CompareFingerprint"/>），但万一下一个版本的回放带了我们没算的字段，
+        /// 多算总好过没得比。</para>
+        /// </summary>
+        private static ReplayRecordOptions BuildVerifyOptions(ReplayFile f)
+        {
+            var p = f != null ? f.Policy : null;
+            bool debug = p != null && p.Debug;
+            return new ReplayRecordOptions
+            {
+                Debug = debug,
+                DebugEveryTick = debug,
+                DebugRawRng = debug,
+                DebugEntityDetail = debug,
+                DebugLevelScalars = debug,
+                FullFingerprint = true,
+            };
+        }
+
+        /// <summary>
+        /// 比对「录制时的环境」与「当前环境」。
+        ///
+        /// <para><b>只警告、不阻止播放</b>（既定策略）：环境不同多半仍能播，
+        /// 硬拦只会把「换了台机器想看看回放」的用户挡在门外。但**必须说明原因** ——
+        /// 因为环境不同正是「回放与实战不符」最常见的解释之一，
+        /// 而玩家从画面里根本看不出来。</para>
+        ///
+        /// <para>内容 mod 的关卡数据版本单独拎出来：它不一致会让关键帧**根本载不进去**，
+        /// 属于「不是『略有偏差』而是『必然失败』」的那一类。</para>
+        /// </summary>
+        private static void CheckEnvironment(ReplayFile f)
+        {
+            envDiff.Clear();
+            envDataVersionDiff.Clear();
+            try
+            {
+                if (f == null || !f.HasEnv)
+                    return;
+                var now = ReplayEnvironment.Capture();
+                envDiff.AddRange(f.Environment.Diff(now));
+                envDataVersionDiff.AddRange(f.Environment.ContentModVersionMismatches(now));
+
+                if (envDiff.Count > 0)
+                {
+                    Plugin.Log?.LogWarning("[Replay] 回放环境与当前环境不同（仍会播放）：");
+                    for (int i = 0; i < envDiff.Count && i < 12; i++)
+                        Plugin.Log?.LogWarning("[Replay]   · " + envDiff[i]);
+                    if (envDiff.Count > 12)
+                        Plugin.Log?.LogWarning("[Replay]   · …还有 " + (envDiff.Count - 12) + " 项");
+                }
+                if (envDataVersionDiff.Count > 0)
+                {
+                    Plugin.Log?.LogWarning("[Replay] ⚠ 内容 mod 的关卡数据版本不同，关键帧可能载不进去："
+                        + string.Join("；", envDataVersionDiff.ToArray()));
+                }
+            }
+            catch (Exception e)
+            {
+                Plugin.Log?.LogWarning("[Replay] 环境比对失败：" + e.GetType().Name);
             }
         }
 
@@ -1342,10 +1928,13 @@ namespace Replay
                 return;
             fpIndexForCheck++;
 
-            var actual = ReplayRecorder.ComputeFingerprint(lvl, tick, out _);
+            var actual = ReplayRecorder.ComputeFingerprint(lvl, tick, out _, verifyOptions);
             if (actual == null)
                 return;
             fpCompared++;
+
+            // 先记下「文件里有、我们这次没算出来」的字段：它们既不算一致也不算不一致。
+            CountUnverifiedFields(expected, actual);
 
             var diff = CompareFingerprint(expected, actual);
             if (diff == null)
@@ -1395,7 +1984,94 @@ namespace Replay
                     sb.Append("（先跑偏的是 ").Append(who).Append(" 流）");
                 sb.Append(' ');
             }
+
+            // ---- 附加字段（协议 v10）----
+            //
+            // **通用**比对：只认「录制侧有」的键。这样「加一种新指纹」＝注册一个采样器，
+            // 播放侧的比对代码一行都不用改（见 ReplaySamplers）。
+            //
+            // 录制侧没有的键我们**不去猜** —— 那是「这条指纹只记了一部分」（旧文件 / 采样器被关掉），
+            // 不是「回放算错了」。
+            for (int i = 0; i < a.Extra.Count; i++)
+            {
+                var kv = a.Extra[i];
+                var mine = b.ExtraOf(kv.Key);
+                if (mine == null)
+                    continue; // 没算出来 → 由 CountUnverifiedFields 单独计数
+                if (string.Equals(mine, kv.Value, StringComparison.Ordinal))
+                    continue;
+
+                // 调试字段（实体明细 / 原始 RNG）动辄几百字符，整串贴出来没人看 ——
+                // 直接给出**第一个不同处**：排查「谁先变」时这一条就是答案。
+                if (kv.Value != null && kv.Value.Length > 72)
+                {
+                    sb.Append(kv.Key).Append(' ')
+                      .Append(FirstDifference(kv.Value, mine) ?? "（内容不同）").Append(' ');
+                }
+                else
+                {
+                    sb.Append(kv.Key).Append(" [").Append(kv.Value).Append("]→[")
+                      .Append(mine).Append("] ");
+                }
+            }
             return sb.Length == 0 ? null : sb.ToString().TrimEnd();
+        }
+
+        /// <summary>
+        /// 统计「文件里有、我们没能算出来」的指纹字段。
+        ///
+        /// <para>它们既不是一致也不是不一致 —— 单独报出来，避免被误读成「全都对上了」。
+        /// 常见来源：别的版本写的字段、第三方采样器写的字段、或者本场把某个采样器关掉了。</para>
+        /// </summary>
+        private static void CountUnverifiedFields(ReplayFingerprint recorded, ReplayFingerprint actual)
+        {
+            for (int i = 0; i < recorded.Extra.Count; i++)
+            {
+                var key = recorded.Extra[i].Key;
+                if (actual.ExtraOf(key) != null)
+                    continue;
+                fpUnverifiedFields++;
+                if (fpUnverifiedNames.Count < 8 && !fpUnverifiedNames.Contains(key))
+                    fpUnverifiedNames.Add(key);
+            }
+        }
+
+        /// <summary>
+        /// 两个长字符串的**第一个不同处**（含两侧各一小段上下文）。
+        ///
+        /// <para>用于实体明细（<c>id:定义:血量:坐标:分层</c> 用 <c>;</c> 连接）与原始 RNG
+        /// （用 <c>|</c> 分流的 <c>x,y,z,w</c>）：整串对比只能说「不一样」，
+        /// 而「第 37 个字符开始不同」能直接指出是**哪个实体的哪个量**。</para>
+        /// </summary>
+        private static string FirstDifference(string a, string b)
+        {
+            if (string.IsNullOrEmpty(a) || string.IsNullOrEmpty(b))
+                return null;
+            int n = Math.Min(a.Length, b.Length);
+            int i = 0;
+            while (i < n && a[i] == b[i])
+                i++;
+            if (i == n && a.Length == b.Length)
+                return null;
+            return "首个不同（第 " + i + " 字符）：" + Token(a, i) + " → " + Token(b, i);
+        }
+
+        /// <summary>取位置 <paramref name="at"/> 所在的「一段」（按 <c>;</c> / <c>|</c> / <c>,</c> 切）。</summary>
+        private static string Token(string s, int at)
+        {
+            if (string.IsNullOrEmpty(s))
+                return "-";
+            if (at >= s.Length)
+                return "(结尾)";
+            int start = at;
+            while (start > 0 && s[start - 1] != ';' && s[start - 1] != '|' && s[start - 1] != ',')
+                start--;
+            int end = at;
+            while (end < s.Length && s[end] != ';' && s[end] != '|' && s[end] != ',')
+                end++;
+            if (end - start > 60)
+                end = start + 60;
+            return s.Substring(start, end - start);
         }
 
         /// <summary>
@@ -1425,6 +2101,39 @@ namespace Replay
         #endregion
 
         #region 事件派发
+        /// <summary>
+        /// 从一条录制事件更新**兜底**的按键掩码。
+        ///
+        /// <para>只能看出「按下 / 抬起」的边沿（<c>Down</c> 置位、<c>Up</c> 清零），
+        /// 中间没有事件的那段则沿用上一次的值 —— 这对「按住不放」恰好是对的，
+        /// 而且正是游戏每帧的 <c>UpdateHoldAndStreak</c> 所依赖的。</para>
+        ///
+        /// <para>有逐 tick 轨迹时以轨迹为准（那是真实按键状态，<see cref="CurrentPointerMask"/> 会优先取）。</para>
+        /// </summary>
+        private static void UpdateEventMask(ReplayEvent ev)
+        {
+            if (ev.Button < 0 || ev.Button > 2)
+                return;
+            int bit = 1 << ev.Button;
+            switch (ev.Interaction)
+            {
+                case (int)MVZ2Logic.Inputs.PointerInteraction.Down:
+                case (int)MVZ2Logic.Inputs.PointerInteraction.Hold:
+                case (int)MVZ2Logic.Inputs.PointerInteraction.BeginDrag:
+                case (int)MVZ2Logic.Inputs.PointerInteraction.Drag:
+                case (int)MVZ2Logic.Inputs.PointerInteraction.Streak:
+                    eventMask |= bit;
+                    break;
+                case (int)MVZ2Logic.Inputs.PointerInteraction.Up:
+                case (int)MVZ2Logic.Inputs.PointerInteraction.Release:
+                case (int)MVZ2Logic.Inputs.PointerInteraction.Click:
+                case (int)MVZ2Logic.Inputs.PointerInteraction.EndDrag:
+                case (int)MVZ2Logic.Inputs.PointerInteraction.Drop:
+                    eventMask &= ~bit;
+                    break;
+            }
+        }
+
         private static void Dispatch(ReplayEvent ev)
         {
             injecting = true;
@@ -1435,10 +2144,19 @@ namespace Replay
                 else
                     injectedByKind[ev.Kind] = 1;
 
+                // 按键状态的兜底值：本 tick 没有轨迹数据时，
+                // InputHelper.IsPointerHolding 类的查询就靠它回答。
+                UpdateEventMask(ev);
+
                 // 先给**输入层的全局回调**发一遍指针动作，再走路由事件。
                 // 为什么两条都要发：它们彼此不重叠（详见 ReplayPointerAction）——
                 // 「右键取消手持物」「碎石墙/打砖块」只挂在前者上。
-                if (ReplayPointerAction.Enabled)
+                //
+                // ⚠️ 但**本 tick 有轨迹数据**时不能再走这条：AfterTick 已经每 tick 统一发过一次，
+                // 两条都发会让同一次按下被处理两遍（碾压墙一次点击扣两次进度）。
+                // 反之，本 tick 没有轨迹数据（轨迹是后段才开始录的）时必须走这条 ——
+                // 否则那一段的「按下」谁也收不到，等于把输入整个吞掉了。
+                if (!trackCovered && ReplayPointerAction.Enabled)
                 {
                     switch (ev.Kind)
                     {
@@ -1615,7 +2333,7 @@ namespace Replay
         /// <summary>
         /// 拼一份 <c>PointerInteractionArgs</c>。
         ///
-        /// 这是整个播放里最需要小心的一处：test-9 把 5 个指针回调的参数换成了这个结构体，
+        /// 这是整个播放里最需要小心的一处：早期内测版把 5 个指针回调的参数换成了这个结构体，
         /// 里面既有 <c>pointerId</c> / <c>position</c> 这类平铺字段，也有原本那套
         /// <c>pointerCurrentRaycast</c> / <c>eventData</c>。谁被真正读到取决于回调体的写法，
         /// 所以这里**全部填满**，两份都能用。
@@ -1658,7 +2376,12 @@ namespace Replay
                 Note("拼指针参数失败：" + e.GetType().Name + ": " + e.Message);
             }
             // 存**原值**（录制坐标系）：换算留到读取时做，这样播放中途改窗口尺寸也不会偏。
-            pointerScreen = new Vector2(ev.Sx, ev.Sy);
+            //
+            // ⚠️ 只有**带坐标**的事件才写。bpkey / tool 这类事件没有位置（v1 起就没有），
+            // 无条件写会把指针按到 (0,0)：魔人经卷/剑是在 Down 事件里读实时指针定落点的，
+            // 于是它们的落点会被报到屏幕左下角。那种情况下保持上一次的值（轨迹会把它盖对）。
+            if (ev.HasPos)
+                pointerScreen = new Vector2(ev.Sx, ev.Sy);
             return args;
         }
 
@@ -1722,11 +2445,26 @@ namespace Replay
         /// </summary>
         public static bool TryOverridePointerPosition(int type, int button, out Vector2 pos)
         {
-            // 注意读的是 PointerScreen（会换算到当前窗口），不是裸字段：
-            // 一次播放里事件之间可能隔着几千帧，玩家中途改窗口尺寸是常事。
-            pos = PointerScreen;
-            if (phase != Phase.Playing || injecting)
+            pos = Vector2.zero;
+            if (phase != Phase.Playing)
                 return false;
+
+            // ⚠️ 这里**曾经**有「注入期间不接管」（`|| injecting` 就返回 false）的短路，
+            // 那是个 bug：魔人经卷（`CombatHeldItemBehaviour`）正是在 **Down 事件里**
+            // 读实时指针来定落点（`SetDragStartPosition(Global.Input.GetPointerScreenPosition(...))`），
+            // 于是回放里落点跟着**旁观者的鼠标**走。
+            //
+            // 现在的规则：
+            //   本 tick 有轨迹（trackCovered）→ 轨迹的位置（打砖块挡板 / 重装兵器朝向每帧读的就是它）；
+            //   其余时刻 → **不接管**，直接去读事件的原始位置 PointerScreen。
+            //
+            // 为什么不是「没有轨迹就返回 false 让游戏读实时输入」：PointerScreen 是**录到的**值，
+            // 一定比旁观者的鼠标更接近真实。而轨迹刚开始的那几个 tick 两者本来就一致。
+            if (trackCovered)
+                pos = ReplayViewport.ToCurrent(ReplayPointerTrajectory.CurrentScreen);
+            else
+                pos = PointerScreen;   // 已换算到当前窗口
+
             pointerQueries++;
             return true;
         }
@@ -1796,7 +2534,6 @@ namespace Replay
             mClickStarshard = AccessTools.Method(typeof(LevelController), "ClickStarshard");
             mClickTrigger = AccessTools.Method(typeof(LevelController), "ClickTrigger");
             mDialogResume = AccessTools.Method(typeof(LevelController), "UI_OnLevelLoadedDialogOptionClickedCallback");
-            mGotoLevelSceneAsync = AccessTools.Method(typeof(MainSceneController), "GotoLevelSceneAsync");
 
             // FromBson<T>：interop 把它生成成普通泛型方法，直接用反射补上类型实参。
             try
@@ -1820,7 +2557,6 @@ namespace Replay
             if (mClickStarshard == null) missing.Add("ClickStarshard");
             if (mClickTrigger == null) missing.Add("ClickTrigger");
             if (mDialogResume == null) missing.Add("UI_OnLevelLoadedDialogOptionClickedCallback");
-            if (mGotoLevelSceneAsync == null) missing.Add("MainSceneController.GotoLevelSceneAsync");
             if (mFromBson == null) missing.Add("SerializeHelper.FromBson<T>");
             if (missing.Count > 0)
                 Plugin.Log?.LogError("[Replay] 播放器找不到这些方法：" + string.Join(", ", missing.ToArray()));

@@ -10,11 +10,17 @@
 #
 # ASCII only.
 param(
-    [string]$Dir = 'E:\Game\PVZ\MVZ2\MVZ2 0.7.0 test-11\BepInEx'
+    [string]$Dir = ""
 )
 
 $ErrorActionPreference = 'Stop'
 Import-Module Microsoft.PowerShell.Management, Microsoft.PowerShell.Utility
+. "$PSScriptRoot\build-common.ps1"
+
+if ([string]::IsNullOrWhiteSpace($Dir)) {
+    $game = Normalize-GameDir "" (Get-DefaultGameDir -RepoRoot (Split-Path -Parent $PSScriptRoot))
+    $Dir = Join-Path $game 'BepInEx'
+}
 
 $base = Join-Path $Dir '_uig_dd0_closed.png'
 $popup = Join-Path $Dir '_uig_dd1_tmpdd.png'

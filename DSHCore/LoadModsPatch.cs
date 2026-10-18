@@ -35,6 +35,11 @@ namespace DSHCore
                 if (reg.LogicType != null)
                     VTableRebind.Ensure(reg.LogicType);
             }
+
+            // 最后兜底：若 ResourceManager 的 meta 加载入口（LoadModResourcesInit /
+            // LoadMetaLists / GetModResource）全都没命中，这里至少保证 stage metas 可用。
+            // 详见 MetaInjection 的类注释。
+            MetaInjection.InjectAllRegistered();
         }
     }
 }

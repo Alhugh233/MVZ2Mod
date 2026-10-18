@@ -64,11 +64,83 @@ namespace ModularCurse
                 {
                     applied = true;
                     Plugin.Log?.LogInfo("[CurseMetaApplier] 已套用 " + count + " 条诅咒词条属性");
+                    LogSpriteDiag(metas, false);
                 }
             }
             catch (Exception e)
             {
                 Plugin.Log?.LogError("[CurseMetaApplier] ApplyAll failed: " + e);
+            }
+        }
+
+        /// <summary>
+        /// 在"资源已经全部加载完"之后（= 选卡界面起来时）再查一次图标。
+        /// 和 PostInit 那次不同：此时连原版 Addressables 贴图也已就绪，
+        /// 所以这个 N/M 就是玩家真正会看到的图标数。
+        /// </summary>
+        public static void LogIconDiag()
+        {
+            try
+            {
+                var main = MainManager.Instance;
+                if (main == null || main.ResourceManager == null)
+                    return;
+                var metas = main.ResourceManager.GetModCurseMetas(ModularCurseMod.spaceName);
+                if (metas == null || metas.Length == 0)
+                    return;
+                LogSpriteDiag(metas, true);
+            }
+            catch (Exception e)
+            {
+                Plugin.Log?.LogWarning("[CurseMetaApplier] 图标复查失败: " + e.GetType().Name);
+            }
+        }
+
+        /// <summary>
+        /// 图标自检（与诅咒面板**完全相同**的那条链：
+        /// <c>Main.GetSprite(def.GetSpriteReference())</c>，见
+        /// <c>LevelBlueprintChooseController.GetCurseIcon</c>）。
+        ///
+        /// <paramref name="warnAll"/> 为 false 时只在**本 mod 命名空间**的贴图上告警：
+        /// 原版贴图（SC/ZY 前 7 条复用的 `mvz2:curses/*`）来自 Addressables 的
+        /// SpriteManifest，而那份是 <c>LoadAllModResourcesMain</c> 加载的、**晚于** PostInit，
+        /// 此刻查不到很正常。本 mod 自己的贴图是 <see cref="CurseSprites"/> 刚注册进去的，
+        /// 查不到就是真缺图。
+        /// </summary>
+        private static void LogSpriteDiag(CurseMeta[] metas, bool warnAll)
+        {
+            try
+            {
+                var main = MainManager.Instance;
+                if (main == null)
+                    return;
+                var declared = 0;
+                var resolved = 0;
+                for (var i = 0; i < metas.Length; i++)
+                {
+                    var meta = metas[i];
+                    if (meta == null || meta.Sprite == null)
+                        continue;
+                    declared++;
+                    if (main.GetSprite(meta.Sprite) != null)
+                    {
+                        resolved++;
+                        continue;
+                    }
+                    var text = meta.Sprite.ToString() ?? "<null>";
+                    var ours = text.StartsWith(CurseIds.Nsp + ":", StringComparison.Ordinal);
+                    if (warnAll || ours)
+                    {
+                        Plugin.Log?.LogWarning("[CurseMetaApplier] 图标缺失: " + meta.ID
+                            + " -> " + text + "（本 mod 的图请检查 Content/sprites/ 下是否已部署）");
+                    }
+                }
+                Plugin.Log?.LogInfo("[CurseMetaApplier] 图标解析 " + resolved + "/" + declared
+                    + (warnAll ? "（资源已全部加载）" : "（PostInit，原版贴图尚未加载）"));
+            }
+            catch (Exception e)
+            {
+                Plugin.Log?.LogWarning("[CurseMetaApplier] 图标自检失败: " + e.GetType().Name);
             }
         }
 

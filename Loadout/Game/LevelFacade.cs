@@ -262,7 +262,19 @@ namespace Loadout
         public static void SetSpawnPointAddition(LevelEngine l, float v) { Act(l, "spawnadd", x => SetEffective(x, LogicLevelProps.SPAWN_POINTS_ADDITION, v, "spawnadd")); }
 
         public static float GetSpawnPointMultiplier(LevelEngine l) { return Float(l, "spawnmul", x => x.GetSpawnPointMultiplier()); }
-        public static void SetSpawnPointMultiplier(LevelEngine l, float v) { Act(l, "spawnmul", x => SetEffective(x, LogicLevelProps.SPAWN_POINTS_MUTLIPLIER, v, "spawnmul")); }
+        /// <summary>
+        /// <para><b>⚠️ 常量名在 0.7.0 正式版里改过。</b>正式版以前是
+        /// <c>SPAWN_POINTS_MUTLIPLIER</c>（"MUTLI"，拼错的），正式版的
+        /// git 提交 <i>fix: 修复spawnPointsMultiplier常量名错误的问题</i> 把它改成了
+        /// <c>SPAWN_POINTS_MULTIPLIER</c>。属性键的**名字**决定它落在哪个槽上，
+        /// 所以这不是「改个拼写」——引用旧名字在正式版上直接编译不过（CS0117），
+        /// 而如果只是运行期按字符串找键，就会静默写到一个没人读的键上。</para>
+        ///
+        /// <para>本仓库只面向 0.7.0 正式版及以后，所以直接用新名字；
+        /// 要同时兼容旧版本得走 <c>PropertyKey</c> 反射按名字找，
+        /// 那种复杂度不值得（旧版本已经不再部署）。</para>
+        /// </summary>
+        public static void SetSpawnPointMultiplier(LevelEngine l, float v) { Act(l, "spawnmul", x => SetEffective(x, LogicLevelProps.SPAWN_POINTS_MULTIPLIER, v, "spawnmul")); }
 
         public static float GetSpawnPointPower(LevelEngine l) { return Float(l, "spawnpow", x => x.GetSpawnPointPower()); }
         public static void SetSpawnPointPower(LevelEngine l, float v) { Act(l, "spawnpow", x => SetEffective(x, LogicLevelProps.SPAWN_POINTS_POWER, v, "spawnpow")); }

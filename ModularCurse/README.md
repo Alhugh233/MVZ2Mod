@@ -7,7 +7,7 @@
 - 游戏内命名空间：`modular_curse`
 - 当前版本：**0.3.0**
 - 前置：**DSHCore**（`qoznos.mvz2.core`，必需）
-- 适配：MVZ2 **0.7.0 test-11**（Windows **x86** / IL2CPP / Unity 2022.3.62f3）
+- 适配：MVZ2 **0.7.0**（Windows **x86** / IL2CPP / Unity 2022.3.62f3）
 
 > ⚠️ 社区制作的**非官方**内容，与游戏原作者无关。
 > 📖 **每一条诅咒的效果与实现方式、诅咒池 UI 的实现细节，见 [CURSES.md](CURSES.md)。**
@@ -16,7 +16,7 @@
 
 ## 它做了什么
 
-0.7.0（test-4 起）加入了**原生诅咒系统**：
+0.7.0（早期内测版起）加入了**原生诅咒系统**：
 
 ```
 curses.xml (CurseMeta)
@@ -37,7 +37,7 @@ curses.xml (CurseMeta)
 | 池 | 图标 | 诅咒 | 描述 |
 | ---- | ---- | ---- | ---- |
 | 原版池（默认） | 原版诅咒按钮图标 | `mvz2:*` 那 7 条 | 原版诅咒 |
-| QC 池 | `curse_qc.png` | `modular_curse:qc_c1` … `qc_c12`（**12 条**） | QoZnoS的诅咒 |
+| 癫狂之触 | `curse_qc.png` | `modular_curse:qc_c1` … `qc_c12`（**12 条**） | QoZnoS的诅咒 |
 | SC 池 | `curse_sc.png` | `modular_curse:sc_c1` … `sc_c16`（**16 条**） | 奇硅箱的诅咒 |
 | 咒鵺兼程 | `curse_3q4a.png` | `modular_curse:zy_c1` … `zy_c16`（**16 条**） | 3q4a的诅咒 |
 
@@ -59,7 +59,7 @@ cd ModularCurse
 
 | 参数 | 作用 |
 | ---- | ---- |
-| `-GameDir <dir>` | 部署目标。默认 `E:\Game\PVZ\MVZ2\MVZ2 0.7.0 test-11`；不存在则**只构建不部署** |
+| `-GameDir <dir>` | 部署目标。默认 `E:\Game\PVZ\MVZ2\MVZ2 0.7.0`；不存在则**只构建不部署** |
 | `-SkipBuild` | 跳过构建，直接用已有产物 |
 | `-Clean` | 先删除 `bin/` `obj/` |
 | `-KeepGame` | 不结束正在运行的游戏（会锁住 DLL，一般不要用） |
@@ -87,14 +87,19 @@ assets/
    ├─ metas/
    │   ├─ curses.xml    44 条诅咒的元数据（CurseMeta）
    │   └─ buffs.xml      对应的 buff 词条
-   └─ sprites/
-       ├─ curse_qc.png   QC 池图标
-       └─ curse_sc.png   SC 池图标
+   └─ sprites/         PNG 的相对路径 = sprite id 的路径
+       ├─ curse_qc.png        癫狂之触（池图标）
+       ├─ curse_sc.png        SC 池（池图标）
+       ├─ curse_3q4a.png      咒鷲兼程（池图标）
+       └─ curse/QC/*.png     癫狂之触 12 条各自的图标（64×64）
 ```
 
 > XML 由 `DSHCore.MetaInjection` 直读磁盘注入；
-> 图标由本 mod 在运行时注册进游戏资源库。
+> 图标由 `CurseSprites.RegisterAll()` 在 `PostInit` 递归扫描并注册进游戏资源库。
 > **注意：metas 的 XML 里不要写注释**（`Comment` 节点会触发 NRE）。
+> **贴图命名规则**：`Content/sprites/` 下的相对路径就是 sprite id 的路径，
+> 例如 `curse/QC/INJURY.png` → `modular_curse:curse/QC/INJURY`，
+> 在 curses.xml 里写 `<sprite id="modular_curse:curse/QC/INJURY" />` 即可（索引恒为 0）。
 
 ---
 
@@ -112,6 +117,7 @@ ModularCurse/
 ├─ CurseIds.cs                  诅咒 ID 表
 ├─ CurseDefinitionPatch.cs      拦截官方 LoadStages 时机创建诅咒 buff 定义（定义跟踪/GetDefinitions 拦截已收敛到 DSHCore.InjectedDefinitions）
 ├─ CurseMetaApplier.cs          把 XML meta 套到注入 def
+├─ CurseSprites.cs              把 assets/Content/sprites 下的 PNG 注册进游戏资源库
 ├─ CurseRuntime.cs / CurseState.cs        运行时状态
 ├─ CurseHooks.cs                各条诅咒的 Harmony 挂钩
 ├─ CurseCommand.cs              /curse 调试指令
@@ -121,7 +127,7 @@ ModularCurse/
 └─ CurseBuffs/
     ├─ CurseBuffBase.cs         诅咒 buff 基类
     ├─ CurseBuffs.cs            注册表
-    ├─ QcBuffs.cs               QC 池 12 条 buff
+    ├─ QcBuffs.cs               癫狂之触 12 条 buff
     └─ ScBuffs.cs               SC 池 16 条 buff
 ```
 
@@ -169,9 +175,10 @@ T.EnAllWith(LogicStrings.CONTEXT_CURSE_TOOLTIP, …, …);
 
 ## 已知限制
 
-- 仅适配 0.7.0 test-11（Windows x86 IL2CPP）
-- 诅咒名字：每个池前 7 条沿用原版那 7 条诅咒的名字（它们复用的正是那 7 个图标），
-  第 8 条起用池内编号（`QC-C8` … / `SC-C8` …）
+- 仅适配 0.7.0（Windows x86 IL2CPP）
+- 诅咒名字与图标：SC / ZY 池的前 7 条沿用原版那 7 条诅咒的名字与图标，
+  第 8 条起用池内编号（`SC-C8` … / `ZY-C8` …）；**癫狂之触** 12 条的名字与图标
+  都是单独做的（图标在 `assets/Content/sprites/curse/QC/`）
 - 选卡界面右侧**没有**独立的「诅咒池」按钮：早期版本做过一个克隆入口，实测点不开
   （克隆体的父节点是 `SetActive(false)` 的包装对象），详见 `CURSES.md` 实现备注
 

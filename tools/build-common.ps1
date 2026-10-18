@@ -236,7 +236,10 @@ function Invoke-DotnetBuild {
         [Parameter(Mandatory)][string]$Dotnet,
         [string]$GameDir = "",
         [switch]$Clean,
-        [switch]$SkipBuild
+        [switch]$SkipBuild,
+        # 额外透传给 msbuild 的属性（形如 'Diagnostics=true'）。
+        # 用途：那一类「只改编译什么代码」的开关（见 Replay.csproj 的 Diagnostics）。
+        [string[]]$Properties = @()
     )
     if ($Clean) {
         $projDir = Split-Path -Parent $Csproj
@@ -252,6 +255,9 @@ function Invoke-DotnetBuild {
     if (-not [string]::IsNullOrWhiteSpace($GameDir)) {
         # csproj 把 GameDir 直接与文件名拼接，故统一用正斜杠并以 / 结尾
         $args += ('-p:GameDir=' + ($GameDir -replace '\\', '/') + '/')
+    }
+    foreach ($prop in $Properties) {
+        if (-not [string]::IsNullOrWhiteSpace($prop)) { $args += ('-p:' + $prop) }
     }
     & $Dotnet @args
     if ($LASTEXITCODE -ne 0) { throw ("dotnet build 失败（exit " + $LASTEXITCODE + "）") }

@@ -55,16 +55,15 @@ namespace Replay
 
         /// <summary>
         /// 文件格式版本。
-        ///   1 = 早期草案（无指针位置，工具点击记成派生的 set/reset）
-        ///   2 = 指针事件带位置、工具点击记成 tool
-        ///   3 = 实体事件额外带 def（定义 ID）与 ex/ey/ez（记时坐标）
-        ///   6 = 实体事件带分层（layers）
-        ///   7 = header 记窗口尺寸（sw/sh），播放时把屏幕坐标换算回同一个世界点
-        ///       （旧文件没有这两个字段 → 恒等换算，行为不变）
-        ///   8 = blueprint / bpkey / entity 事件带 itg/evk（拿起蓝图那一刻的
-        ///       「立即触发 / 立即激发」标记）。旧文件没有 → 回放不做任何干预。
+        ///
+        /// <para><b>现在这个值住在 <see cref="ReplayProtocol"/> 里</b>，因为「文件格式」是协议的事，
+        /// 而协议要能被别的工具（解析器 / 迁移工具）照着实现。这里保留一个转发只是为了可读性。</para>
+        ///
+        /// <para>版本历史见 <see cref="ReplayProtocol.FormatVersion"/> 的注释。
+        /// 加/删/改行结构才 +1；只加 header 字段不动 <c>ver</c> 也可以（读者按「缺字段 = 旧行为」处理），
+        /// 但 v10 那次一次性把环境、调试、策略这套东西都加了进去，所以整体 +1。</para>
         /// </summary>
-        private const int FormatVersion = 8;
+        private const int FormatVersion = ReplayProtocol.FormatVersion;
 
         #region 会话状态
         private static readonly List<string> eventLines = new List<string>();
@@ -91,6 +90,19 @@ namespace Replay
         private static int hSeed;
 
         /// <summary>
+        /// 开录那一刻的**全局金币**（写进 header 的 <c>mn</c>）。
+        ///
+        /// <para>金币不在关卡关键帧里（它是 <c>Global.Saves</c> 的钱），但它会参与关卡逻辑的**分支**：
+        /// 上锁的箱子按「钱够不够」决定要不要生成「付钱」那一项，于是选项个数都可能不同。
+        /// 记下来，回放时用它给金币影子播种（<see cref="ReplaySaveGuard.SeedMoney"/>），
+        /// 那些分支才会与录制时一致。</para>
+        ///
+        /// <para><see cref="hMoneyKnown"/> 为 false（读不到，或旧文件）时不播种，行为不变。</para>
+        /// </summary>
+        private static int hMoney;
+        private static bool hMoneyKnown;
+
+        /// <summary>
         /// 开录那一刻的窗口尺寸（写进 header 的 <c>sw</c>/<c>sh</c>）。
         ///
         /// <para>事件里的屏幕坐标必须配上它才能跨窗口尺寸重放：
@@ -106,6 +118,20 @@ namespace Replay
         /// <c>.mrep</c> 头里 <c>game</c> 字段的缓存（见 <see cref="GameVersion"/>）。
         /// </summary>
         private static string gameVersion;
+
+        /// <summary>
+        /// 本场录制的**录制策略快照**（从配置文件读一次，整场不变）。
+        ///
+        /// <para>协议里「录制行为取决于配置文件」就是这一条：录出来什么，只看它。
+        /// 冻结成快照而不是每次读配置，是为了避免玩家中途改配置让同一个文件内部不一致。</para>
+        /// </summary>
+        private static ReplayRecordOptions recordOptions = new ReplayRecordOptions();
+
+        /// <summary>本场录制的环境快照（写进 <c>env</c> 行）。</summary>
+        private static ReplayEnvironment environment;
+
+        /// <summary>本场录制要写出的 <c>env</c> 行（摘要 + 每个条目一行），在 Begin 时拼好。</summary>
+        private static readonly List<string> envLines = new List<string>();
         #endregion
 
         #region 对外状态
@@ -115,6 +141,12 @@ namespace Replay
 
         /// <summary>已记录的动作事件数（自测与排障用）。</summary>
         public static int EventCount => eventLines.Count;
+
+        /// <summary>
+        /// 当前逻辑 tick（录制中）。对话框记录要按 tick 打戳，所以暴露出来。
+        /// 没在录、或拿不到关卡时返回 <see cref="lastTick"/>。
+        /// </summary>
+        public static int CurrentTickNow => bound != null ? CurrentTick(bound) : lastTick;
 
         public static string Describe()
         {
@@ -242,6 +274,10 @@ namespace Replay
                     nextAutoSaveTick = tick + AutoSaveTicks;
                     Write("autosave");
                 }
+
+                // 逐 tick 指针轨迹（v9）。只有「这一关存在会读实时指针的内容」时才真的采，
+                // 判定的依据是 ReplayCompat 里注册的消费者（原版 4 个 + 第三方注册的）。
+                ReplayPointerTrajectory.RecordTick(lvl, tick);
             }
             catch (Exception e)
             {
@@ -644,14 +680,21 @@ namespace Replay
 
         private static int GetFingerprintInterval()
         {
-            try { return ReplayConfig.FingerprintInterval != null ? ReplayConfig.FingerprintInterval.Value : 30; }
-            catch (Exception) { return 30; }
+            int v = recordOptions != null ? recordOptions.EffectiveInterval : 0;
+            if (v > 0)
+                return v;
+            // 0 = 不采指纹。这里返回 0 会让 `tick >= nextFingerprintTick` 恒真，
+            // 所以调用点必须用 AnyFingerprint 先判一次（见 NotifyTick）。
+            return 0;
         }
 
         private static void ResetSession()
         {
             eventLines.Clear();
             fingerprintLines.Clear();
+            envLines.Clear();
+            ReplayPointerTrajectory.ResetRecording();
+            ReplayDialogs.ResetRecording();
             bound = null;
             boundPtr = IntPtr.Zero;
             name = null;
@@ -671,6 +714,10 @@ namespace Replay
             hSeed = 0;
             hScreenW = 0f;
             hScreenH = 0f;
+            hMoney = 0;
+            hMoneyKnown = false;
+            environment = null;
+            recordOptions = new ReplayRecordOptions();
         }
 
         private static bool Begin(string replayName, string armReason, LevelController ctrl)
@@ -682,6 +729,20 @@ namespace Replay
                 Finish("restart", true);
 
             ResetSession();
+
+            // ---- 协议：录制行为**从配置文件**取一次快照；环境也只在这个时刻采一次 ----
+            //
+            // 这是协议里最关键的一条分工：录出来什么，只看配置；播的时候怎么播，只看文件。
+            // 快照而不是每次读配置 → 玩家中途改配置不会让同一个文件内部自相矛盾。
+            recordOptions = ReplayRecordOptions.FromConfig();
+            environment = ReplayEnvironment.Capture();
+            BuildEnvLines();
+            if (recordOptions.Debug)
+            {
+                Plugin.Log?.LogWarning("[Replay] ⚠ 调试模式已开启：本场回放会逐 tick 记录大量指纹数据"
+                    + "（仅供回放 mod 开发用）。" + recordOptions.Describe());
+            }
+
             bound = ctrl;
             boundPtr = ctrl.Pointer;
             reason = armReason;
@@ -699,6 +760,20 @@ namespace Replay
             hScreenW = Screen.width;
             hScreenH = Screen.height;
 
+            // 开录时的金币：回放用它给金币影子播种，好让「钱够不够」这类分支和录制时一致。
+            // 读不到就标 unknown，回放退回「按真存档播种」的老行为。
+            try
+            {
+                var save = MVZ2Logic.Global.Saves;
+                hMoney = MVZ2Logic.Saves.LogicSaveExt.GetMoney(save);
+                hMoneyKnown = true;
+            }
+            catch (Exception me)
+            {
+                Plugin.Log?.LogWarning("[Replay] 读不到开录时的金币（回放会按真存档给影子播种）："
+                    + me.GetType().Name);
+            }
+
             if (lvl != null)
             {
                 hSeed = lvl.Seed;
@@ -709,6 +784,7 @@ namespace Replay
 
             name = SanitizeName(string.IsNullOrEmpty(replayName) ? BuildAutoName(lvl) : replayName);
 
+            startedAt = DateTime.Now;
             TryCaptureKeyframe(ctrl, lvl);
 
             // 关键帧那一刻也采一条指纹。
@@ -784,6 +860,47 @@ namespace Replay
                 }
             }
             return h;
+        }
+
+        /// <summary>
+        /// 7 条 RNG 流的合并哈希（协议里的 <c>r</c>）。
+        /// 单独抽出来是为了让采样器与「录制/播放之外」的调用点（自测）用同一套算法。
+        /// </summary>
+        internal static string RngMergedHash(SerializableLevel rngs)
+        {
+            if (rngs == null)
+                return null;
+            ulong h = 14695981039346656037UL;
+            h = HashRng(h, rngs.levelRandom);
+            h = HashRng(h, rngs.entityRandom);
+            h = HashRng(h, rngs.effectRandom);
+            h = HashRng(h, rngs.roundRandom);
+            h = HashRng(h, rngs.spawnRandom);
+            h = HashRng(h, rngs.conveyorRandom);
+            h = HashRng(h, rngs.miscRandom);
+            return Json.Hex(h);
+        }
+
+        /// <summary>
+        /// 7 条 RNG 流**各自**从 FNV 初始值起算的哈希（协议里的 <c>r0</c>..<c>r6</c>）。
+        ///
+        /// <para>合并哈希只能告诉你「有 RNG 跑偏」，分流才能点名是**哪一条**，
+        /// 从而把范围缩到用它的那个子系统（spawn = 出怪、round = 波次计数、…）。</para>
+        /// </summary>
+        internal static string[] RngStreamHashes(SerializableLevel rngs)
+        {
+            if (rngs == null)
+                return null;
+            const ulong offset = 14695981039346656037UL;
+            var streams = new string[ReplayFingerprint.RngStreamNames.Length];
+            streams[0] = Json.Hex(HashRng(offset, rngs.levelRandom));
+            streams[1] = Json.Hex(HashRng(offset, rngs.entityRandom));
+            streams[2] = Json.Hex(HashRng(offset, rngs.effectRandom));
+            streams[3] = Json.Hex(HashRng(offset, rngs.roundRandom));
+            streams[4] = Json.Hex(HashRng(offset, rngs.spawnRandom));
+            streams[5] = Json.Hex(HashRng(offset, rngs.conveyorRandom));
+            streams[6] = Json.Hex(HashRng(offset, rngs.miscRandom));
+            return streams;
         }
 
         private static ulong HashRng(ulong h, SerializableRNG rng)
@@ -879,7 +996,7 @@ namespace Replay
         /// <para>按 id 排序后再哈希：引擎的枚举顺序是按位置比较器排的，
         /// 位置一变顺序就变，不排序会引入噪声。</para>
         /// </summary>
-        private static void HashEntities(LevelEngine lvl, ref ulong h, out int count, out string defHistogram)
+        internal static void HashEntities(LevelEngine lvl, ref ulong h, out int count, out string defHistogram)
         {
             count = 0;
             defHistogram = null;
@@ -936,34 +1053,10 @@ namespace Replay
         {
             try
             {
-                var fp = ComputeFingerprint(lvl, tick, out _);
+                var fp = ComputeFingerprint(lvl, tick, out _, recordOptions);
                 if (fp == null)
                     return;
-                var sb = new StringBuilder(160);
-                sb.Append("{\"t\":").Append(Json.Num(fp.Tick));
-                sb.Append(",\"k\":\"fp\"");
-                sb.Append(",\"en\":").Append(Json.Num(fp.Enemies));
-                sb.Append(",\"w\":").Append(Json.Num(fp.Wave));
-                sb.Append(",\"fl\":").Append(Json.Num(fp.Flags));
-                sb.Append(",\"cl\":").Append(Json.Bool(fp.Cleared));
-                sb.Append(",\"ec\":").Append(Json.Num(fp.EntityCount));
-                sb.Append(",\"eh\":").Append(Json.Str(fp.EntityHash));
-                sb.Append(",\"r\":").Append(Json.Str(fp.Rng));
-
-                if (ReplayConfig.FullFingerprint != null && ReplayConfig.FullFingerprint.Value)
-                {
-                    // 实体定义直方图：不一致时能直接看出「少了哪一类实体」。
-                    sb.Append(",\"ed\":").Append(Json.Str(fp.EntityDefs));
-                    // 7 条 RNG 流各自的哈希（字符串值，FlatJson 能直接读；不要写成嵌套数组）。
-                    if (fp.RngStreams != null)
-                    {
-                        for (int i = 0; i < fp.RngStreams.Length; i++)
-                            sb.Append(",\"r").Append(i).Append("\":").Append(Json.Str(fp.RngStreams[i]));
-                    }
-                }
-
-                sb.Append('}');
-                fingerprintLines.Add(sb.ToString());
+                fingerprintLines.Add(FormatFingerprintLine(fp));
             }
             catch (Exception e)
             {
@@ -972,57 +1065,100 @@ namespace Replay
         }
 
         /// <summary>
+        /// 把一条指纹拼成协议行（<c>k:"fp"</c>）。
+        ///
+        /// <para><b>写什么由指纹自己说了算</b>，不再在这里判配置：
+        /// 某个字段有没有被采样器填上，就是它该不该出现在文件里的唯一依据。
+        /// 这样「录制行为 = 配置（经采样器）」与「文件内容 = 事实」不会被搅在一起，
+        /// 读者也只需要按「有就比、没有就跳过」处理。</para>
+        /// </summary>
+        internal static string FormatFingerprintLine(ReplayFingerprint fp)
+        {
+            var sb = new StringBuilder(192);
+            sb.Append("{\"t\":").Append(Json.Num(fp.Tick));
+            sb.Append(",\"k\":").Append(Json.Str(ReplayProtocol.KindFingerprint));
+            sb.Append(",\"en\":").Append(Json.Num(fp.Enemies));
+            sb.Append(",\"w\":").Append(Json.Num(fp.Wave));
+            sb.Append(",\"fl\":").Append(Json.Num(fp.Flags));
+            sb.Append(",\"cl\":").Append(Json.Bool(fp.Cleared));
+            if (fp.EntityCount >= 0)
+                sb.Append(",\"ec\":").Append(Json.Num(fp.EntityCount));
+            if (!string.IsNullOrEmpty(fp.EntityHash))
+                sb.Append(",\"eh\":").Append(Json.Str(fp.EntityHash));
+            if (!string.IsNullOrEmpty(fp.EntityDefs))
+                sb.Append(",\"ed\":").Append(Json.Str(fp.EntityDefs));
+            if (!string.IsNullOrEmpty(fp.Rng))
+                sb.Append(",\"r\":").Append(Json.Str(fp.Rng));
+            if (fp.RngStreams != null)
+            {
+                // 7 条 RNG 流各自的哈希（字符串值，FlatJson 能直接读；**不要**写成嵌套数组）。
+                for (int i = 0; i < fp.RngStreams.Length; i++)
+                {
+                    if (string.IsNullOrEmpty(fp.RngStreams[i]))
+                        continue;
+                    sb.Append(",\"r").Append(i).Append("\":").Append(Json.Str(fp.RngStreams[i]));
+                }
+            }
+            // 附加字段（调试字段 / 第三方采样器字段）。
+            for (int i = 0; i < fp.Extra.Count; i++)
+            {
+                var kv = fp.Extra[i];
+                if (string.IsNullOrEmpty(kv.Key))
+                    continue;
+                sb.Append(',').Append(Json.Str(kv.Key)).Append(':').Append(Json.Str(kv.Value));
+            }
+            sb.Append('}');
+            return sb.ToString();
+        }
+
+        /// <summary>
         /// 算一次状态指纹。**录制与回放核对共用同一份实现**，否则两边算法一跑偏，
         /// 「一致」就变成了自证清白的废话。失败返回 null。
+        ///
+        /// <para>实现本身只是「跑一遍已注册的采样器」（见 <see cref="ReplaySamplers"/>）——
+        /// 于是「加一种新指纹」不需要改录制与播放的任何一行代码。</para>
         /// </summary>
         public static ReplayFingerprint ComputeFingerprint(LevelEngine lvl, int tick, out SerializableLevel rngs)
         {
+            return ComputeFingerprint(lvl, tick, out rngs, null);
+        }
+
+        /// <summary>同上，可指定策略（调试采样器要不要跑由 <see cref="ReplayRecordOptions.Debug"/> 决定）。</summary>
+        public static ReplayFingerprint ComputeFingerprint(LevelEngine lvl, int tick,
+            out SerializableLevel rngs, ReplayRecordOptions options)
+        {
             rngs = null;
+            if (lvl == null)
+                return null;
             try
             {
-                var serializable = new SerializableLevel();
-                lvl.WriteRandomToSerializable(serializable);
-                rngs = serializable;
-
-                ulong h = 14695981039346656037UL;
-                h = HashRng(h, serializable.levelRandom);
-                h = HashRng(h, serializable.entityRandom);
-                h = HashRng(h, serializable.effectRandom);
-                h = HashRng(h, serializable.roundRandom);
-                h = HashRng(h, serializable.spawnRandom);
-                h = HashRng(h, serializable.conveyorRandom);
-                h = HashRng(h, serializable.miscRandom);
-
-                // 再加一条「每条流各自从 FNV 初始值起算」的哈希。
-                // 合并哈希只能告诉你「有 RNG 跑偏」，分开存才能点名是**哪一条** ——
-                // level/entity/effect/round/spawn/conveyor/misc 对应不同的子系统，
-                // 一下就能把范围缩小。
-                const ulong offset = 14695981039346656037UL;
-                var streams = new string[7];
-                streams[0] = Json.Hex(HashRng(offset, serializable.levelRandom));
-                streams[1] = Json.Hex(HashRng(offset, serializable.entityRandom));
-                streams[2] = Json.Hex(HashRng(offset, serializable.effectRandom));
-                streams[3] = Json.Hex(HashRng(offset, serializable.roundRandom));
-                streams[4] = Json.Hex(HashRng(offset, serializable.spawnRandom));
-                streams[5] = Json.Hex(HashRng(offset, serializable.conveyorRandom));
-                streams[6] = Json.Hex(HashRng(offset, serializable.miscRandom));
-
-                ulong eh = 14695981039346656037UL;
-                HashEntities(lvl, ref eh, out var entityCount, out var entityDefs);
-
-                return new ReplayFingerprint
+                var opts = options ?? new ReplayRecordOptions();
+                var fp = new ReplayFingerprint { Tick = tick };
+                var ctx = new ReplaySamplerContext
                 {
+                    Level = lvl,
                     Tick = tick,
-                    Enemies = (int)lvl.Energy,
-                    Wave = lvl.CurrentWave,
-                    Flags = lvl.CurrentFlag,
-                    Cleared = lvl.IsCleared,
-                    EntityCount = entityCount,
-                    EntityHash = Json.Hex(eh),
-                    EntityDefs = entityDefs,
-                    RngStreams = streams,
-                    Rng = Json.Hex(h),
+                    Options = opts,
+                    Fp = fp,
                 };
+
+                var samplers = ReplaySamplers.Active(opts.Debug);
+                for (int i = 0; i < samplers.Length; i++)
+                {
+                    try
+                    {
+                        samplers[i].Sample(ctx);
+                    }
+                    catch (Exception se)
+                    {
+                        // 单个采样器坏掉不该让整条指纹消失（否则会出现「这条指纹缺字段」的假象）。
+                        Plugin.Log?.LogWarning("[Replay] 采样器 " + samplers[i].Name + " 出错："
+                            + se.GetType().Name + ": " + se.Message);
+                    }
+                }
+
+                rngs = ctx.RngSnapshot();
+                return fp;
             }
             catch (Exception e)
             {
@@ -1041,6 +1177,22 @@ namespace Replay
             stage = stage.Replace(':', '_').Replace('/', '_');
             return stage + "_" + DateTime.Now.ToString("yyyyMMdd_HHmmss", CultureInfo.InvariantCulture);
         }
+
+        /// <summary>
+        /// header 里的 <c>created</c>：**录制开始**的时刻（本地时间，ISO 8601 "s" 格式）。
+        ///
+        /// <para>⚠️ 不能写 <c>DateTime.Now</c>。很久以前就是这么写的，而回放是在
+        /// **离开关卡时**才写盘的 —— 于是一局 16 分钟的回放，<c>created</c> 会比文件名的
+        /// 时间戳晚 16 分钟（实测：文件名 <c>..._225128</c>、created <c>23:05:14</c>）。
+        /// 「录制时刻」是这条回放的一个客观属性，跟什么时候写盘无关。</para>
+        /// </summary>
+        private static string CreatedStamp()
+        {
+            var t = startedAt == default(DateTime) ? DateTime.Now : startedAt;
+            return t.ToString("s", CultureInfo.InvariantCulture);
+        }
+
+        private static DateTime startedAt;
 
         private static string SanitizeName(string raw)
         {
@@ -1076,22 +1228,82 @@ namespace Replay
             return gameVersion = string.IsNullOrEmpty(v) ? "unknown" : v;
         }
 
+        /// <summary>
+        /// 把环境快照拼成 <c>env</c> 行：**一行摘要**（游戏/引擎/平台/tps/哈希+条目数），
+        /// 之后每个条目一行。
+        ///
+        /// <para>为什么摘要单独一行而不是塞进 header：header 是「读取时立刻要用的索引」，
+        /// 越长越难读；而环境条目数随玩家装的 mod 变化、没有上界，塞进去会让 header 无限膨胀。
+        /// 分开以后，只要 header 就能打开回放库列表，要细节时再读这几行。</para>
+        /// </summary>
+        private static void BuildEnvLines()
+        {
+            envLines.Clear();
+            var env = environment;
+            if (env == null)
+                return;
+
+            var head = new StringBuilder(160);
+            head.Append("{\"k\":").Append(Json.Str(ReplayProtocol.KindEnv));
+            head.Append(",\"t\":\"summary\"");
+            head.Append(",\"game\":").Append(Json.Str(env.GameVersion));
+            head.Append(",\"unity\":").Append(Json.Str(env.UnityVersion));
+            head.Append(",\"plat\":").Append(Json.Str(env.Platform));
+            head.Append(",\"tps\":").Append(Json.Num(env.Tps));
+            head.Append(",\"hash\":").Append(Json.Str(env.Hash));
+            head.Append(",\"n\":").Append(Json.Num(env.Entries.Count));
+            head.Append('}');
+            envLines.Add(head.ToString());
+
+            for (int i = 0; i < env.Entries.Count; i++)
+            {
+                var e = env.Entries[i];
+                var sb = new StringBuilder(128);
+                sb.Append("{\"k\":").Append(Json.Str(ReplayProtocol.KindEnv));
+                sb.Append(",\"kind\":").Append(Json.Str(e.Kind));
+                sb.Append(",\"id\":").Append(Json.Str(e.Id));
+                if (!string.IsNullOrEmpty(e.Name))
+                    sb.Append(",\"name\":").Append(Json.Str(e.Name));
+                sb.Append(",\"ver\":").Append(Json.Str(e.Version));
+                if (e.DataVersion >= 0)
+                    sb.Append(",\"dv\":").Append(Json.Num(e.DataVersion));
+                if (!string.IsNullOrEmpty(e.Note))
+                    sb.Append(",\"note\":").Append(Json.Str(e.Note));
+                if (!e.Hashable)
+                    sb.Append(",\"h\":false");
+                sb.Append('}');
+                envLines.Add(sb.ToString());
+            }
+        }
+
         private static string BuildHeader(string endReason)
         {
-            var sb = new StringBuilder(384);
-            sb.Append("{\"magic\":\"mrep\"");
+            var sb = new StringBuilder(512);
+            sb.Append("{\"magic\":").Append(Json.Str(ReplayProtocol.Magic));
+            // spec = 规范文本的版本；ver = 文件结构的版本。读者只按 ver 决定能不能读。
+            sb.Append(",\"spec\":").Append(Json.Num(ReplayProtocol.SpecVersion));
             sb.Append(",\"ver\":").Append(Json.Num(FormatVersion));
             sb.Append(",\"mod\":").Append(Json.Str(Plugin.VERSION));
             sb.Append(",\"game\":").Append(Json.Str(GameVersion()));
             sb.Append(",\"tps\":30");
-            sb.Append(",\"created\":").Append(Json.Str(DateTime.Now.ToString("s", CultureInfo.InvariantCulture)));
+            sb.Append(",\"created\":").Append(Json.Str(CreatedStamp()));
             sb.Append(",\"end\":").Append(Json.Str(endReason ?? reason));
+
+            // ---- 环境摘要（明细在 env 行）----
+            var env = environment;
+            sb.Append(",\"unity\":").Append(Json.Str(env != null ? env.UnityVersion : "unknown"));
+            sb.Append(",\"plat\":").Append(Json.Str(env != null ? env.Platform : "unknown"));
+            sb.Append(",\"envHash\":").Append(Json.Str(env != null ? env.Hash : ""));
+            sb.Append(",\"envCount\":").Append(Json.Num(env != null ? env.Entries.Count : 0));
+
             sb.Append(",\"stage\":").Append(Json.Str(hStage));
             sb.Append(",\"area\":").Append(Json.Str(hArea));
             sb.Append(",\"difficulty\":").Append(Json.Str(hDifficulty));
             sb.Append(",\"seed\":").Append(Json.Num(hSeed));
             sb.Append(",\"sw\":").Append(Json.Num(hScreenW));
             sb.Append(",\"sh\":").Append(Json.Num(hScreenH));
+            if (hMoneyKnown)
+                sb.Append(",\"mn\":").Append(Json.Num(hMoney));
             sb.Append(",\"startTick\":").Append(Json.Num(startTick));
             sb.Append(",\"lastTick\":").Append(Json.Num(lastTick));
             sb.Append(",\"hasKeyframe\":").Append(Json.Bool(keyframeState == KeyframeState.Ok));
@@ -1099,6 +1311,15 @@ namespace Replay
                 sb.Append(",\"keyframeError\":").Append(Json.Str(keyframeError));
             sb.Append(",\"eventCount\":").Append(Json.Num(eventLines.Count));
             sb.Append(",\"fingerprintCount\":").Append(Json.Num(fingerprintLines.Count));
+            sb.Append(",\"ptrCount\":").Append(Json.Num(ReplayPointerTrajectory.SampleCount));
+            sb.Append(",\"dlgCount\":").Append(Json.Num(ReplayDialogs.RecordedCount));
+
+            // ---- 协议 v10：这份文件是**照哪一套参数**录的（播放策略全部从这里读）----
+            var opts = recordOptions ?? new ReplayRecordOptions();
+            sb.Append(",\"fpt\":").Append(Json.Num(opts.EffectiveInterval));
+            sb.Append(",\"debug\":").Append(Json.Bool(opts.Debug));
+            sb.Append(",\"caps\":").Append(Json.Str(opts.Caps()));
+            sb.Append(",\"samplers\":").Append(Json.Str(opts.SamplerNames()));
             sb.Append('}');
             return sb.ToString();
         }
@@ -1128,9 +1349,9 @@ namespace Replay
 
                 lastWrittenPath = path;
 
-                bool plain = false;
-                try { plain = ReplayConfig.WritePlainText != null && ReplayConfig.WritePlainText.Value; }
-                catch (Exception) { }
+                // 明文副本：由**本次录制的策略**决定（不是现读配置 —— 否则中途改配置
+                // 会让「同一个文件」的落盘形态前后不一）。
+                bool plain = recordOptions != null && recordOptions.WritePlainText;
                 if (plain)
                 {
                     var plainPath = Path.Combine(dir, name + ".mrep.json");
@@ -1155,8 +1376,14 @@ namespace Replay
             var sb = new StringBuilder(64 * 1024 + eventLines.Count * 96 + fingerprintLines.Count * 128);
             sb.Append(BuildHeader(endReason)).Append('\n');
 
+            // 环境（协议 v10）：摘要 + 每个条目一行。**必须紧跟在 header 之后、关键帧之前** ——
+            // 读者会在「还没解析关键帧」的时候就想拿到环境（例如回放库列表要先显示版本警示）。
+            for (int i = 0; i < envLines.Count; i++)
+                sb.Append(envLines[i]).Append('\n');
+
             // 关键帧（可能为空）
-            sb.Append("{\"k\":\"keyframe\",\"tick\":").Append(Json.Num(startTick));
+            sb.Append("{\"k\":").Append(Json.Str(ReplayProtocol.KindKeyframe))
+              .Append(",\"tick\":").Append(Json.Num(startTick));
             if (keyframeState == KeyframeState.Ok && !string.IsNullOrEmpty(keyframeBson))
                 sb.Append(",\"state\":").Append(Json.Str(keyframeBson));
             else
@@ -1167,6 +1394,15 @@ namespace Replay
                 sb.Append(eventLines[i]).Append('\n');
             for (int i = 0; i < fingerprintLines.Count; i++)
                 sb.Append(fingerprintLines[i]).Append('\n');
+
+            // v9 的两类「非动作事件」：逐 tick 指针轨迹 + 选项对话框。
+            // 它们不进 Events（不参与按 tick 派发），所以放在最后 —— 顺序对它们无意义，
+            // 但「事件行必须按 tick 升序」这个前提必须保持（否则回放的注入游标会漏掉后面的行）。
+            var extra = new List<string>();
+            ReplayPointerTrajectory.AppendRecordLines(extra);
+            ReplayDialogs.AppendRecordLines(extra);
+            for (int i = 0; i < extra.Count; i++)
+                sb.Append(extra[i]).Append('\n');
 
             return sb.ToString();
         }

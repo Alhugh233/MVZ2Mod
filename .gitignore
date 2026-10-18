@@ -29,3 +29,5 @@ _dump_out/
 _replay_report.txt
 TODO.txt
 Loadout.txt
+
+tools/rva-index.tsv

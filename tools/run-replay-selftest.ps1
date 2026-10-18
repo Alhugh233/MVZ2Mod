@@ -3,6 +3,11 @@
 #
 #   .\tools\run-replay-selftest.ps1 [-GameDir <dir>] [-TimeoutSec 420] [-KeepSelfTest]
 #   .\tools\run-replay-selftest.ps1 -PlayFile <回放名> [-TickLimit 1500]   # 只播放并出报告
+#   .\tools\run-replay-selftest.ps1 -Build -PlayFile <回放名>              # 先构建（诊断构建）再跑
+#
+# ⚠️ 自测代码住在 Replay\Diagnostics\，**发布构建里整份不编译**（见 Replay.csproj）。
+#    所以跑自测前必须先做诊断构建（-Build 会替你跑 build.ps1 -Mod rp -Diagnostics）；
+#    拿发布 DLL 跑会看到「自测开关打开了但什么都没发生」。
 #
 # 它做四件事：
 #   1. 把 BepInEx/config/qoznos.mvz2.replay.cfg 的 [SelfTest] Enabled 打开
@@ -11,7 +16,7 @@
 #   3. 等游戏自己退出（配置里 AutoQuit=true），或超时后结束它
 #   4. 打印 <游戏目录>\BepInEx\_replay_selftest.txt
 #
-# 自测内容与报告格式见 Replay/ReplaySelfTest.cs。
+# 自测内容与报告格式见 Replay/Diagnostics/ReplaySelfTest.cs（诊断构建才编进去）。
 # ASCII only（见 run-selftest.ps1 里的说明）。
 # =====================================================================
 param(
@@ -30,7 +35,10 @@ param(
     # 用于「自测开关卡在 true、一启动游戏就自动进关卡/自动退出」的情况。
     [switch]$Off,
     [switch]$KeepSelfTest,
-    [switch]$NoLaunch
+    [switch]$NoLaunch,
+    # 先跑一次诊断构建（build.ps1 -Mod rp -Diagnostics）再自测。
+    # 自测代码只在诊断构建里存在，所以“改完代码就跑自测”应该带上它。
+    [switch]$Build
 )
 
 $ErrorActionPreference = 'Stop'
@@ -46,10 +54,36 @@ $report = Join-Path $GameDir 'BepInEx\_replay_selftest.txt'
 $replayDir = @(Get-ReplayDirs $GameDir) | Select-Object -First 1
 if (-not $replayDir) { $replayDir = Join-Path $GameDir 'BepInEx\replays' }
 
+<#
+  把另一个自测段的 Enabled 行删掉（缺省就是 false，不需要补写回来）。
+  两个自测不互斥的话，对方跑完退出游戏，现场看起来就是「闪退」。
+#>
+function Disable-OtherSelfTest([string]$section) {
+    if (-not (Test-Path -LiteralPath $cfg)) { return }
+    $lines = @([IO.File]::ReadAllText($cfg) -split "`r?`n")
+    $kept = New-Object System.Collections.Generic.List[string]
+    $inSec = $false
+    $removed = 0
+    foreach ($l in $lines) {
+        if ($l -match '^\s*\[') { $inSec = ($l -match ('^\s*\[' + $section + '\]')) }
+        if ($inSec -and $l -match '^\s*Enabled\s*=') { $removed++; continue }
+        $kept.Add($l)
+    }
+    if ($removed -gt 0) {
+        [IO.File]::WriteAllText($cfg, ($kept -join "`r`n"), (New-Object Text.UTF8Encoding($false)))
+        Write-Info ("[" + $section + "] Enabled 已移除（两个自测必须互斥）")
+    }
+}
+
 function Set-SelfTest([bool]$on, [string]$stage, [string]$area, [string]$playFile, [int]$tickLimit,
     [int]$warmup, [int]$cooldown) {
     # 把 [SelfTest] 段整个去掉再按需要重写：不用去猜旧文件里写了什么，
     # 剩下的键由 BepInEx 用代码里的默认值补上。
+    #
+    # ⚠️ 同时强制关掉 [GuiTest]（两个自测是各自独立的状态机，而 GUI 自测跑完
+    # 会 Application.Quit()）—— 否则现象就是「回放播到一半闪退」。以前只在 README 里
+    # 口头警告，而 GUI 自测脚本跑完并不会把开关改回去，于是就留在配置里了。
+    Disable-OtherSelfTest 'GuiTest'
     $lines = @()
     if (Test-Path -LiteralPath $cfg) {
         $lines = @([IO.File]::ReadAllText($cfg) -split "`r?`n")
@@ -85,6 +119,12 @@ function Set-SelfTest([bool]$on, [string]$stage, [string]$area, [string]$playFil
 Write-Host ("Replay self-test") -ForegroundColor White
 Write-Info ("game dir : " + $GameDir)
 Write-Info ("config   : " + $cfg)
+
+if ($Build) {
+    Write-Step "[0/1] 诊断构建（build.ps1 -Mod rp -Diagnostics）"
+    & (Join-Path $repo 'build.ps1') -Mod rp -Diagnostics -GameDir $GameDir
+    if ($LASTEXITCODE -ne 0) { throw "诊断构建失败" }
+}
 
 if ($Off) {
     Write-Step "[1/1] 关闭 SelfTest（不启动游戏）"

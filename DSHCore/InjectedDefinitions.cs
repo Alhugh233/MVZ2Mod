@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Text;
 using HarmonyLib;
+using Il2CppInterop.Runtime;
 using Il2CppInterop.Runtime.Injection;
 using Il2CppInterop.Runtime.InteropTypes.Arrays;
 using MVZ2Logic.Modding;
@@ -293,23 +294,103 @@ namespace DSHCore
             if (mod == null)
                 return null;
 
+            IntPtr ptr;
+            try { ptr = mod.Pointer; }
+            catch (Exception) { return null; }
+            if (ptr == IntPtr.Zero)
+                return null;
+
+            // ① 指针表：最可靠，且完全不碰原生。
             try
             {
                 string bound;
-                if (PointerToNamespace.TryGetValue(mod.Pointer, out bound) && IsRegistered(bound))
+                if (PointerToNamespace.TryGetValue(ptr, out bound) && IsRegistered(bound))
                     return bound;
             }
             catch (Exception) { }
 
+            // ② 安全回退：只比「字段里的原始指针」是否等于我们钉住的那根。
+            //
+            //    ⚠️ 这里**绝不能**读 mod.Namespace。它是原生自动属性 getter，会调
+            //    Il2CppStringToManaged 去解引用字段里的指针；注入实例的引用字段不被 il2cpp GC
+            //    扫描，字符串一旦被回收，字段里就是悬垂指针 —— 读属性会在原生层直接
+            //    访问冲突（0.7.0 实测 0xC0000005），C# 的 try/catch 拦不住。
+            //    早先版本正是用 mod.Namespace 兜底，早期内测版上侥幸没炸，0.7.0 上必炸。
             try
             {
-                var nsp = mod.Namespace;
-                if (IsRegistered(nsp))
-                    return nsp;
+                var pinned = ModNamespacePin.MatchPinned(ptr);
+                if (pinned != null && IsRegistered(pinned))
+                    return pinned;
             }
             catch (Exception) { }
 
+            // 两个判据都没命中：本 mod 的定义会被漏掉，属于需要立刻看见的症状。
+            DiagMiss(ptr, mod);
             return null;
+        }
+
+        /// <summary>未命中判定时的节流诊断（每个指针只报一次，避免刷屏）。</summary>
+        private static readonly HashSet<IntPtr> _missLogged = new HashSet<IntPtr>();
+        private static void DiagMiss(IntPtr ptr, Mod mod)
+        {
+            try
+            {
+                lock (_missLogged)
+                {
+                    if (!_missLogged.Add(ptr))
+                        return;
+                }
+
+                // 只对本框架注入的 Mod 实例告警。
+                //
+                // 未命中 ≠ 出问题：NamespaceOf 的语义就是"这个 Mod 是不是我的"，
+                // vanilla / 其它第三方 mod 的实例永远命中不了，返回 null 是**正确结果**。
+                // 早先版本对谁都告警，日志里两条 "未命中" 看起来像崩溃征兆，
+                // 实际是两个 builtin mod —— 纯误导。
+                // 判据用 il2cpp class 指针与 CoreRegistry 里登记的注入类比对，最准。
+                if (!IsInjectedModInstance(ptr))
+                    return;
+
+                string type = "?";
+                try { type = mod.GetType().FullName; } catch (Exception) { }
+                var keys = new StringBuilder();
+                lock (PointerToNamespace)
+                {
+                    foreach (var k in PointerToNamespace.Keys)
+                    {
+                        if (keys.Length > 0)
+                            keys.Append(',');
+                        keys.Append("0x").Append(k.ToInt32().ToString("X8"))
+                            .Append('=').Append(PointerToNamespace[k]);
+                    }
+                }
+                LogWarn("NamespaceOf 未命中（本框架的 Mod 实例！）：ptr=0x" + ptr.ToInt32().ToString("X8")
+                    + " type=" + type
+                    + " 已登记命名空间=" + Lists.Count + " 项"
+                    + " 指针表=[" + keys + "]"
+                    + "（Bind 记录的指针和游戏用到的不是同一个 → 本 mod 的定义会被漏记）");
+            }
+            catch (Exception) { }
+        }
+
+        /// <summary>该 native 对象的 il2cpp class 是否属于 CoreRegistry 里登记的注入 Mod 类型。</summary>
+        private static bool IsInjectedModInstance(IntPtr ptr)
+        {
+            try
+            {
+                var cls = IL2CPP.il2cpp_object_get_class(ptr);
+                if (cls == IntPtr.Zero)
+                    return false;
+                foreach (var reg in CoreRegistry.GetAll())
+                {
+                    if (reg.LogicType == null)
+                        continue;
+                    if (Il2CppClassPointerStore.GetNativeClassPointer(reg.LogicType) == cls)
+                        return true;
+                }
+            }
+            catch (Exception) { }
+            return false;
         }
 
         // ------------------------------------------------------------------

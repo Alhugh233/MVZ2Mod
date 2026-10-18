@@ -8,7 +8,7 @@
 - 插件 GUID：`qoznos.mvz2.core`
 - 显示名：`DSHCore`
 - 当前版本：**0.4.0**
-- 适配：MVZ2 **0.7.0 test-11**（Windows **x86** / IL2CPP metadata v31.1 / Unity 2022.3.62f3）
+- 适配：MVZ2 **0.7.0**（Windows **x86** / IL2CPP metadata v31.1 / Unity 2022.3.62f3）
 - 运行时要求：BepInEx **be.788**（x86 IL2CPP）
 
 > ⚠️ 社区制作的**非官方**作品，与游戏原作者无关。
@@ -20,7 +20,11 @@
 
 `AI_GUIDE.md` 是本项目**最重要的文档**：面向 AI 与后来者的开发参考，
 包含 AI 协作工作流、公共 API 速查、最小 mod 骨架、0.7 官方集成链时序图，
-以及一份「症状 → 根因 → 对策」的陷阱清单（17 条，全部实测）。
+以及一份「症状 → 根因 → 对策」的陷阱清单（30 条，全部实测）。
+其中 0.7.0 新踩到的三条：**㉘** 存档接口改名 + 必须 `RegisterSerializableType`（自己拼 BSON 会读不回来）、
+**㉙** release 构建会把私有 async 薄壳内联（Harmony 补丁装得上却永不命中）、
+**㉚** 别在 `MainSceneController.Update` 的补丁体里同步发起关卡场景切换（0.7.0 上 `0xC0000005`；
+改成发游戏自己的 `/gotolevel` / `/load` 指令即可，详见该条）。
 
 如果你是被调用的 AI，**动手前请完整读一遍 `AI_GUIDE.md`**。
 
@@ -91,6 +95,60 @@ UiClone.OnClick(button, () => { /* … */ });
 | `MetaInjection.cs`    | 接管`ResourceManager.LoadMetaLists`：直接读 `StreamingAssets/Mods/<nsp>/Content/metas/*.xml` 并用游戏的 `MetaXMLParser` 解析进 `ModResource` —— **完全绕过 Addressables provider 链路**             |
 | `ArcadeIndexFix.cs`   | `LoadMods` **之后**平移外部 mod 的 `ArcadeMeta.Index`，避免与 vanilla 的 `0/1/2` 撞车导致街机条目被顶掉                                                                                               |
 | `LevelUiAnimatorGuard.cs` | 补原版漏洞的**安全网**：`LevelUIPreset.ShowHugeWaveText / ShowFinalWaveText / ShowReadySetBuild` 直接 `animator.SetTrigger` 而**没有** `activeInHierarchy` 守卫（同类其它地方都有）。那个 Animator 在 prefab 里就是 disabled、只靠游戏每帧手动 `Update` 养着 —— 一旦 HUD 的每帧驱动链断掉（例如克隆 UI 打爆了共享材质，见 `UI_RESEARCH.md` §6.4 第 22 条），这三处会把 `NullReferenceException` 抛进关卡行为里（玩家侧看到「关卡行为 `WaveStageBehaviour` 在执行 `Update` 时出现错误」）。本补丁按原版别处的纪律判一次可用性，可用就自己 `SetTrigger`、不可用就跳过 + WarnOnce。**只挡报错，不修根因** |
+| `QuickStart.cs` | **快速启动（默认关闭，仅供 mod 作者迭代）**。见下方「快速启动」一节 |
+
+---
+
+### 快速启动 <sub>`[QuickStart] SkipIntro = false`</sub>
+
+跳过开场动画：配置成 `true` 后，**健康警告页**（约 11.5 秒）与 **「Cuerzor 制作」报幕页**（约 2.5 秒）
+会直接换成标题页，启动后立刻可点，也不用再点一下屏幕。
+
+做法是在 `MainSceneController.DisplayPage` 的**前置补丁里把参数改写**成 `Titlescreen`，
+然后让原方法照常执行 —— 只改参数、不跳过原方法，所以除了「少这两个页面」以外官方流程一点没变
+（标题页上的资源加载进度条照常工作；主菜单音乐由本库补播，否则会静音）。
+
+**实测（0.7.0，本机已装 6 个 mod；截图对比见仓库记忆 `mvz2-startup-flow`）：**
+
+| 时刻 | 事件 |
+| ---- | ---- |
+| `+6.6 s` | BepInEx 插件加载完 |
+| `+17.4 s` | 开始显示健康警告（前面的时间全是 `main.Initialize()`）|
+| `+25.2 s` | 资源加载完成 |
+| `+31.6 s` | 警告退场结束 |
+| `+34.1 s` | 报幕结束 → 标题页 |
+
++30 秒截图对比：`SkipIntro = false` → 仍是**健康警告页**；`SkipIntro = true` → 已经在**标题页**。
+
+> **收益的真相**：开场动画与资源加载**本来就是并行的**，所以省下的不是 14 秒，
+> 而是「开场动画时长 − 剩余加载时长」，本机实测 ≈ **6.3 秒**（38.0 s → 31.7 s）。
+> 机器越好、加载越快，省得越多。
+
+#### ⚠️ 为什么没有用官方的 `MainManager.IsFastMode()`
+
+游戏本来就有一套「跳过开场」的路径，入口是 `MainManager.IsFastMode()`，但发行版里被写死成 `false`：
+
+```csharp
+public bool IsFastMode()
+{
+#if UNITY_EDITOR
+    return fastMode;
+#else
+    return false;      // ← 发行版
+#endif
+}
+```
+
+这是最合适的入口（`GameEntrance.StartGame` 用它决定是显示健康警告还是直接进主菜单），
+**但实测（0.7.0，本机）把它改成 `true` 之后游戏会卡死**：
+
+- 窗口 `Responding = false`，不再有任何 `MainSceneController.Update` 帧；
+- 到不了主菜单（一次运行里弹出了「初始化失败」错误框）；
+- 游戏确实进了 fast 分支（只有那条分支会调 `GetInitTask()`，日志里能看到它被调用）。
+
+也就是说**游戏自己的 fast 路径在当前版本不可用**，所以本库没有启用它。
+
+改完需要**重启游戏**。
 
 ### 公共 API（供 mod 调用）
 

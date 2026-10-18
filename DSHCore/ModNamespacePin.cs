@@ -67,6 +67,40 @@ namespace DSHCore
         }
 
         /// <summary>
+        /// 只看「对象里那个字段的**原始指针**」是否等于我们钉住的那根，是就返回对应命名空间，否则 null。
+        ///
+        /// <para><b>这是给 <c>NamespaceOf</c> 用的安全回退。</b>它只做两件事：
+        /// 按算好的偏移读一个指针（<see cref="Marshal.ReadIntPtr(IntPtr, int)"/>），
+        /// 然后和已知的指针做相等比较 —— <b>不解引用字符串、不发起任何原生调用</b>。</para>
+        ///
+        /// <para>为什么必须这么绕：<c>mod.Namespace</c> 是原生自动属性 getter，它会调
+        /// <c>Il2CppStringToManaged</c> 去解引用字段里的指针。注入实例的引用字段不被 il2cpp GC 扫描，
+        /// 一旦那根字符串被回收，字段里就是悬垂指针 —— 此时读属性会**在原生层直接访问冲突**，
+        /// C# 的 try/catch 拦不住（0.7.0 实测：0xC0000005）。比指针则完全没有这个风险。</para>
+        /// </summary>
+        public static string MatchPinned(IntPtr instancePtr)
+        {
+            if (instancePtr == IntPtr.Zero)
+                return null;
+
+            lock (gate)
+            {
+                foreach (var pair in States)
+                {
+                    var st = pair.Value;
+                    if (st.FieldMissing || st.Str == IntPtr.Zero || st.Offset < 0)
+                        continue;
+                    IntPtr current;
+                    try { current = Marshal.ReadIntPtr(instancePtr, st.Offset); }
+                    catch (Exception) { continue; }
+                    if (current == st.Str)
+                        return pair.Key;
+                }
+            }
+            return null;
+        }
+
+        /// <summary>
         /// 确保 <c>instance.Namespace</c> 可读且指向 <paramref name="spaceName"/>。
         /// 幂等。返回是否成功（成功 = 字段指针已确认，或写入完成）。
         /// </summary>

@@ -1,68 +1,73 @@
 <curses>
 	<curse id="qc_c1">
-		<texts name="怪物的大脑" tooltip="器械受到伤害时漏电 3s。" />
-		<sprite id="mvz2:curses/the_creatures_brain" />
+		<texts name="受伤" tooltip="器械受到伤害时漏电 3s。" />
+		<sprite id="modular_curse:curse/QC/INJURY" />
 		<buff id="modular_curse:qc_c1" />
 		<unlock always="true" />
 	</curse>
 	<curse id="qc_c2">
-		<texts name="梦魇的触手" tooltip="镐子和星之碎片各自具有 3s 冷却时间。" />
-		<sprite id="mvz2:curses/nightmares_tentacle" />
+		<texts name="凡庸" tooltip="镐子和星之碎片各自具有 3s 冷却时间。" />
+		<sprite id="modular_curse:curse/QC/NORMALITY" />
 		<buff id="modular_curse:qc_c2" />
 		<unlock always="true" />
 	</curse>
 	<curse id="qc_c3">
-		<texts name="凋灵的头颅" tooltip="器械被星之碎片激发后凋零 27s。" />
-		<sprite id="mvz2:curses/withers_skull" />
+		<texts name="凋萎" tooltip="器械被星之碎片激发后凋零 27s。" />
+		<sprite id="modular_curse:curse/QC/WITHER" />
 		<buff id="modular_curse:qc_c3" />
 		<unlock always="true" />
 	</curse>
 	<curse id="qc_c4">
-		<texts name="巨人的肉块" tooltip="有尸体的敌怪倒下时有 25% 概率复活（BOSS 除外）。" />
-		<sprite id="mvz2:curses/the_giants_flesh" />
+		<texts name="霉运" tooltip="有尸体的敌怪倒下时有 25% 概率复活（BOSS 除外）。" />
+		<sprite id="modular_curse:curse/QC/BAD_LUCK" />
 		<buff id="modular_curse:qc_c4" />
 		<unlock always="true" />
 	</curse>
 	<curse id="qc_c5">
-		<texts name="红龙的鳞片" tooltip="怪物和器械死亡时留下火焰。" />
-		<sprite id="mvz2:curses/red_dragons_scale" />
+		<texts name="灼伤" tooltip="怪物和器械死亡时留下火焰。" />
+		<sprite id="modular_curse:curse/QC/BURN" />
 		<buff id="modular_curse:qc_c5" />
 		<unlock always="true" />
 	</curse>
 	<curse id="qc_c6">
-		<texts name="上锁箱子的锁链" tooltip="怪物有 10% 概率隐形。" />
-		<sprite id="mvz2:curses/locked_chests_chains" />
+		<texts name="偏差认知" tooltip="怪物有 10% 概率隐形。" />
+		<sprite id="modular_curse:curse/QC/BIASED_COGNITION" />
 		<buff id="modular_curse:qc_c6" />
 		<unlock always="true" />
 	</curse>
 	<curse id="qc_c7">
-		<texts name="克拉肯的护板" tooltip="很长的冷却时间变为 75s。" />
-		<sprite id="mvz2:curses/krakens_backplate" />
+		<texts name="睡眠不佳" tooltip="很长的冷却时间变为 75s。" />
+		<sprite id="modular_curse:curse/QC/POOR_SLEEP" />
 		<buff id="modular_curse:qc_c7" />
 		<unlock always="true" />
 	</curse>
 	<curse id="qc_c8">
-		<texts name="QC-C8" tooltip="怪物的出场时间提前 5s。" />
+		<texts name="呼唤" tooltip="怪物的出场时间提前 5s。" />
+		<sprite id="modular_curse:curse/QC/BECKON" />
 		<buff id="modular_curse:qc_c8" />
 		<unlock always="true" />
 	</curse>
 	<curse id="qc_c9">
-		<texts name="QC-C9" tooltip="器械子弹的速度变为 1/3。" />
+		<texts name="黏液" tooltip="器械子弹的速度变为 1/3。" />
+		<sprite id="modular_curse:curse/QC/SLIMED" />
 		<buff id="modular_curse:qc_c9" />
 		<unlock always="true" />
 	</curse>
 	<curse id="qc_c10">
-		<texts name="QC-C10" tooltip="重质量怪物可以阻挡穿透伤害。" />
+		<texts name="愚行" tooltip="重质量怪物可以阻挡穿透伤害。" />
+		<sprite id="modular_curse:curse/QC/FOLLY" />
 		<buff id="modular_curse:qc_c10" />
 		<unlock always="true" />
 	</curse>
 	<curse id="qc_c11">
-		<texts name="QC-C11" tooltip="每一大波所有器械价格上涨 50。" />
+		<texts name="贪婪" tooltip="每一大波所有器械价格上涨 50。" />
+		<sprite id="modular_curse:curse/QC/GREED" />
 		<buff id="modular_curse:qc_c11" />
 		<unlock always="true" />
 	</curse>
 	<curse id="qc_c12">
-		<texts name="QC-C12" tooltip="关卡开始时在第三列随机一路生成一个不给予星碎的借贷告示牌。" />
+		<texts name="进阶之灾" tooltip="关卡开始时在第三列随机一路生成一个不给予星碎的借贷告示牌。" />
+		<sprite id="modular_curse:curse/QC/ASCENDERS_BANE" />
 		<buff id="modular_curse:qc_c12" />
 		<unlock always="true" />
 	</curse>

@@ -61,9 +61,13 @@ namespace Replay
         /// <summary>已成功发出的指针动作数（写进播放小结）。</summary>
         public static int Fired { get; private set; }
 
+        /// <summary>由**轨迹**（逐 tick）发出的次数，与 <see cref="Fired"/> 分开计数便于排障。</summary>
+        public static int FiredFromTrack { get; private set; }
+
         public static void Reset()
         {
             Fired = 0;
+            FiredFromTrack = 0;
             // ready / broken 保留：反射解析结果与本次播放无关，成功就不必再解析。
         }
 
@@ -73,6 +77,11 @@ namespace Replay
         /// <para>映射：<c>Down→Press</c>、<c>Hold/Streak</c> 之类按下中的 →<c>Hold</c>、
         /// <c>Up→Release</c>、<c>Stay/Enter/Exit</c>（指针在但不按下）→<c>None</c>。
         /// 其余交互（Click / Drag / Drop / Key …）是路由层的概念，跳过。</para>
+        ///
+        /// <para>⚠️ 这条路径**只在「本 tick 没有逐 tick 轨迹覆盖」时才走**
+        /// （见 <see cref="ReplayPointerTrajectory.TickCovered"/>，判定点在
+        /// <c>ReplayPlayer.Dispatch</c>）。有轨迹时由 <see cref="FirePhases"/> 每 tick 发一次，
+        /// 否则同一次按下会被发两遍（碾压墙一次点击会扣两次进度）。</para>
         /// </summary>
         public static void Fire(MainManager main, int pointerId, int interaction, float screenX, float screenY)
         {
@@ -98,14 +107,52 @@ namespace Replay
                 default: return;
             }
 
+            int type = InputHelper.GetPointerType(pointerId);
+            int button = InputHelper.GetPointerButton(pointerId);
+            if (Emit(main, type, button, phase, screenX, screenY))
+                Fired++;
+        }
+
+        /// <summary>
+        /// 由**逐 tick 指针轨迹**派发一次：对 3 个键各发一条，相位从按键掩码的**边沿**推出来。
+        ///
+        /// <para>原版里 <c>InputManager.UpdatePointer()</c> 每帧都为 3 个键各发一条
+        /// （没按下就是 <c>None</c>），这里把它压缩成「每 tick 一次」：边沿（0→1）变
+        /// <c>Press</c>、持续按住是 <c>Hold</c>、边沿（1→0）变 <c>Release</c>、一直没按是 <c>None</c>。
+        /// 于是「点一次就扣一次进度」的碾压墙只扣一次，而「每帧读 screenPos」的打砖块也能跟到位。</para>
+        ///
+        /// <para>⚠️ 只对 <c>MOUSE</c> 发：键盘/触摸的指针动作本来就不走这条。</para>
+        /// </summary>
+        public static void FirePhases(MainManager main, float screenX, float screenY, int prevMask, int curMask)
+        {
+            if (broken || main == null)
+                return;
+            for (int button = 0; button < 3; button++)
+            {
+                int bit = 1 << button;
+                bool was = (prevMask & bit) != 0;
+                bool now = (curMask & bit) != 0;
+                PointerPhase phase;
+                if (now)
+                    phase = was ? PointerPhase.Hold : PointerPhase.Press;
+                else
+                    phase = was ? PointerPhase.Release : PointerPhase.None;
+                if (Emit(main, MVZ2Logic.Inputs.PointerTypes.MOUSE, button, phase, screenX, screenY))
+                    FiredFromTrack++;
+            }
+        }
+
+        /// <summary>真正把一条 <c>POST_POINTER_ACTION</c> 发给游戏。成功返回 true。</summary>
+        private static bool Emit(MainManager main, int type, int button, PointerPhase phase,
+            float screenX, float screenY)
+        {
+            if (broken || main == null)
+                return false;
             try
             {
                 EnsureInit(main);
                 if (broken || runFiltered == null)
-                    return;
-
-                int type = InputHelper.GetPointerType(pointerId);
-                int button = InputHelper.GetPointerButton(pointerId);
+                    return false;
 
                 var param = Activator.CreateInstance(paramType);
                 fType.SetValue(param, type);
@@ -115,13 +162,14 @@ namespace Replay
                 fPhase.SetValue(param, phase);
 
                 runFiltered.Invoke(main.Game, new object[] { callbackType, param, phase });
-                Fired++;
+                return true;
             }
             catch (Exception e)
             {
                 broken = true;
                 Plugin.Log?.LogError("[Replay] 回放指针动作失败（已停用该功能）："
                     + e.GetType().Name + ": " + e.Message);
+                return false;
             }
         }
 

@@ -6,12 +6,16 @@ using PVZEngine.Modifiers;
 namespace ModularCurse
 {
     // =====================================================================
-    // QC 池（12 条）
+    // 癫狂之触（12 条）
     //
     // 本文件只放"定义级"内容：ID、以及能用原版属性修饰符表达的常量效果。
     // 需要回调/跨帧状态的行为在 CurseRuntime（由 CurseHooks 驱动）。
     //
     // 为什么不用 buff 的原生触发器：见 CurseHooks 的类注释。
+    //
+    // 注意：显示名（游戏里看到的那 12 个名字）在
+    // assets/Content/metas/curses.xml + CurseLocale.cs，
+    // 下面的注释里写的 "QC-Cn" 一律只是诅咒 ID qc_cn 的简写，与显示名无关。
     // =====================================================================
 
     /// <summary>QC-C1：器械受到伤害时漏电 3s。</summary>

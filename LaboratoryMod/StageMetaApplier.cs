@@ -11,7 +11,7 @@ namespace LaboratoryMod
     /// 把关卡 meta（stages.xml 的 StageMeta）属性应用到注入的 StageDefinition。
     ///
     /// 0.7 官方 LoadStageProperties 依赖 mod.GetStageDefinition 泛型查找 + 对 def 做大量
-    /// 泛型 SetProperty —— 在 metadata v31 上对注入 def/注入 mod 不可靠（与 test-1 结论
+    /// 泛型 SetProperty —— 在 metadata v31 上对注入 def/注入 mod 不可靠（与早期内测版结论
     /// 一致）。本类复刻其属性赋值，但全部用"非虚扩展 setter + Try 包裹的泛型 SetProperty"，
     /// 规避接口分派 / 泛型实例化问题。ENEMY_POOL 若泛型失败，由关卡 OnStart 兜底。
     /// </summary>

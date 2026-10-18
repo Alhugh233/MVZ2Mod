@@ -17,7 +17,7 @@
 #       otherwise every later launch would keep opening the panel by itself.
 # =====================================================================
 param(
-    [string]$GameDir = 'E:\Game\PVZ\MVZ2\MVZ2 0.7.0 test-11',
+    [string]$GameDir = "",
     [int]$TimeoutSec = 300,
     [switch]$NoLaunch,
     [switch]$KeepSelfTest
@@ -25,6 +25,11 @@ param(
 
 $ErrorActionPreference = 'Stop'
 Import-Module Microsoft.PowerShell.Management, Microsoft.PowerShell.Utility
+. "$PSScriptRoot\build-common.ps1"
+
+# 游戏目录从目录配置读（见 run-selftest.ps1 里的说明）。
+$GameDir = Normalize-GameDir $GameDir (Get-DefaultGameDir -RepoRoot (Split-Path -Parent $PSScriptRoot))
+if (-not (Test-GameDir $GameDir)) { throw ("游戏目录无效: " + $GameDir) }
 
 $cfg = Join-Path $GameDir 'BepInEx\config\qoznos.mvz2.loadout.cfg'
 $log = Join-Path $GameDir 'BepInEx\LogOutput.log'

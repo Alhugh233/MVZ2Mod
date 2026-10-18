@@ -4,7 +4,7 @@
 > 它只讲"怎么做"；"为什么是这样"的论证、实测路径与完整坑表在
 > [`UI_RESEARCH.md`](UI_RESEARCH.md)，可运行范例在 [`../UiGallery/`](../UiGallery/README.md)。
 >
-> 全部结论都来自**本机实测**（MVZ2 0.7.0 test-11 / x86 / IL2CPP metadata v31.1）。
+> 全部结论都来自**本机实测**（MVZ2 0.7.0 / x86 / IL2CPP metadata v31.1）。
 > 凡是没实测过的，我都在这份文档里标了「未验证」。
 
 ---

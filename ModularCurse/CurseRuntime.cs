@@ -493,7 +493,7 @@ namespace ModularCurse
                         VanillaBuffID.Entity.withered,      // 凋零
                         VanillaBuffID.Entity.petrified,     // 石化
                         VanillaBuffID.Entity.burning,       // 燃烧
-                        BuiltinBuff("frozen"),              // 冰冻（该 buff 在 test-6 的 interop 里没有静态字段，用原始 ID）
+                        BuiltinBuff("frozen"),              // 冰冻（该 buff 在早期内测版的 interop 里没有静态字段，用原始 ID）
                         VanillaBuffID.Enemy.gravelOnFace,   // 沙砾
                     };
                     statusTable = list;
@@ -1850,7 +1850,7 @@ namespace ModularCurse
 
         /// <summary>
         /// 可叠加的眩晕：原版 <c>StunBuff.MaxStunTime</c> 只在"新的比旧的长"时才写时间
-        /// （test-6 的 interop 里连这个方法都找不到），所以改为自己记账：
+        /// （早期内测版的 interop 里连这个方法都找不到），所以改为自己记账：
         /// 每个器械维护一个「剩余眩晕 tick」，每次叠加就 <c>+0.1s</c> 后把**累计值**交给
         /// <c>entity.Stun</c>（它只会把时长换成更大的那个 = 我们的累计值），
         /// 自己再每帧递减同一份计数，两边同步。

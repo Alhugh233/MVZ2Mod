@@ -15,7 +15,7 @@ namespace ModularCurse
     /// <summary>
     /// 模块化诅咒（Modular Curse）—— 依赖 DSHCore 前置库。
     ///
-    /// 把自定义诅咒接入**原版诅咒系统**（0.7.0 test-4 起加入）：
+    /// 把自定义诅咒接入**原版诅咒系统**（0.7.0 起加入）：
     ///   1. ModBootstrap 登记 modular_curse（DSHCore.MetaInjection 据此把
     ///      StreamingAssets/Mods/modular_curse/Content/metas/*.xml 注入 ModResource）。
     ///   2. OnRegisterModInfos 注册 ModInfo：Logic = ModularCurseMod.CreateInstance()。
@@ -97,10 +97,10 @@ namespace ModularCurse
             // 「模组设置」页里显示的**中文名**：源串是 NAME，译文挂在
             // DSHCore.Ui.UiLocale（= 游戏的语言系统，切到英文就显示英文原名）。
             UiLocale.Add(NAME, "模块化诅咒");
-            UiLocale.Add("模块化诅咒（QC 池 + SC 池）",
-                "Modular curses (QC / SC / ZY pools)", UiLocale.English);
+            UiLocale.Add("模块化诅咒（癫狂之触 + SC 池）",
+                "Modular curses (Touch Of Insanity + SC)", UiLocale.English);
             UiOptions.DeclareMod(ModularCurseMod.spaceName, NAME,
-                "模块化诅咒（QC 池 + SC 池）", "QoZnoS");
+                "模块化诅咒（癫狂之触 + SC 池）", "QoZnoS");
 
             Log.LogInfo(NAME + " v" + VERSION + " loaded, waiting for ModManager.RegisterModInfos...");
         }

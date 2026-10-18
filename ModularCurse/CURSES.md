@@ -4,32 +4,40 @@ MVZ2 0.7.0 的自定义诅咒扩展 mod，接入**原版诅咒系统**。依赖�
 
 - 游戏内命名空间：`modular_curse`
 - 诅咒 ID / buff ID / `curses.xml` id / `buffs.xml` id 四者同名，形如 `modular_curse:qc_c1`
-- 共 28 条诅咒：QC 池 12 条（`qc_c1`–`qc_c12`）+ SC 池 16 条（`sc_c1`–`sc_c16`）
-- **名字**：每个池的前 7 条直接用原版那 7 条诅咒的名字（它们复用的正是那 7 个图标），
-  第 8 条起用池内编号（`QC-C8` … / `SC-C8` …）
-- **图标**：前 7 条复用原版诅咒图标，其余留空；两个**池**各自有一张图标
-  （`ModularCurse/assets/Content/sprites/curse_qc.png` / `curse_sc.png`，运行时注册进游戏资源库）
+- 共 44 条诅咒：癫狂之触 12 条（`qc_c1`–`qc_c12`）+ SC 池 16 条（`sc_c1`–`sc_c16`）
+  + 咒鷲兼程 16 条（`zy_c1`–`zy_c16`）
+- **名字**：SC / ZY 池的前 7 条沿用原版那 7 条诅咒的名字（复用的正是那 7 个图标），
+  第 8 条起用池内编号（`SC-C8` … / `ZY-C8` …）；**癫狂之触**（QC）每条的名字都是
+  单独取的（Slay the Spire 的诅咒名，见下表）。
+- **图标**：SC / ZY 池的前 7 条复用原版诅咒图标、其余留空；**癫狂之触**每条都有
+  自己的图标（`assets/Content/sprites/curse/QC/*.png`）。四个**池**各自也有一张图标
+  （`curse_qc.png` / `curse_sc.png` / `curse_3q4a.png`）。
+- **贴图载入规则**（唯一一条）：`Content/sprites/` 下的**相对路径就是 sprite id 的路径**。
+  例如 `Content/sprites/curse/QC/INJURY.png` → `modular_curse:curse/QC/INJURY`，
+  于是 curses.xml 里直接写 `<sprite id="modular_curse:curse/QC/INJURY" />`。
+  `CurseSprites.RegisterAll()` 在 `PostInit` 递归扫描整个目录并逐张注册进
+  `ResourceManager`，以后加图只需把 PNG 丢进去、不用改代码。
 
 ---
 
 ## 一、诅咒列表
 
-### QC 池
+### 癫狂之触
 
-| ID | 效果 | 实现 |
-|---|---|---|
-| qc_c1 | 器械受到伤害时漏电 3s | Harmony：`VanillaEntityExt.TakeDamage` 后缀 → `VanillaEntityExt.ShortCircuit` |
-| qc_c2 | 镐子和星之碎片各自具有 3s 冷却时间 | Harmony：两个 `UseOnEntity` 后缀 + 写关卡工具禁用属性 |
-| qc_c3 | 器械被星之碎片激发后凋零 27s（**等大招结束再施加**） | Harmony：`VanillaContraptionExt.Evoke` 入队 → 每帧等到 `entity.IsEvoked()` 变 false 再挂原版 `withered` |
-| qc_c4 | 有尸体的敌怪倒下时有 25% 概率从尸体中复活（BOSS 除外） | Harmony：`VanillaEnemyExt.FaintRemove` 前缀返回 false 取消消失 → `Revive()` + 满血 |
-| qc_c5 | 怪物和器械死亡时留下火焰 | Harmony：`Entity.Die` 前缀 → `GridFire.Spawn`（敌方阵营） |
-| qc_c6 | 怪物有 10% 概率隐形 | 每帧检测新实体 → 挂原版 `dark_matter_invisible` |
-| qc_c7 | 很长的冷却时间变为 75s（≥50s 视为很长） | Harmony：`SeedPack.GetUsedMaxRecharge` / `GetStartMaxRecharge` 后缀 |
-| qc_c8 | 怪物的出场时间提前 5s | **原生修饰符**：`EngineStageProps.FIRST_WAVE_TIME` − 5s |
-| qc_c9 | 器械子弹的速度变为 1/3 | Harmony：`VanillaProjectileExt.ShootProjectile` 前缀改 velocity |
-| qc_c10 | 重质量怪物可以阻挡穿透伤害 | Harmony：`ProjectileCommonBehaviour.PostCollision` + `CanPierce` |
-| qc_c11 | 每一大波所有器械价格上涨 50 | Harmony：`SeedPack.GetCost` 后缀（档位 = `CurrentWave / wavesPerFlag`） |
-| qc_c12 | 关卡开始时在第三列随机一路生成一个不给予星碎的借贷告示牌 | 每帧延迟 3 帧后放置；`LoanSign.Init` 前缀只对诅咒生成的那块清借贷次数 |
+| ID | 名称 | 效果 | 实现 |
+|---|---|---|---|
+| qc_c1 | 受伤 | 器械受到伤害时漏电 3s | Harmony：`VanillaEntityExt.TakeDamage` 后缀 → `VanillaEntityExt.ShortCircuit` |
+| qc_c2 | 凡庸 | 镐子和星之碎片各自具有 3s 冷却时间 | Harmony：两个 `UseOnEntity` 后缀 + 写关卡工具禁用属性 |
+| qc_c3 | 凋萎 | 器械被星之碎片激发后凋零 27s（**等大招结束再施加**） | Harmony：`VanillaContraptionExt.Evoke` 入队 → 每帧等到 `entity.IsEvoked()` 变 false 再挂原版 `withered` |
+| qc_c4 | 霉运 | 有尸体的敌怪倒下时有 25% 概率从尸体中复活（BOSS 除外） | Harmony：`VanillaEnemyExt.FaintRemove` 前缀返回 false 取消消失 → `Revive()` + 满血 |
+| qc_c5 | 灼伤 | 怪物和器械死亡时留下火焰 | Harmony：`Entity.Die` 前缀 → `GridFire.Spawn`（敌方阵营） |
+| qc_c6 | 偏差认知 | 怪物有 10% 概率隐形 | 每帧检测新实体 → 挂原版 `dark_matter_invisible` |
+| qc_c7 | 睡眠不佳 | 很长的冷却时间变为 75s（≥50s 视为很长） | Harmony：`SeedPack.GetUsedMaxRecharge` / `GetStartMaxRecharge` 后缀 |
+| qc_c8 | 呼唤 | 怪物的出场时间提前 5s | **原生修饰符**：`EngineStageProps.FIRST_WAVE_TIME` − 5s |
+| qc_c9 | 黏液 | 器械子弹的速度变为 1/3 | Harmony：`VanillaProjectileExt.ShootProjectile` 前缀改 velocity |
+| qc_c10 | 愚行 | 重质量怪物可以阻挡穿透伤害 | Harmony：`ProjectileCommonBehaviour.PostCollision` + `CanPierce` |
+| qc_c11 | 贪婪 | 每一大波所有器械价格上涨 50 | Harmony：`SeedPack.GetCost` 后缀（档位 = `CurrentWave / wavesPerFlag`） |
+| qc_c12 | 进阶之灾 | 关卡开始时在第三列随机一路生成一个不给予星碎的借贷告示牌 | 每帧延迟 3 帧后放置；`LoanSign.Init` 前缀只对诅咒生成的那块清借贷次数 |
 
 ### SC 池（奇硅箱的诅咒，16 条；C13~C16 为「额外」部分，游戏内名称带红）
 
@@ -81,7 +89,7 @@ MVZ2 0.7.0 的自定义诅咒扩展 mod，接入**原版诅咒系统**。依赖�
 | 池 | 图标 | 面板里显示的诅咒 | 作者描述 |
 |---|---|---|---|
 | 原版池（默认） | 原版诅咒按钮那张图（`ui/level/curse.png`）+ 同样的紫色滤镜 | 只有 `mvz2:*` 的 7 条原生诅咒 | 原版诅咒 |
-| QC 池 | `curse_qc.png` + 同样的紫色滤镜 | 只有 `modular_curse:qc_c1..qc_c12` | QoZnoS的诅咒 |
+| 癫狂之触 | `curse_qc.png` + 同样的紫色滤镜 | 只有 `modular_curse:qc_c1..qc_c12` | QoZnoS的诅咒 |
 | SC 池 | `curse_sc.png` + 同样的紫色滤镜 | 只有 `modular_curse:sc_c1..sc_c16` | 奇硅箱的诅咒 |
 | 咒鵺兼程 | `curse_3q4a.png` + 同样的紫色滤镜 | 只有 `modular_curse:zy_c1..zy_c16` | 3q4a的诅咒 |
 
@@ -192,7 +200,7 @@ MVZ2 0.7.0 的自定义诅咒扩展 mod，接入**原版诅咒系统**。依赖�
 
 ## 二、与原版诅咒系统的对接
 
-原版 0.7.0（test-4 起）的诅咒链路：
+原版 0.7.0（早期内测版起）的诅咒链路：
 
 ```mermaid
 graph LR
@@ -522,11 +530,13 @@ entity.SpawnerReference == null   // 自然生成
   在 `Die(DeathInfo)` 前缀里 `return false` 就是游戏自己 `PRE_ENTITY_DEATH` 回调
   那条路（`Die` 里 `if (!PreDeath(info)) return;`），把血量写回 15% 即可。
   代价：`NO_REVIVAL`（溺水 / 坠楼）我们仍然尊重；亡语则天然不触发（`PostDeath` 不会跑）。
-- **sc_c3（恶咒之星）的「可叠加」改成了在剩余时长上累加**：原版
-  `StunBuff.MaxStunTime` 只在「新的比旧的长」时才写时间（`timer.Frame > value` 就返回），
-  所以连按不会累加。做法是在 `MaxStunTime` 上加一个前缀，
-  **只在 `CurseState.ScStunStacking` 打开时**（也就是只在诅咒自己调 `entity.Stun` 的那一瞬间）
-  把 `value` 改成 `timer.Frame + value` —— 不会影响荧石 / 其它来源的眩量。
+- **sc_c3（恶咒之星）的「可叠加」是自己记账**：原版 `StunBuff.MaxStunTime` 只在
+  「新的比旧的长」时才写时间，而且 **早期内测版起的 interop 里根本找不到这个方法**
+  （`AccessTools.Method` 返回 null，日志会打 `patch target not found`）。
+  所以改成自己维护「器械指针 → 剩余眩晕 tick」的账（`CurseState.ScStun`）：
+  每次叠加 `remaining += 0.1s` 后把**累计值**交给 `entity.Stun(remaining)`
+  （原版只会把时长换成更大的那个 ⇒ 拿到的就是我们想要的累计值），
+  自己再每帧递减同一份计数，两边同步。
 - **sc_c7 换成了动「击退系数」**：原版吹飞 / 击退只有木风扇一条路，而需求要求
   「不再禁止木风扇的吹飞效果与击退，也不是简单的加重量」。因此：
   ① 删掉旧的 `BlownByWoodenFanBuff.GetBlowMass` 后缀（它把质量顶到 999 = 完全吹不动）；
@@ -629,12 +639,40 @@ entity.SpawnerReference == null   // 自然生成
   改成在 `VanillaContraptionExt.EmptyHandClick` 后缀里扣 10 点耐久
   （`TakeDamage(10, MUTE)`）—— 点击本身照常生效。
 
+### 17. 诅咒图标：mod 自带 PNG 怎么进游戏资源库
+
+游戏自己的图片走 Addressables 的 `SpriteManifest`（`ResourceManager_Sprites` 按
+label `Init` / `Main` 加载，键是**带 tags** 的 `SpriteLookupKey`）。
+磁盘上的 mod 资源目录只被 DSHCore 用于读 XML metas，**PNG 不会被自动加载**，
+所以自己 `File.ReadAllBytes` → `Texture2D` + `ImageConversion.LoadImage` →
+`Sprite.Create` → `ResourceManager.RegisterSprite(SpriteReference, Sprite)`。
+
+- **键对得上**：`RegisterSprite(SpriteReference, Sprite)` 与
+  `ResourceManager.GetSprite(SpriteReference)` 内部都用
+  `new SpriteLookupKey(spriteRef)`（**不带 tags**），所以"注册进去"与
+  "诅咒面板取图"用的是同一个键，不需要额外处理。
+- **注册一次就够**：`ResourceManager.Init()` 一个进程只跑一次，
+  内部的 `ClearResources()` 也只在 `Init` 里调 → 中途不会把注册清掉。
+  所以放在 `ModularCurseMod.PostInit`（`MainManager.Instance` 此时已可用）。
+- **必须 `hideFlags = DontUnloadUnusedAsset`**，否则场景切换会把贴图卸掉。
+- **命名约定（唯一一条）**：`Content/sprites/` 下的相对路径 = sprite id 的路径，
+  索引恒为 0。`curse/QC/INJURY.png` ↔ `modular_curse:curse/QC/INJURY`。
+  `NamespaceID.ValidatePath` 允许字母 / 数字 / `_` / `-` / `.` / `/`（**大小写不限**），
+  所以带大写和斜杠的路径是合法的。`CurseSprites.RegisterAll()` 递归扫描整个目录，
+  以后加图不用改代码 —— 但 curses.xml 里的 id 要与磁盘路径**逐字符一致**。
+- **不要忘了 `Content/sprites/` 里的图会全部注册**（含四个池的图标
+  `curse_qc.png` / `curse_sc.png` / `curse_3q4a.png`），池图标就是从同一个入口拿的。
+- **自检**：`CurseMetaApplier` 会打两行 `图标解析 N/M` ——
+  `PostInit` 那次 M 只含本 mod 已注册的（原版贴图此刻还没加载，不算数），
+  进选卡界面时（`CursePoolIcons.Prepare`）那次才是"玩家真正会看到几张图"。
+  本 mod 的图缺失会逐条 `图标缺失: <curse> -> <sprite id>` 告警。
+
 ---
 
 ## 四、构建与部署
 
 ```powershell
-.\build.ps1                    # 构建 + 自动部署到测试游戏目录（默认 E:\Game\PVZ\MVZ2\MVZ2 0.7.0 test-11）
+.\build.ps1                    # 构建 + 自动部署到测试游戏目录（默认 E:\Game\PVZ\MVZ2\MVZ2 0.7.0）
 .\build.ps1 -Pack              # 构建 + 部署 + 打包 dist\ModularCurse_v0.2.1_0.7.0.zip
 .\build.ps1 -Pack -Launch
 .\build.ps1 -KeepGame          # 不结束正在运行的游戏（DLL 会被锁，仅建议调试脚本时用）
@@ -647,7 +685,7 @@ entity.SpawnerReference == null   // 自然生成
 
 | 参数 | 作用 |
 | ---- | ---- |
-| `-GameDir <dir>` | 部署目标（默认 `E:\Game\PVZ\MVZ2\MVZ2 0.7.0 test-11`） |
+| `-GameDir <dir>` | 部署目标（默认 `E:\Game\PVZ\MVZ2\MVZ2 0.7.0`） |
 | `-SkipBuild` | 跳过编译，只做部署校验 / 打包 / 启动 |
 | `-Clean` | 编译前先删掉 `bin/`、`obj/` |
 | `-KeepGame` | 不结束运行中的游戏进程（**会因 DLL 被占用而部署失败**） |
@@ -664,8 +702,8 @@ entity.SpawnerReference == null   // 自然生成
 dotnet build ModularCurse/ModularCurse.csproj -c Debug
 ```
 
-- 引用来自仓库 `runtime/`（BepInEx core + 0.7.0 test-11 的 interop）。
-- `GameDir` 默认 `E:\Game\PVZ\MVZ2\MVZ2 0.7.0 test-11\`，
+- 引用来自仓库 `runtime/`（BepInEx core + 0.7.0 的 interop）。
+- `GameDir` 默认 `E:\Game\PVZ\MVZ2\MVZ2 0.7.0\`，
   构建后自动拷贝 `ModularCurse.dll` 到 `BepInEx\plugins\`，
   并把 `ModularCurse\assets\**` 部署到 `StreamingAssets\Mods\modular_curse\`。
 - ⚠️ 游戏重建后必须重新生成 interop（`BepInEx/config/BepInEx.cfg` 的
@@ -697,7 +735,7 @@ dotnet build ModularCurse/ModularCurse.csproj -c Debug
 [CursePool] 已在滚动区内创建 3 个池条目（3列×1行，条目 64，行高 64，左对齐，可用宽 259，横线 True，padding.top 82，弹窗 active=0）
 [CursePool] 池图标已按原版按钮的方式叠加紫色滤镜
 [CursePool] 已取消池外勾选：19 → 7      ← 切池时丢弃池外的勾选
-[CursePool] 选择 QC 池                  ← 点弹窗里的池条目
+[CursePool] 选择 癫狂之触                  ← 点弹窗里的池条目
 [CurseCommand] 收到：/curse all            ← 控制台指令
 [CursePool] 强制显示所有诅咒池（不过滤）
 ```
@@ -735,7 +773,7 @@ MinecraftVSZombies2_Data/StreamingAssets/Mods/modular_curse/Content/sprites/{cur
   `winhttp.dll` / `dotnet/` / `BepInEx\{core,interop,unity-libs,patchers,config}`）、
   `DSHCore.dll` 与本 mod 的插件+资源 —— 解压到游戏根目录即可，不需要先装前置包。
   只要插件本体（不给新环境）时用 `-NoRuntime` 打包，体积降到几十 KB。
-- 运行时里的 interop 只对应 **0.7.0 test-11**。其他版本需删掉 `BepInEx/interop` 并把
+- 运行时里的 interop 只对应 **0.7.0**。其他版本需删掉 `BepInEx/interop` 并把
   `BepInEx/config/BepInEx.cfg` 的 `UpdateInteropAssemblies` 置 true 后启动一次重新生成。
 - `LaboratoryMod.dll` 不打包（与诅咒无关的测试内容）。
 - 打包必须用「拷内容」而不是「拷目录」（`Copy-Item <assets>\* <dst>`），否则会出现
@@ -748,10 +786,17 @@ MinecraftVSZombies2_Data/StreamingAssets/Mods/modular_curse/Content/sprites/{cur
 
 - `curses.xml` 里**不要写 XML 注释** —— `MetaInjection` 用 `XmlDocument.LoadXml` 解析，
   Comment 节点会进入子节点遍历（官方用 `XmlReaderSettings.IgnoreComments`，行为不同）。
-- 图标：QC / SC 池的前 7 条依次复用原版 7 个诅咒图标
+- 图标：SC / ZY 池的前 7 条依次复用原版 7 个诅咒图标
   （`mvz2:curses/the_creatures_brain`、`nightmares_tentacle`、`withers_skull`、
   `the_giants_flesh`、`red_dragons_scale`、`locked_chests_chains`、`krakens_backplate`），
-  其余 5 条暂不设图标（`<sprite>` 留空）。
+  其余 9 条暂不设图标（`<sprite>` 留空）；**癫狂之触** 12 条全部用自带图标
+  （`curse/QC/*.png`，64×64，命名对应各自的英文名 —— 见上表与
+  `assets/Content/sprites/` 下的目录结构）。
+- 贴图 id 就是 `Content/sprites/` 下的相对路径（大小写也算），索引恒为 0：
+  `modular_curse:curse/QC/INJURY` ↔ `Content/sprites/curse/QC/INJURY.png`。
+  注册时机是 `PostInit`（`CurseSprites.RegisterAll()`）；
+  因为 `ResourceManager.Init()` 一个进程只跑一次、中途不会 `ClearResources()`，
+  所以注册一次就能撑到关游戏。
 - 解锁：全部诅咒写 `<unlock always="true"/>`，进游戏即可选。
   （注意：原版 `SaveManager.EvaluateUnlockedCurses` 对 `unlockConditions == null` 的诅咒
   直接跳过 —— 即「不写 unlock」等于「永不出现」，必须给一个恒真条件。）

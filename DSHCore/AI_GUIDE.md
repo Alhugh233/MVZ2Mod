@@ -4,7 +4,7 @@
 > **目标**：让一次对话就能写出**能跑起来**的注入类 mod，而不是靠反复崩溃试出来。
 >
 > 本文档记录的是「必须踩过一遍才知道」的东西。凡是写在这里的结论，都是在
-> **MVZ2 0.7.0 test-11 / Windows x86 / IL2CPP metadata v31.1** 上实测过的，
+> **MVZ2 0.7.0 / Windows x86 / IL2CPP metadata v31.1** 上实测过的，
 > 不是推测。遇到与本文冲突的直觉，信本文。
 
 ---
@@ -14,7 +14,7 @@
 
 | 项        | 值                                                                       |
 | --------- | ------------------------------------------------------------------------ |
-| 游戏      | Minecraft vs Zombies 2（MVZ2）**0.7.0 test-11**，Windows **x86**                  |
+| 游戏      | Minecraft vs Zombies 2（MVZ2）**0.7.0**，Windows **x86**                  |
 | 运行时    | Unity 2022.3.62f3 / IL2CPP**metadata v31.1**                             |
 | BepInEx   | **be.788**（x86 IL2CPP），内含 Il2CppInterop **1.5.3**                   |
 | 编译      | .NET 6 SDK（`net6.0`），`LangVersion 9.0`                                |
@@ -305,6 +305,41 @@ $u = 'http://127.0.0.1:18742/api/history?limit=20&token=<粘贴令牌>'
    `string[]`），游戏胶水（读 `Il2CppStringArray`、写 interop `List`）只留在 `DebugCommands.cs`。
    这样补全规则能离线测，而碰 interop 的那几行全部包在 try/catch 里 —— 补全只需吞异常，
    绝不把整个输入框的刷新弄断。
+
+---
+
+### 快速启动（`[QuickStart] SkipIntro`，默认关闭）
+
+跳过开场的**健康警告页**（约 11.5 s）与**报幕页**（约 2.5 s）。
+
+做法很短：`MainSceneController.DisplayPage(MainScenePageType)` 的前置补丁里
+**把参数改写成 `Titlescreen`**，然后让原方法照常执行 —— 只改参数、不跳过原方法，
+所以页面切换、`currentPage`、标题页上的资源加载进度条全部还是官方的。
+
+```csharp
+[HarmonyPrefix]
+private static void DisplayPagePrefix(ref MainScenePageType __0)
+{
+    if (__0 != MainScenePageType.HealthWarning && __0 != MainScenePageType.Splash) return;
+    PlayMenuMusic();                       // 原版在「警告退场 -> Splash」那步播，跳过了就得自己补
+    __0 = MainScenePageType.Titlescreen;   // 返回 void = 不跳过原方法
+}
+```
+
+**几个必须记住的点：**
+
+- **收益只有约 6 s**：开场动画和资源加载本来就是**并行**的，省下的是「开场时长 − 剩余加载时长」
+  （本机 14.07 − 7.78 ≈ 6.3 s，38.0 s → 31.7 s），不是 14 s。机器越好省得越多。
+- **`MainManager.IsFastMode()` 不能用**。它是最正统的入口（`GameEntrance.StartGame` 用它决定
+  显示健康警告还是 `await GetInitTask(); DisplayMainmenu();`），但发行版里被 `#if UNITY_EDITOR`
+  写死成 `false`，而实测（0.7.0）把它改成 `true` 之后**游戏会卡死**：窗口 `Responding = false`、
+  `MainSceneController.Update` 不再有任何一帧、到不了主菜单（一次运行里还弹了「初始化失败」框）。
+  游戏确实进了 fast 分支（只有那条分支会调 `GetInitTask()`），所以是**游戏自己的 fast 路径坏了**，
+  不是补丁没装上。
+- **验证这类东西别只用进程内探针**。本轮的探针给出过自相矛盾的结果（同一个 DLL，
+  两次运行里 `IsFastMode` 一次有命中一次没有）。最后是靠**外部观察**定论的：
+  `Get-Process ... | Select Responding` + `SetForegroundWindow` + `CopyFromScreen` 截图对比。
+  +30 s 时 `SkipIntro=false` 是健康警告页、`SkipIntro=true` 已经在标题页。外部观察不会因为内联而说谎。
 
 ---
 
@@ -769,7 +804,7 @@ virtual 槽被重置则 override **静默失效**（不报错，就是没生效�
 本 mod 关卡存档被判「版本不匹配」而读不进去。
 
 它**不需要**等于 `LevelManager.CURRENT_DATA_VERSION`（vanilla 自己用的那个值；
-0.7.0 test-9 / test-10 / test-11 均为 **5**）。`ModInfos.Create` 已经给了一个稳定常量（4），
+0.7.0（正式版与各内测版）均为 **5**）。`ModInfos.Create` 已经给了一个稳定常量（4），
 两者并存没有问题，一般不用管。
 
 ---
@@ -966,6 +1001,82 @@ Get-ChildItem . -Recurse -Filter *.cs | Select-String -Pattern '[\u4e00-\u9fff]"
 → 判断画布只能看 `renderMode` / `worldCamera` / `planeDistance` / `overrideSorting` / `sortingOrder`。
 写 dump 时别把 `isRootCanvas` 当成层级判据。
 
+### ㉘ 0.7.0 把存档接口**改名**了，而且不能自己拼 BSON
+
+`Mod.LoadSaveData(string)` 在 0.7.0 被**删掉**，换成一对称的：
+
+```csharp
+public abstract string SerializeSaveData(ModSaveData saveData);
+public abstract ModSaveData DeserializeSaveData(string json);
+```
+
+继续 override 老名字是 `CS0115`（编译期就能发现，属于好运的那一类）。真正的坑在后面：
+
+1. **要用官方那套序列化**。照抄 `Vanilla/VanillaMod.cs`：
+   `saveData.ToSerializable()` → `seri.version = SAVE_DATA_VERSION` → `seri.ToBson()`；
+   读回来用 `Mod` 基类的受保护泛型 helper `Deserialize<SerializableLogicSaveData>(json)`
+   再 `LogicSaveData.DeserializeFrom(seri)`。
+   自己调 `BsonSerializer`/`SerializeHelper.ToBson(new Il2CppSystem.Object(...))` 的话，
+   **写出来的字段会丢**（名义类型成了 `object`，派生字段全没），读回来还会
+   `Unknown discriminator value 'SerializableLogicSaveData'` ——
+   两边都不报编译错，只在日志里留一行。实测旧写法写出的存档只有基类字段。
+2. **必须 `RegisterSerializableType<SerializableLogicSaveData>()`**（放 `OnInit` 里）。
+   `SerializeHelper.init()` 只注册了引擎自己那批类型；没登记就没类映射，读档直接抛。
+3. **读档失败 = 存档完全不写**。`SaveManager.WriteSaveData` 的顺序是
+   「SerializeSaveData → 写临时文件 → **DeserializeSaveData 读回来验证** → 才替换正式文件」，
+   验证抛异常就 `File.Delete(temp)` 直接 return，只留一行
+   `保存用户N的ModX的存档文件时发生错误，存档文件验证失败`（在 Unity 的 Player.log 里）。
+   所以「存档没写进去」未必是写的问题，先看读。
+
+### ㉙ release 构建下，私有 async 薄壳会被内联 —— 补丁装得上，却永远不命中
+
+`ResourceManager.LoadMetaLists(string)` 是私有 `async` 方法，真正的工作在
+`<LoadMetaLists>d__11.MoveNext` 里；外层只是个十几行的状态机启动壳。
+
+- **win32_debug（早期内测版）**：壳和实体都在，Harmony 补丁正常命中。
+- **release（0.7.0）**：`LoadMetaLists` 与它的调用者 `LoadModResourcesInit` **都被内联**了
+  （`ResourceManager.Init()` 里直接展开）—— 元数据里方法还在、`RVA` 也不是 -1、
+  Harmony 也能装上，但**运行时一次都不会走到**，两个补丁体都是零日志。
+  实测日志里只有 `GetModResource 命中` / `LoadMods 命中`（后者是 `LoadMods` 前缀兜底），
+  这就是「多挂几个入口」的实战价值。
+  （旁证：`LoadModResourcesInit` **内部**那个 `GetModResource` 调用仍然作为**真调用**
+  被 interop 拦到了，所以「内联的是薄壳、不是里面每一步」。）
+
+→ 给「薄壳方法」挂补丁时，别只看「补丁装上没报错」，**一定要在补丁体里留一行入口日志**，
+并在改游戏版本后复查这行日志还在不在。宁可多挂几个入口（DSHCore 的 `MetaInjection`
+就同时挂了 `LoadModResourcesInit` / `LoadMetaLists` / `GetModResource` / `ModManager.LoadMods`，
+幂等，谁先到算谁的）。
+
+### ㉚ 别在 `MainSceneController.Update` 的补丁体里同步发起关卡场景切换
+
+**实测（0.7.0）：在 `MainSceneController.Update` 的后缀补丁里同步调**
+关卡场景切换入口（`IGlobalScene.GotoLevelCoroutine()` / `LevelManager.GotoLevelSceneAsync()`，
+甚至反射写法 `MainSceneController.GotoLevelSceneAsync().Invoke`），
+会在 `SceneLoadingManager.LoadSceneAsync` 里直接 `Fatal error. 0xC0000005`（进程死）。
+
+已经排除的：
+
+- **不是 invoker thunk 缺失** —— 读原生 `MethodInfo` 确认这几个方法的 `invokerMethod` 都非 0。
+- **不是本仓库的其它 mod** —— 把 LaboratoryMod / ModularCurse / Loadout / UiGallery 全部移走、
+  DSHCore 的 meta 注入补丁全关，同一位置同样崩。
+- 游戏自己走 `/gotolevel`（→ `Global.Game.StartCoroutine` → `scene.GotoLevelCoroutine()`）
+  在**同一次会话、同一个主菜单状态**下是成功的。
+
+**正确做法（Replay 已按此改好）**：
+
+1. 切场景**不要自己调**，改成发游戏自己的指令（关卡外 `/gotolevel`、关卡内 `/load`），
+   整条场景加载链路留在 il2cpp 原生侧，由游戏自己的协程驱动。
+   切完由自己的轮询器发现新控制器，再 `LoadGame(关键帧)`。
+2. **别在切场景这段时间里碰存档**：只要「拦存档写入」这类补丁在场景加载期间被调到，
+   同样必崩（对照实验：关掉护栏、别的都不变 → 正常）。要拦就等关卡就绪之后再装/启用。
+3. 还有第三层：`/load` 那条链里 `await UnloadSceneAsync(旧场景)` 的续体**恢复得很晚**，
+   恢复后会绕过 `LevelManager.InitLevel` 的托管桩、直奔
+   `LevelController.InitLevel` + `StartLevelIntro` 把关卡整个重建。
+   接管期间给这两个方法各挂一道前缀（接管中就先载关键帧 / 已接管就直接 `return false`），
+   否则刚载好的关键帧会被冲掉。
+
+详细证据与复现步骤见 `Replay/docs/DESIGN.md`（§4.4.15 起）。
+
 ---
 
 ## 6. 自检与验收
@@ -991,7 +1102,7 @@ Get-ChildItem . -Recurse -Filter *.cs | Select-String -Pattern '[\u4e00-\u9fff]"
 [Info   :DSHCore ...] 日志查看器待命（捕获已开启，共 5000 条环形缓冲）。游戏内输入 /dshlog 开启网页。
 [Info   :DSHCore ...] 游戏内指令已就绪：/dshlog、/dshtrans（含 Tab 补全）
 [Info   :DSHCore ...] ClassInjector generic vtable patch applied
-[Info   :DSHCore ...] MetaInjection patches applied
+[Info   :DSHCore ...] MetaInjection patches applied（LoadMetaLists=True LoadModResourcesInit=True GetModResource=True）
 [Info   :DSHCore ...] SaveManager.LoadModData patch applied
 [Info   :DSHCore ...] SaveManager.WriteSaveData patch applied
 [Info   :DSHCore ...] ModManager.LoadMods patch applied
@@ -1000,6 +1111,10 @@ Get-ChildItem . -Recurse -Filter *.cs | Select-String -Pattern '[\u4e00-\u9fff]"
 [Info   :DSHCore ...] [CoreRegistry] registered nsp=mvz2_lab logic=LaboratoryMod.LabMod xmlDefault=mvz2
 [Info   :DSHCore ...] [ModBootstrap] mvz2_lab ready  logic=LabMod  injected=[LabMod, RealPrologueStage, ...]
 [Info   :DSHCore ...] [ModInfos] OnRegisterModInfos 订阅完成
+[Info   :DSHCore ...] [MetaInjection] GetModResource 命中 "mvz2_lab"  已注册=True
+[Info   :DSHCore ...] [MetaInjection] mvz2_lab 注入完成：3 个 meta 文件（入口 GetModResource）
+[Info   :DSHCore ...] [VTableRebind] 基类 Mod.SerializeSaveData -> slot 22   ← 槽号从**基类元数据**读，不写死
+[Info   :DSHCore ...] [VTableRebind] 基类 Mod.LoadSaveData -> slot -1        ← 该游戏版本没有这个方法
 ```
 
 ### 验收标准（这是"真的成功了"的判据）
@@ -1038,6 +1153,9 @@ Get-ChildItem . -Recurse -Filter *.cs | Select-String -Pattern '[\u4e00-\u9fff]"
 | 网页里没有某条日志                    | `DroppedCount` 在涨？→ 调大 `QueueCapacity`。否则是 BepInEx 自己的 `[Logging.Disk] LogLevels` 把它过滤了 |
 | 网页点「控制台」报 `not-our-window`   | §5-⑯：你是从终端启动的游戏，藏了会连你自己的终端一起没 |
 | Tab 补不出 `/dshlog`                  | 启动日志里有没有 `游戏内指令已就绪：/dshlog（含 Tab 补全）`？如果只看到「找不到 `DebugManager.FillSuggestions`」的警告，就是 interop 签名对不上 → §5-⑰ |
+| 补丁「装上了却没生效」（日志里 `patch applied` 有、补丁体一行没有） | §5-㉙：release 构建会把私有 async 薄壳内联。**在补丁体里留入口日志**，别只看 patch 成功 |
+| 读档报 `Unknown discriminator value '...'` | §5-㉘：漏了 `RegisterSerializableType<T>()`，或者自己拼了 BSON（名义类型写成 `object`） |
+| 存档看着"写不进去"                  | §5-㉘-3：`SaveManager.WriteSaveData` 写完会**读回来验证**，读失败就删临时文件、整份不写；去 Unity 的 `Player.log` 搜「存档文件验证失败」 |
 
 ---
 
